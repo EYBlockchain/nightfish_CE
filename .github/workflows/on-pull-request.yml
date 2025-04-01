@@ -1,0 +1,39 @@
+name: Check PR
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Check + Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Stable Toolchain
+        uses: dtolnay/rust-toolchain@1.84.1
+        with:
+          toolchain: 1.84.1
+          components: rustfmt, clippy
+
+      - name: Enable Rust Caching
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo check
+        run: cargo check --verbose
+
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Run test
+        run: cargo test

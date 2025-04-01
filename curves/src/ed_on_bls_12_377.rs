@@ -1,0 +1,108 @@
+use ark_ec::{
+    models::CurveConfig,
+    short_weierstrass::{
+        Affine as SWConfigAffine, Projective as SWConfigProjective, SWCurveConfig,
+    },
+    twisted_edwards::{Affine, MontCurveConfig, Projective, TECurveConfig},
+};
+pub use ark_ed_on_bls12_377::{Fq, Fr};
+use ark_ff::MontFp;
+
+pub type EdwardsAffine = Affine<Ed377Config>;
+pub type EdwardsProjective = Projective<Ed377Config>;
+pub type SWAffine = SWConfigAffine<Ed377Config>;
+pub type SWProjective = SWConfigProjective<Ed377Config>;
+
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct Ed377Config;
+
+impl CurveConfig for Ed377Config {
+    type BaseField = Fq;
+    type ScalarField = Fr;
+
+    /// COFACTOR = 4
+    const COFACTOR: &'static [u64] = &[4];
+
+    /// COFACTOR_INV =
+    /// 527778859339273151515551558673846658209717731602102048798421311598680340096
+    const COFACTOR_INV: Fr =
+        MontFp!("527778859339273151515551558673846658209717731602102048798421311598680340096");
+}
+
+impl TECurveConfig for Ed377Config {
+    /// COEFF_A = -1
+    const COEFF_A: Fq = MontFp!("-1");
+
+    /// COEFF_D = 3021
+    const COEFF_D: Fq = MontFp!("3021");
+
+    /// Generated randomly
+    const GENERATOR: EdwardsAffine = EdwardsAffine::new_unchecked(GENERATOR_X, GENERATOR_Y);
+
+    type MontCurveConfig = Ed377Config;
+
+    /// Multiplication by `a` is just negation.
+    /// Is `a` 1 or -1?
+    #[inline(always)]
+    fn mul_by_a(elem: Self::BaseField) -> Self::BaseField {
+        -elem
+    }
+}
+
+impl MontCurveConfig for Ed377Config {
+    /// COEFF_A = 0x8D26E3FADA9010A26949031ECE3971B93952AD84D4753DDEDB748DA37E8F552
+    ///         = 3990301581132929505568273333084066329187552697088022219156688740916631500114
+    const COEFF_A: Fq =
+        MontFp!("3990301581132929505568273333084066329187552697088022219156688740916631500114");
+
+    /// COEFF_B = 0x9D8F71EEC83A44C3A1FBCEC6F5418E5C6154C2682B8AC231C5A3725C8170AAD
+    ///         = 4454160168295440918680551605697480202188346638066041608778544715000777738925
+    const COEFF_B: Fq =
+        MontFp!("4454160168295440918680551605697480202188346638066041608778544715000777738925");
+
+    type TECurveConfig = Ed377Config;
+}
+
+impl SWCurveConfig for Ed377Config {
+    /// COEFF_A = 703705145785697535354068744898462210947991611262838652327936121326450580667
+    const COEFF_A: Fq =
+        MontFp!("703705145785697535354068744898462210947991611262838652327936121326450580667");
+    /// COEEF_B = 4534988717285606338948443022678978692775945939249404648335588337437094924611
+    const COEFF_B: Fq =
+        MontFp!("4534988717285606338948443022678978692775945939249404648335588337437094924611");
+
+    const GENERATOR: SWAffine = SWAffine::new_unchecked(SW_GENERATOR_X, SW_GENERATOR_Y);
+}
+
+/// GENERATOR_X =
+/// 4497879464030519973909970603271755437257548612157028181994697785683032656389,
+const GENERATOR_X: Fq =
+    MontFp!("4497879464030519973909970603271755437257548612157028181994697785683032656389");
+
+/// GENERATOR_Y =
+/// 4357141146396347889246900916607623952598927460421559113092863576544024487809
+const GENERATOR_Y: Fq =
+    MontFp!("4357141146396347889246900916607623952598927460421559113092863576544024487809");
+
+/// SW_GENERATOR_X = 3421912078908394748282540611691040025770525566253155016768561915202023608319
+const SW_GENERATOR_X: Fq =
+    MontFp!("3421912078908394748282540611691040025770525566253155016768561915202023608319");
+
+/// SW_GENERATOR_Y = 943050486128738681953305652984679658685617558655311906095277947815247138018
+const SW_GENERATOR_Y: Fq =
+    MontFp!("943050486128738681953305652984679658685617558655311906095277947815247138018");
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ark_algebra_test_templates::*;
+    use ark_ec::AffineRepr;
+
+    test_group!(te; EdwardsProjective; te);
+    test_group!(sw; SWProjective; sw);
+
+    #[test]
+    fn test_sw_is_on_curve() {
+        assert!(SWAffine::generator().is_on_curve());
+    }
+}
