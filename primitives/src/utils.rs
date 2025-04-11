@@ -16,4 +16,3 @@ pub(crate) fn pad_with(vec: &mut Vec<Variable>, multiple: usize, var: Variable) 
     };
     vec.resize(new_len, var);
 }
-
