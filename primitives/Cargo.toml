@@ -28,7 +28,6 @@ ark-ff = "0.4.0"
 ark-poly = "0.4.0"
 ark-serialize = "0.4.0"
 ark-std = { version = "0.4.0", default-features = false }
-blst = { git = "https://github.com/EspressoSystems/blst.git", branch = "no-std", default-features = false } # TODO: pin to a tag or commit
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = [
         "alloc",
         "rand_core",
