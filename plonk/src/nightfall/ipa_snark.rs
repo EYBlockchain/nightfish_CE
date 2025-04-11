@@ -168,6 +168,13 @@ where
         R: CryptoRng + RngCore,
         T: Transcript,
     {
+        let pi = circuits.public_input()?;
+        if circuits.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Michael's prove circuit is not satisfiable!".to_string(),
+            ));
+        }
+
         let n = circuits.eval_domain_size()?;
         let num_wire_types = circuits.num_wire_types();
 
@@ -377,6 +384,13 @@ where
         R: CryptoRng + RngCore,
         T: Transcript,
     {
+        let pi = circuits.public_input()?;
+        if circuits.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Michael's recursive prove circuit is not satisfiable!".to_string(),
+            ));
+        }
+
         let n = circuits.eval_domain_size()?;
         let num_wire_types = circuits.num_wire_types();
 

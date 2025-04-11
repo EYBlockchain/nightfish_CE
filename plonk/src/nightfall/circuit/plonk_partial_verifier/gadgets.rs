@@ -74,7 +74,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     if lookup_evals.is_none() {
         d_1_coeffs = d_1_coeffs[..24].to_vec();
     }
-    let zeta_omega_var = circuit.mul(challenges.zeta, gen_var)?;
+    let zeta_omega_var = circuit.mul_constant(challenges.zeta, &domain.group_gen)?;
     let denom = circuit.sub(challenges.zeta, zeta_omega_var)?;
     let denom_val = circuit.witness(denom)?;
     let inverse = denom_val.inverse().unwrap_or(F::one());
