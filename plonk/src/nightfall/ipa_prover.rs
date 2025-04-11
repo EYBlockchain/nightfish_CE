@@ -30,7 +30,7 @@ use ark_std::{
     vec::Vec,
 };
 
-use core::ops::Mul;
+//use core::ops::Mul;
 
 use jf_primitives::{
     pcs::{PolynomialCommitmentScheme, StructuredReferenceString},
@@ -793,7 +793,7 @@ where
         let pub_input_poly_coset_fft = coset.fft(oracles.pub_inp_poly.coeffs());
         ark_std::println!("pub_input_poly degree: {}", oracles.pub_inp_poly.degree());
 
-        let circ_poly = Self::compute_circuit_poly(
+        /*let circ_poly = Self::compute_circuit_poly(
             &oracles.pub_inp_poly,
             pk.selectors.as_slice(),
             oracles.wire_polys.as_slice(),
@@ -803,7 +803,7 @@ where
             let eval_elem = self.domain.element(usize::rand(rng) % n);
             let eval = circ_poly.evaluate(&eval_elem);
             ark_std::println!("circ_poly eval: {}", eval);
-        }
+        }*/
 
         // Compute coset evaluations of Plookup online oracles.
         let (
@@ -830,7 +830,7 @@ where
 
         // Compute coset evaluations of the quotient polynomial.
 
-        let (quot_poly_coset_evals, t_circ_evals): (Vec<P::ScalarField>, Vec<P::ScalarField>) =
+        let (quot_poly_coset_evals, _): (Vec<P::ScalarField>, Vec<P::ScalarField>) =
             parallelizable_slice_iter(&(0..m).collect::<Vec<_>>())
                 .map(|&i| {
                     let (w, w_next): (Vec<P::ScalarField>, Vec<P::ScalarField>) = (0
@@ -894,7 +894,7 @@ where
 
         // Compute the coefficient form of the quotient polynomial
         let quot_poly = DensePolynomial::from_coefficients_vec(coset.ifft(&quot_poly_coset_evals));
-        let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
+        /*let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
         if quot_poly.degree() != expected_degree {
             let t_circ_poly = DensePolynomial::from_coefficients_vec(coset.ifft(&t_circ_evals));
             ark_std::println!(
@@ -911,7 +911,7 @@ where
                 "BAD! pub_input_poly degree: {}",
                 oracles.pub_inp_poly.degree(),
             );
-        }
+        }*/
         Ok(quot_poly)
     }
 
@@ -959,7 +959,7 @@ where
             - q_o * w[4]
     }
 
-    // Compute the gate equation polynomial.
+    /*// Compute the gate equation polynomial.
     fn compute_circuit_poly(
         pi_poly: &PCS::Polynomial,
         selector_polys: &[PCS::Polynomial],
@@ -1023,7 +1023,7 @@ where
                     )),
             )
             + wire_polys[4].mul(&-q_o)
-    }
+    }*/
 
     /// Compute the i-th coset evaluation of the copy constraint part of the
     /// quotient polynomial.

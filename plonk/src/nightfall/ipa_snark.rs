@@ -391,6 +391,27 @@ where
             ));
         }
 
+        let circ_sel_poly = circuits.compute_selector_polynomials()?;
+        let pk_sel_polys = prove_keys.selectors.clone();
+        if circ_sel_poly.len() != pk_sel_polys.len() {
+            ark_std::println!(
+                "circ_sel_poly len: {:?}, pk_sel_polys len: {:?}",
+                circ_sel_poly.len(),
+                pk_sel_polys.len(),
+            );
+            return Err(PlonkError::InvalidParameters(
+                "selector polynomial lengths do not match!".to_string(),
+            ));
+        }
+        for i in 0..pk_sel_polys.len() {
+            if pk_sel_polys[i] != circ_sel_poly[i] {
+                ark_std::println!("i: {:?}", i);
+                return Err(PlonkError::InvalidParameters(
+                    "selector polynomials do not match!".to_string(),
+                ));
+            }
+        }
+
         let n = circuits.eval_domain_size()?;
         let num_wire_types = circuits.num_wire_types();
 
