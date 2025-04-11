@@ -7,7 +7,7 @@
 //! Instantiations of Plonk-based proof systems
 
 use crate::{
-    constants::EXTRA_TRANSCRIPT_MSG_LABEL,
+    constants::{domain_size_ratio, EXTRA_TRANSCRIPT_MSG_LABEL},
     errors::PlonkError,
     nightfall::{
         hops::univariate_ipa::UnivariateIpaPCS,
@@ -23,7 +23,10 @@ use crate::{
 
 use ark_ec::short_weierstrass::Affine;
 
-use ark_poly::{univariate::DensePolynomial, Polynomial};
+use ark_poly::{
+    univariate::DensePolynomial, EvaluationDomain, GeneralEvaluationDomain, Polynomial,
+    Radix2EvaluationDomain,
+};
 use ark_std::{
     marker::PhantomData,
     rand::{CryptoRng, RngCore},
@@ -194,6 +197,52 @@ where
 
         let n = circuits.eval_domain_size()?;
         let num_wire_types = circuits.num_wire_types();
+
+        let circ_sel_polys = circuits.compute_selector_polynomials()?;
+        let pk_sel_polys = prove_keys.selectors.clone();
+        if circ_sel_polys.len() != pk_sel_polys.len() {
+            ark_std::println!("recursive selector polynomial lengths do not match!");
+            ark_std::println!(
+                "circ_sel_poly len: {:?}, pk_sel_polys len: {:?}",
+                circ_sel_polys.len(),
+                pk_sel_polys.len(),
+            );
+        }
+        for i in 0..pk_sel_polys.len() {
+            if pk_sel_polys[i] != circ_sel_polys[i] {
+                let domain = Radix2EvaluationDomain::<P::ScalarField>::new(n).unwrap();
+                let quot_domain = GeneralEvaluationDomain::<P::ScalarField>::new(
+                    n * domain_size_ratio(n, num_wire_types),
+                )
+                .unwrap();
+                let domain_size_ratio = quot_domain.size() / domain.size();
+                ark_std::println!("recursive selector polynomials do not match!");
+                ark_std::println!("i: {:?}", i);
+                let pk_sel_evals = quot_domain
+                    .get_coset(P::ScalarField::one())
+                    .unwrap()
+                    .fft(&pk_sel_polys[i]);
+                let circ_sel_evals = quot_domain
+                    .get_coset(P::ScalarField::one())
+                    .unwrap()
+                    .fft(&circ_sel_polys[i]);
+                for (j, (pk_eval, circ_eval)) in pk_sel_evals
+                    .iter()
+                    .zip(circ_sel_evals.iter())
+                    .step_by(domain_size_ratio)
+                    .enumerate()
+                {
+                    if pk_eval != circ_eval {
+                        ark_std::println!(
+                            "j: {}, pk_eval: {}, circ_eval: {}",
+                            j,
+                            pk_eval,
+                            circ_eval
+                        );
+                    }
+                }
+            }
+        }
 
         // Initialize transcript
         let mut transcript = T::new_transcript(b"PlonkProof");
@@ -408,23 +457,6 @@ where
             ));
         }
 
-        let circ_sel_poly = circuits.compute_selector_polynomials()?;
-        let pk_sel_polys = prove_keys.selectors.clone();
-        if circ_sel_poly.len() != pk_sel_polys.len() {
-            ark_std::println!("recursive selector polynomial lengths do not match!");
-            ark_std::println!(
-                "circ_sel_poly len: {:?}, pk_sel_polys len: {:?}",
-                circ_sel_poly.len(),
-                pk_sel_polys.len(),
-            );
-        }
-        for i in 0..pk_sel_polys.len() {
-            if pk_sel_polys[i] != circ_sel_poly[i] {
-                ark_std::println!("recursive selector polynomials do not match!");
-                ark_std::println!("i: {:?}", i);
-            }
-        }
-
         let n = circuits.eval_domain_size()?;
         let num_wire_types = circuits.num_wire_types();
 
@@ -432,6 +464,52 @@ where
             return Err(PlonkError::InvalidParameters(
                 "Circuit is not recursive".to_string(),
             ));
+        }
+
+        let circ_sel_polys = circuits.compute_selector_polynomials()?;
+        let pk_sel_polys = prove_keys.selectors.clone();
+        if circ_sel_polys.len() != pk_sel_polys.len() {
+            ark_std::println!("recursive selector polynomial lengths do not match!");
+            ark_std::println!(
+                "circ_sel_poly len: {:?}, pk_sel_polys len: {:?}",
+                circ_sel_polys.len(),
+                pk_sel_polys.len(),
+            );
+        }
+        for i in 0..pk_sel_polys.len() {
+            if pk_sel_polys[i] != circ_sel_polys[i] {
+                let domain = Radix2EvaluationDomain::<P::ScalarField>::new(n).unwrap();
+                let quot_domain = GeneralEvaluationDomain::<P::ScalarField>::new(
+                    n * domain_size_ratio(n, num_wire_types),
+                )
+                .unwrap();
+                let domain_size_ratio = quot_domain.size() / domain.size();
+                ark_std::println!("recursive selector polynomials do not match!");
+                ark_std::println!("i: {:?}", i);
+                let pk_sel_evals = quot_domain
+                    .get_coset(P::ScalarField::one())
+                    .unwrap()
+                    .fft(&pk_sel_polys[i]);
+                let circ_sel_evals = quot_domain
+                    .get_coset(P::ScalarField::one())
+                    .unwrap()
+                    .fft(&circ_sel_polys[i]);
+                for (j, (pk_eval, circ_eval)) in pk_sel_evals
+                    .iter()
+                    .zip(circ_sel_evals.iter())
+                    .step_by(domain_size_ratio)
+                    .enumerate()
+                {
+                    if pk_eval != circ_eval {
+                        ark_std::println!(
+                            "j: {}, pk_eval: {}, circ_eval: {}",
+                            j,
+                            pk_eval,
+                            circ_eval
+                        );
+                    }
+                }
+            }
         }
 
         // Initialize transcript

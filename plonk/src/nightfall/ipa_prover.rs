@@ -818,7 +818,7 @@ where
 
         // Compute coset evaluations of the quotient polynomial.
 
-        let (quot_poly_coset_evals, t_circ_evals): (Vec<P::ScalarField>, Vec<P::ScalarField>) =
+        let (quot_poly_coset_evals, quot_t_circ_evals, t_circ_evals) =
             parallelizable_slice_iter(&(0..m).collect::<Vec<_>>())
                 .map(|&i| {
                     let (w, w_next): (Vec<P::ScalarField>, Vec<P::ScalarField>) = (0
@@ -874,23 +874,33 @@ where
                         t2 += t_lookup_2;
                     }
                     let z = z_h_inv[i % domain_size_ratio];
-                    (t1 * z + t2, t_circ * z)
+                    (t1 * z + t2, t_circ * z, t_circ)
                 })
-                .collect::<Vec<(P::ScalarField, P::ScalarField)>>()
+                .collect::<Vec<(P::ScalarField, P::ScalarField, P::ScalarField)>>()
                 .into_iter()
-                .unzip();
+                .fold(
+                    (Vec::new(), Vec::new(), Vec::new()),
+                    |(mut acc1, mut acc2, mut acc3), (a, b, c)| {
+                        acc1.push(a);
+                        acc2.push(b);
+                        acc3.push(c);
+                        (acc1, acc2, acc3)
+                    },
+                );
 
         // Compute the coefficient form of the quotient polynomial
         let quot_poly = DensePolynomial::from_coefficients_vec(coset.ifft(&quot_poly_coset_evals));
         let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
         if quot_poly.degree() != expected_degree {
+            let quot_t_circ_poly =
+                DensePolynomial::from_coefficients_vec(coset.ifft(&quot_t_circ_evals));
             let t_circ_poly = DensePolynomial::from_coefficients_vec(coset.ifft(&t_circ_evals));
             ark_std::println!(
-                "BAD! m: {}, n: {}, degree of quotient polynomial: {}, degree of t_circ: {}",
+                "BAD! m: {}, n: {}, degree of quotient polynomial: {}, degree of quot_t_circ: {}",
                 m,
                 n,
                 quot_poly.degree(),
-                t_circ_poly.degree(),
+                quot_t_circ_poly.degree(),
             );
 
             let circ_poly = Self::compute_circuit_poly(
@@ -905,11 +915,14 @@ where
                 ark_std::println!("t_circ_poly != circ_poly");
             }
 
-            for i in 0..n {
-                let eval_elem = self.domain.element(i);
-                let eval = circ_poly.evaluate(&eval_elem);
-                if eval != P::ScalarField::zero() {
-                    ark_std::println!("i: {}, circ_poly eval: {}", i, eval);
+            let circ_evals = self
+                .quot_domain
+                .get_coset(P::ScalarField::one())
+                .unwrap()
+                .fft(&circ_poly);
+            for (i, eval) in circ_evals.iter().step_by(domain_size_ratio).enumerate() {
+                if *eval != P::ScalarField::zero() {
+                    ark_std::println!("i: {}, circ_eval: {}", i, *eval);
                 }
             }
         }
