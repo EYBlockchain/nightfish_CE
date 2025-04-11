@@ -6,10 +6,8 @@
 
 //! Circuit implementation of various crypto primitives.
 pub mod commitment;
-//pub mod elgamal;
 pub mod poseidon;
 pub mod prf;
 pub mod rescue;
 pub mod sha256;
-pub mod signature;
 pub mod tree;

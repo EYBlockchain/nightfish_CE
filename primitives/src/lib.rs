@@ -24,7 +24,6 @@ pub mod circuit;
 pub mod commitment;
 pub mod constants;
 pub mod crhf;
-pub mod elgamal;
 pub mod errors;
 pub mod hash_to_group;
 pub mod pcs;
@@ -33,9 +32,7 @@ pub mod prf;
 pub mod reed_solomon_code;
 pub mod rescue;
 pub mod sha256;
-pub mod signatures;
 pub mod toeplitz;
 pub mod trees;
-pub mod vrf;
 
 pub(crate) mod utils;

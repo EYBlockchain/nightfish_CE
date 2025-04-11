@@ -8,11 +8,7 @@
 
 use crate::{poseidon::PoseidonError, rescue::errors::RescueError};
 use ark_serialize::SerializationError;
-use ark_std::{
-    format,
-    string::{String, ToString},
-};
-use blst::BLST_ERROR;
+use ark_std::string::String;
 use displaydoc::Display;
 
 /// A glorified [`bool`] that leverages compile lints to encourage the caller to
@@ -53,18 +49,6 @@ impl From<RescueError> for PrimitivesError {
 impl From<SerializationError> for PrimitivesError {
     fn from(e: SerializationError) -> Self {
         Self::DeserializationError(e)
-    }
-}
-
-impl From<BLST_ERROR> for PrimitivesError {
-    fn from(e: BLST_ERROR) -> Self {
-        match e {
-            BLST_ERROR::BLST_SUCCESS => {
-                Self::InternalError("Expecting an error, but got a sucess.".to_string())
-            },
-            BLST_ERROR::BLST_VERIFY_FAIL => Self::VerificationError(format!("{e:?}")),
-            _ => Self::ParameterError(format!("{e:?}")),
-        }
     }
 }
 
