@@ -30,6 +30,8 @@ use ark_std::{
     vec::Vec,
 };
 
+use core::ops::Mul;
+
 use jf_primitives::{
     pcs::{PolynomialCommitmentScheme, StructuredReferenceString},
     rescue::RescueParameter,
@@ -740,6 +742,7 @@ where
     ) -> Result<DensePolynomial<P::ScalarField>, PlonkError> {
         let n = self.domain.size();
         let m = self.quot_domain.size();
+        ark_std::println!("m: {}, n: {}", m, n);
         let domain_size_ratio = m / n;
         // Compute 1/Z_H(w^i).
         let mut z_h_inv: Vec<P::ScalarField> = (0..domain_size_ratio)
@@ -766,6 +769,9 @@ where
         let n_selectors = pk.selectors.len();
         let n_sigmas = pk.sigmas.len();
         let n_wires = oracles.wire_polys.len();
+        for poly in pk.selectors.iter() {
+            ark_std::println!("selector poly degree: {:?}", poly.degree());
+        }
         let flattened = [
             pk.selectors.as_slice(),
             pk.sigmas.as_slice(),
@@ -785,6 +791,7 @@ where
         // `wire_polys_coset_fft`.
         let prod_perm_poly_coset_fft = coset.fft(oracles.prod_perm_poly.coeffs());
         let pub_input_poly_coset_fft = coset.fft(oracles.pub_inp_poly.coeffs());
+        ark_std::println!("pub_input_poly degree: {}", oracles.pub_inp_poly.degree());
 
         // Compute coset evaluations of Plookup online oracles.
         let (
@@ -811,7 +818,7 @@ where
 
         // Compute coset evaluations of the quotient polynomial.
 
-        let quot_poly_coset_evals: Vec<P::ScalarField> =
+        let (quot_poly_coset_evals, quot_t_circ_evals, t_circ_evals) =
             parallelizable_slice_iter(&(0..m).collect::<Vec<_>>())
                 .map(|&i| {
                     let (w, w_next): (Vec<P::ScalarField>, Vec<P::ScalarField>) = (0
@@ -866,14 +873,60 @@ where
                         t1 += t_lookup_1;
                         t2 += t_lookup_2;
                     }
-                    t1 * z_h_inv[i % domain_size_ratio] + t2
+                    let z = z_h_inv[i % domain_size_ratio];
+                    (t1 * z + t2, t_circ * z, t_circ)
                 })
-                .collect();
+                .collect::<Vec<(P::ScalarField, P::ScalarField, P::ScalarField)>>()
+                .into_iter()
+                .fold(
+                    (Vec::new(), Vec::new(), Vec::new()),
+                    |(mut acc1, mut acc2, mut acc3), (a, b, c)| {
+                        acc1.push(a);
+                        acc2.push(b);
+                        acc3.push(c);
+                        (acc1, acc2, acc3)
+                    },
+                );
 
         // Compute the coefficient form of the quotient polynomial
-        Ok(DensePolynomial::from_coefficients_vec(
-            coset.ifft(&quot_poly_coset_evals),
-        ))
+        let quot_poly = DensePolynomial::from_coefficients_vec(coset.ifft(&quot_poly_coset_evals));
+        let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
+        if quot_poly.degree() != expected_degree {
+            let quot_t_circ_poly =
+                DensePolynomial::from_coefficients_vec(coset.ifft(&quot_t_circ_evals));
+            let t_circ_poly = DensePolynomial::from_coefficients_vec(coset.ifft(&t_circ_evals));
+            ark_std::println!(
+                "BAD! m: {}, n: {}, degree of quotient polynomial: {}, degree of quot_t_circ: {}",
+                m,
+                n,
+                quot_poly.degree(),
+                quot_t_circ_poly.degree(),
+            );
+
+            let circ_poly = Self::compute_circuit_poly(
+                &oracles.pub_inp_poly,
+                pk.selectors.as_slice(),
+                oracles.wire_polys.as_slice(),
+            );
+
+            if t_circ_poly == circ_poly {
+                ark_std::println!("t_circ_poly == circ_poly");
+            } else {
+                ark_std::println!("t_circ_poly != circ_poly");
+            }
+
+            let circ_evals = self
+                .quot_domain
+                .get_coset(P::ScalarField::one())
+                .unwrap()
+                .fft(&circ_poly);
+            for (i, eval) in circ_evals.iter().step_by(domain_size_ratio).enumerate() {
+                if *eval != P::ScalarField::zero() {
+                    ark_std::println!("i: {}, circ_eval: {}", i, *eval);
+                }
+            }
+        }
+        Ok(quot_poly)
     }
 
     // Compute the i-th coset evaluation of the circuit part of the quotient
@@ -918,6 +971,72 @@ where
                 * (w[0] * (w[2] + P::ScalarField::from(2u8) * w[3])
                     + w[1] * (w[3] + P::ScalarField::from(2u8) * w[2]))
             - q_o * w[4]
+    }
+
+    // Compute the gate equation polynomial.
+    fn compute_circuit_poly(
+        pi_poly: &PCS::Polynomial,
+        selector_polys: &[PCS::Polynomial],
+        wire_polys: &[PCS::Polynomial],
+    ) -> PCS::Polynomial {
+        // Selectors
+        // The order: q_lc, q_mul, q_hash, q_o, q_c, q_ecc
+
+        let w0w1 = wire_polys[0].mul(&wire_polys[1]);
+        let w2w3 = wire_polys[2].mul(&wire_polys[3]);
+
+        let q_lc = (0..GATE_WIDTH).fold(PCS::Polynomial::zero(), |acc, i| {
+            acc + selector_polys[i].mul(&wire_polys[i])
+        });
+
+        let q_mul: Vec<PCS::Polynomial> = (GATE_WIDTH..GATE_WIDTH + 2)
+            .map(|i| selector_polys[i].clone())
+            .collect();
+
+        let wire_polys_pow = wire_polys
+            .iter()
+            .map(|poly| {
+                let poly2 = poly.mul(poly);
+                let poly4 = poly2.mul(&poly2);
+                poly4.mul(poly)
+            })
+            .collect::<Vec<_>>();
+
+        let q_hash = (GATE_WIDTH + 2..2 * GATE_WIDTH + 2)
+            .fold(PCS::Polynomial::zero(), |acc, i| {
+                acc + selector_polys[i].mul(&wire_polys_pow[i - GATE_WIDTH - 2])
+            });
+        let q_o = selector_polys[2 * GATE_WIDTH + 2].clone();
+        let q_c = selector_polys[2 * GATE_WIDTH + 3].clone();
+        let q_ecc = selector_polys[2 * GATE_WIDTH + 4].clone();
+        let q_x = selector_polys[2 * GATE_WIDTH + 5].clone();
+        let q_x2 = selector_polys[2 * GATE_WIDTH + 6].clone();
+        let q_y = selector_polys[2 * GATE_WIDTH + 7].clone();
+        let q_y2 = selector_polys[2 * GATE_WIDTH + 8].clone();
+
+        q_c + pi_poly.clone()
+            + q_lc
+            + w0w1.mul(
+                &(q_mul[0].clone()
+                    + q_y2.mul(&(wire_polys[0].clone() + wire_polys[1].clone()))
+                    + q_ecc.mul(&w2w3.mul(&wire_polys[4]))),
+            )
+            + w2w3.mul(
+                &(q_mul[1].clone()
+                    + q_y.mul(&w2w3)
+                    + q_x.mul(
+                        &(wire_polys[0].mul(&wire_polys[3]) + wire_polys[1].mul(&wire_polys[2])),
+                    )),
+            )
+            + q_hash
+            + q_x2.mul(
+                &(wire_polys[0]
+                    .mul(&(wire_polys[2].clone() + wire_polys[3].mul(P::ScalarField::from(2u8))))
+                    + wire_polys[1].mul(
+                        &(wire_polys[3].clone() + wire_polys[2].mul(P::ScalarField::from(2u8))),
+                    )),
+            )
+            + wire_polys[4].mul(&-q_o)
     }
 
     /// Compute the i-th coset evaluation of the copy constraint part of the
