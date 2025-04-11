@@ -800,8 +800,7 @@ where
         );
         let rng = &mut jf_utils::test_rng();
         for _ in 0..6 {
-            let eval_elem =
-                P::ScalarField::GENERATOR * self.quot_domain.element(usize::rand(rng) % m);
+            let eval_elem = self.domain.element(usize::rand(rng) % n);
             let eval = circ_poly.evaluate(&eval_elem);
             ark_std::println!("circ_poly eval: {}", eval);
         }
