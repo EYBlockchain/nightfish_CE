@@ -898,11 +898,19 @@ where
                 pk.selectors.as_slice(),
                 oracles.wire_polys.as_slice(),
             );
-            let rng = &mut jf_utils::test_rng();
-            for _ in 0..6 {
-                let eval_elem = self.domain.element(usize::rand(rng) % n);
+
+            if t_circ_poly == circ_poly {
+                ark_std::println!("t_circ_poly == circ_poly");
+            } else {
+                ark_std::println!("t_circ_poly != circ_poly");
+            }
+
+            for i in 0..n {
+                let eval_elem = self.domain.element(i);
                 let eval = circ_poly.evaluate(&eval_elem);
-                ark_std::println!("circ_poly eval: {}", eval);
+                if eval != P::ScalarField::zero() {
+                    ark_std::println!("i: {}, circ_poly eval: {}", i, eval);
+                }
             }
         }
         Ok(quot_poly)
