@@ -76,6 +76,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     }
     let zeta_omega_var = circuit.mul_constant(challenges.zeta, &domain.group_gen)?;
     ark_std::println!("num_gates: {:?}", circuit.num_gates());
+    ark_std::println!("generator: {:?}", domain.group_gen);
     let denom = circuit.sub(challenges.zeta, zeta_omega_var)?;
     let denom_val = circuit.witness(denom)?;
     let inverse = denom_val.inverse().unwrap_or(F::one());
