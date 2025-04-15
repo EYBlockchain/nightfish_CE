@@ -10,7 +10,7 @@ use crate::nightfall::mle::mle_structs::GateInfo;
 
 use ark_ff::PrimeField;
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
-use ark_std::{vec, vec::Vec};
+use ark_std::{string::ToString, vec, vec::Vec};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{
     errors::CircuitError,
@@ -27,7 +27,7 @@ use super::{
 };
 
 /// Function to compute the scalars used in partial verification over the native field
-pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
+pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const IS_BASE: bool>(
     circuit: &mut PlonkCircuit<F>,
     pi: Variable,
     challenges: &ChallengesVar,
@@ -44,15 +44,50 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     // zeta: w[0], w[1], w[2], w[3], w[4], sigma[0], sigma[1], sigma[2], sigma[3],
     // zeta_omega: prod_perm_poly_next_eval,
 
-    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-    let gen_inv_var = circuit.create_variable(domain.group_gen_inv)?;
-    let gen_var = circuit.create_variable(domain.group_gen)?;
-    circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
-    let evals =
-        poly::evaluate_poly_helper_native(circuit, challenges.zeta, gen_inv_var, domain_size)?;
+    // If we are in the non-base case, `domain_size` depends only on the layer of the recursion.
+    // We can, therefore, treat `domain_size` and `domain.group_gen` as scalars.
+    // If we are in the base case, `domain_size` can be either 2^15 or 2^18,
+    // depending on whether the corresponding client circuit is a deposit or not.
+
+    let (domain_size_var, gen_var, gen_inv_var) = if IS_BASE {
+        // In the base case, `domain_size` must be either 2^15 or 2^18.
+        if domain_size != 1 << 15 && domain_size != 1 << 18 {
+            return Err(CircuitError::ParameterError(
+                "Invalid domain size for base case".to_string(),
+            ));
+        }
+        let is_15_var = circuit.create_boolean_variable(domain_size == 1 << 15)?;
+        let domain_15 = Radix2EvaluationDomain::<F>::new(1 << 15).unwrap();
+        let domain_18 = Radix2EvaluationDomain::<F>::new(1 << 18).unwrap();
+        let domain_15_size_var = circuit.create_constant_variable(F::from(domain_15.size))?;
+        let domain_18_size_var = circuit.create_constant_variable(F::from(domain_18.size))?;
+        let gen_var_15 = circuit.create_constant_variable(domain_15.group_gen)?;
+        let gen_var_18 = circuit.create_constant_variable(domain_18.group_gen)?;
+        let gen_inv_var_15 = circuit.create_constant_variable(domain_15.group_gen_inv)?;
+        let gen_inv_var_18 = circuit.create_constant_variable(domain_18.group_gen_inv)?;
+        let domain_size_var =
+            circuit.conditional_select(is_15_var, domain_15_size_var, domain_18_size_var)?;
+        let gen_var = circuit.conditional_select(is_15_var, gen_var_18, gen_var_15)?;
+        let gen_inv_var = circuit.conditional_select(is_15_var, gen_inv_var_18, gen_inv_var_15)?;
+        (domain_size_var, gen_var, gen_inv_var)
+    } else {
+        // In the non-base case, we treat `domain_size` as fixed.
+        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+        let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
+        let gen_var = circuit.create_constant_variable(domain.group_gen)?;
+        let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
+        (domain_size_var, gen_var, gen_inv_var)
+    };
+
+    let evals = poly::evaluate_poly_helper_native::<F, IS_BASE>(
+        circuit,
+        challenges.zeta,
+        gen_inv_var,
+        domain_size_var,
+    )?;
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
-        domain_size,
+        gen_inv_var,
         challenges,
         proof_evals,
         pi,
@@ -68,16 +103,13 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
         &evals,
         proof_evals,
         &lookup_evals,
-        domain_size,
+        gen_inv_var,
     )?;
 
     if lookup_evals.is_none() {
         d_1_coeffs = d_1_coeffs[..24].to_vec();
     }
-    let zeta_omega_var = circuit.mul_constant(challenges.zeta, &domain.group_gen)?;
-    ark_std::println!("num_gates: {:?}", circuit.num_gates());
-    ark_std::println!("generator: {:?}", domain.group_gen);
-    ark_std::println!("domain_size: {:?}", domain_size);
+    let zeta_omega_var = circuit.mul(challenges.zeta, gen_var)?;
     let denom = circuit.sub(challenges.zeta, zeta_omega_var)?;
     let denom_val = circuit.witness(denom)?;
     let inverse = denom_val.inverse().unwrap_or(F::one());

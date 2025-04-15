@@ -132,30 +132,51 @@ where
 ///
 /// Note that evaluation at n is commented out as we don't need it for
 /// partial verification circuit.
-pub(super) fn evaluate_poly_helper_native<F>(
+pub(super) fn evaluate_poly_helper_native<F, const IS_BASE: bool>(
     circuit: &mut PlonkCircuit<F>,
     zeta_var: Variable,
     gen_inv_var: Variable,
-    domain_size: usize,
+    domain_size_var: Variable,
 ) -> Result<[Variable; 4], CircuitError>
 where
     F: PrimeField + RescueParameter,
 {
-    // constants
-    let domain_size_var = circuit.create_variable(F::from(domain_size as u64))?;
-
     // ================================
     // compute zeta^n - 1
     // ================================
 
-    let zeta_val = circuit.witness(zeta_var)?;
-    let zeta_n_var = circuit.create_variable(zeta_val.pow([domain_size as u64]))?;
-
-    //
+    let domain_size = circuit.witness(domain_size_var)?;
+    let zeta_n_var = if IS_BASE {
+        // In the base case, `domain_size` must be either 2^15 or 2^18.
+        if domain_size != F::from((1 << 15) as u32) && domain_size != F::from((1 << 18) as u32) {
+            return Err(CircuitError::ParameterError(
+                "Invalid domain size for base case".to_string(),
+            ));
+        }
+        let domain_15_const_var = circuit.create_constant_variable(F::from((1 << 15) as u32))?;
+        let is_15_var = circuit.is_equal(domain_size_var, domain_15_const_var)?;
+        let mut zeta_15_var = zeta_var;
+        for _ in 0..15 {
+            zeta_15_var = circuit.mul(zeta_15_var, zeta_15_var)?;
+        }
+        let mut zeta_18_var = zeta_15_var;
+        for _ in 0..3 {
+            zeta_18_var = circuit.mul(zeta_18_var, zeta_18_var)?;
+        }
+        circuit.conditional_select(is_15_var, zeta_18_var, zeta_15_var)?
+    } else {
+        // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
+        let mut zeta_n_var = zeta_var;
+        let mut ctr = F::from(1u8);
+        while ctr < domain_size {
+            ctr *= F::from(2u8);
+            zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
+        }
+        zeta_n_var
+    };
 
     // zeta^n = zeta_n_minus_1 + 1
-
-    let zeta_n_minus_one_var = circuit.sub(zeta_n_var, circuit.one())?;
+    let zeta_n_minus_one_var = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
 
     // ================================
     // evaluate lagrange at 1
@@ -293,7 +314,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    domain_size: usize,
+    gen_inv_var: Variable,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     pi: Variable,
@@ -304,9 +325,6 @@ where
     F: PrimeField + RescueParameter,
 {
     let zeta_var = challenges.zeta;
-    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-    let generator_inv = domain.group_gen_inv;
-    let gen_inv_var = circuit.create_variable(generator_inv)?;
 
     // r_plonk
     //  = PI - L1(x) * alpha^2 - alpha *
@@ -483,7 +501,7 @@ pub fn linearization_scalars_circuit_native<F>(
     evals: &[Variable; 4],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
-    domain_size: usize,
+    gen_inv_var: Variable,
 ) -> Result<Vec<Variable>, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -571,10 +589,6 @@ where
 
     // Now calculate lookup scalars if they are present
     let (lookup_prod_coeff, h_2_coeff) = if let Some(lookup_evals) = lookup_evals {
-        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-        let gen_inv = domain.group_gen_inv;
-        let gen_inv_var = circuit.create_variable(gen_inv)?;
-
         let g_mul_one_plus_b = circuit.mul_add(
             &[
                 circuit.one(),
