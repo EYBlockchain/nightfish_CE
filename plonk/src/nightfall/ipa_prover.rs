@@ -769,9 +769,6 @@ where
         let n_selectors = pk.selectors.len();
         let n_sigmas = pk.sigmas.len();
         let n_wires = oracles.wire_polys.len();
-        for poly in pk.selectors.iter() {
-            ark_std::println!("selector poly degree: {:?}", poly.degree());
-        }
         let flattened = [
             pk.selectors.as_slice(),
             pk.sigmas.as_slice(),
@@ -791,7 +788,6 @@ where
         // `wire_polys_coset_fft`.
         let prod_perm_poly_coset_fft = coset.fft(oracles.prod_perm_poly.coeffs());
         let pub_input_poly_coset_fft = coset.fft(oracles.pub_inp_poly.coeffs());
-        ark_std::println!("pub_input_poly degree: {}", oracles.pub_inp_poly.degree());
 
         // Compute coset evaluations of Plookup online oracles.
         let (

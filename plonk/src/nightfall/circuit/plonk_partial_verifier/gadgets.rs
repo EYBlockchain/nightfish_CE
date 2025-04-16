@@ -77,7 +77,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         let gen_inv = circuit.witness(gen_var)?.inverse().unwrap_or(F::zero());
         let gen_inv_var = circuit.create_variable(gen_inv)?;
         circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
-        ark_std::println!("base num gates: {}", circuit.num_gates());
         (domain_size_var, gen_var, gen_inv_var)
     } else {
         // In the non-base case, `domain_size` cannot be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
@@ -91,7 +90,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
         let gen_var = circuit.create_constant_variable(domain.group_gen)?;
         let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
-        ark_std::println!("non-base num gates: {}", circuit.num_gates());
         (domain_size_var, gen_var, gen_inv_var)
     };
 
@@ -101,7 +99,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         gen_inv_var,
         domain_size_var,
     )?;
-    ark_std::println!("eval poly num gates: {}", circuit.num_gates());
 
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
@@ -112,8 +109,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         &evals,
         &lookup_evals,
     )?;
-
-    ark_std::println!("lin poly num gates: {}", circuit.num_gates());
 
     let mut d_1_coeffs = linearization_scalars_circuit_native(
         circuit,
@@ -139,8 +134,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
     } else {
         circuit.one()
     };
-
-    ark_std::println!("lookup num gates: {}", circuit.num_gates());
 
     circuit.mul_gate(inverse_var, denom, c)?;
     let u_minus_zeta = circuit.sub(challenges.u, challenges.zeta)?;
@@ -183,8 +176,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             challenges.u,
         )?;
 
-        ark_std::println!("range eval num gates: {}", circuit.num_gates());
-
         let key_eval = evaluate_lagrange_poly_helper_native(
             circuit,
             challenges.zeta,
@@ -197,8 +188,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             challenges.u,
         )?;
 
-        ark_std::println!("key eval num gates: {}", circuit.num_gates());
-
         let h_1_eval = evaluate_lagrange_poly_helper_native(
             circuit,
             challenges.zeta,
@@ -207,8 +196,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             &[lookup_evals.h_1_eval, lookup_evals.h_1_next_eval],
             challenges.u,
         )?;
-
-        ark_std::println!("h1 eval num gates: {}", circuit.num_gates());
 
         let q_lookup_eval = evaluate_lagrange_poly_helper_native(
             circuit,
@@ -219,8 +206,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             challenges.u,
         )?;
 
-        ark_std::println!("q_lookup eval num gates: {}", circuit.num_gates());
-
         let w_3_eval = evaluate_lagrange_poly_helper_native(
             circuit,
             challenges.zeta,
@@ -230,8 +215,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             challenges.u,
         )?;
 
-        ark_std::println!("w_3 eval num gates: {}", circuit.num_gates());
-
         let w_4_eval = evaluate_lagrange_poly_helper_native(
             circuit,
             challenges.zeta,
@@ -240,8 +223,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             &[proof_evals.wires_evals[4], lookup_evals.w_4_next_eval],
             challenges.u,
         )?;
-
-        ark_std::println!("w_4 eval num gates: {}", circuit.num_gates());
 
         let table_dom_sep_eval = evaluate_lagrange_poly_helper_native(
             circuit,
@@ -254,8 +235,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             ],
             challenges.u,
         )?;
-
-        ark_std::println!("dom sep eval num gates: {}", circuit.num_gates());
 
         evals_list.push(range_eval);
         evals_list.push(key_eval);
@@ -328,8 +307,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
 
         result.remove(22);
     }
-
-    ark_std::println!("end num gates: {}", circuit.num_gates());
 
     Ok(result[..46].to_vec())
 }

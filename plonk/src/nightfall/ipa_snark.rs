@@ -178,23 +178,6 @@ where
             ));
         }
 
-        let circ_sel_poly = circuits.compute_selector_polynomials()?;
-        let pk_sel_polys = prove_keys.selectors.clone();
-        if circ_sel_poly.len() != pk_sel_polys.len() {
-            ark_std::println!("selector polynomial lengths do not match!");
-            ark_std::println!(
-                "circ_sel_poly len: {:?}, pk_sel_polys len: {:?}",
-                circ_sel_poly.len(),
-                pk_sel_polys.len(),
-            );
-        }
-        for i in 0..pk_sel_polys.len() {
-            if pk_sel_polys[i] != circ_sel_poly[i] {
-                ark_std::println!("selector polynomials do not match!");
-                ark_std::println!("i: {:?}", i);
-            }
-        }
-
         let n = circuits.eval_domain_size()?;
         let num_wire_types = circuits.num_wire_types();
 

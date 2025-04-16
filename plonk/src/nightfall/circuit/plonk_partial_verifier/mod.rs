@@ -484,7 +484,7 @@ mod test {
             &proof_evals,
             Some(lookup_evals),
             &vk_k,
-            1 << 15,
+            TRANSFER_DOMAIN_SIZE,
         )
         .unwrap();
 

@@ -127,6 +127,8 @@ pub fn calculate_recursion_scalars(
         .map(|output| partial_verify_fft_plonk::<false>(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
+    ark_std::println!("non-base num gates: {}", circuit.num_gates());
+
     // Now we transform the 'old_accs' into the relevant circuit variables
     let acc_vars: Vec<(_, _, _, _)> = old_accs
         .iter()
@@ -141,12 +143,16 @@ pub fn calculate_recursion_scalars(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    ark_std::println!("acc_vars num gates: {}", circuit.num_gates());
+
     // Since we have checked that outputs is non-empty, we can safely unwrap the first element
     let mut transcript = pcs_infos[0].transcript.clone();
     pcs_infos
         .iter()
         .skip(1)
         .try_for_each(|pcs_info| transcript.merge(&pcs_info.transcript))?;
+
+    ark_std::println!("transcript num gates: {}", circuit.num_gates());
 
     // Append old_accs to the transcript
     acc_vars
@@ -156,8 +162,12 @@ pub fn calculate_recursion_scalars(
             transcript.append_point_variable(opening_proof, circuit)
         })?;
 
+    ark_std::println!("second acc_vars num gates: {}", circuit.num_gates());
+
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
+
+    ark_std::println!("squeeze scalar num gates: {}", circuit.num_gates());
 
     // Now we rescale the scalars and combine as necessary
     let combined_scalars = combine_fft_scalars(
@@ -168,6 +178,8 @@ pub fn calculate_recursion_scalars(
         batching_challenge,
         circuit,
     )?;
+
+    ark_std::println!("combined_scalars num gates: {}", circuit.num_gates());
 
     let mut challenge_powers = (0..outputs.len() + old_accs.len() - 1)
         .scan(circuit.one(), |state, _| {
@@ -180,6 +192,8 @@ pub fn calculate_recursion_scalars(
         })
         .collect::<Vec<Variable>>();
 
+    ark_std::println!("challenge_powers num gates: {}", circuit.num_gates());
+
     challenge_powers.insert(0, circuit.one());
 
     let points = pcs_infos
@@ -191,6 +205,8 @@ pub fn calculate_recursion_scalars(
         .zip(challenge_powers.iter())
         .map(|(point, challenge_power)| circuit.mul(*point, *challenge_power))
         .collect::<Result<Vec<_>, _>>()?;
+
+    ark_std::println!("final num gates: {}", circuit.num_gates());
 
     Ok([
         combined_scalars.as_slice(),
@@ -221,6 +237,8 @@ pub fn calculate_recursion_scalars_base(
         .map(|(output, vk)| partial_verify_fft_plonk::<true>(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
+    ark_std::println!("base num gates: {}", circuit.num_gates());
+
     // Now we transform the 'old_accs' into the relevant circuit variables
     let acc_vars: Vec<(_, _, _, _)> = old_accs
         .iter()
@@ -235,12 +253,16 @@ pub fn calculate_recursion_scalars_base(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    ark_std::println!("acc_vars num gates: {}", circuit.num_gates());
+
     // Since we have checked that outputs is non-empty, we can safely unwrap the first element
     let mut transcript = pcs_infos[0].transcript.clone();
     pcs_infos
         .iter()
         .skip(1)
         .try_for_each(|pcs_info| transcript.merge(&pcs_info.transcript))?;
+
+    ark_std::println!("transcript num gates: {}", circuit.num_gates());
 
     // Append old_accs to the transcript
     acc_vars
@@ -250,8 +272,12 @@ pub fn calculate_recursion_scalars_base(
             transcript.append_point_variable(opening_proof, circuit)
         })?;
 
+    ark_std::println!("second acc_vars num gates: {}", circuit.num_gates());
+
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
+
+    ark_std::println!("squeeze scalar num gates: {}", circuit.num_gates());
 
     // Now we rescale the scalars and combine as necessary
     let combined_scalars = combine_fft_scalars_base(
@@ -262,6 +288,8 @@ pub fn calculate_recursion_scalars_base(
         batching_challenge,
         circuit,
     )?;
+
+    ark_std::println!("combined_scalars num gates: {}", circuit.num_gates());
 
     let mut challenge_powers = (0..outputs.len() + old_accs.len() - 1)
         .scan(circuit.one(), |state, _| {
@@ -274,6 +302,8 @@ pub fn calculate_recursion_scalars_base(
         })
         .collect::<Vec<Variable>>();
 
+    ark_std::println!("challenge_powers num gates: {}", circuit.num_gates());
+
     challenge_powers.insert(0, circuit.one());
 
     let points = pcs_infos
@@ -285,6 +315,8 @@ pub fn calculate_recursion_scalars_base(
         .zip(challenge_powers.iter())
         .map(|(point, challenge_power)| circuit.mul(*point, *challenge_power))
         .collect::<Result<Vec<_>, _>>()?;
+
+    ark_std::println!("final num gates: {}", circuit.num_gates());
 
     Ok([
         combined_scalars.as_slice(),
