@@ -77,6 +77,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         let gen_inv = circuit.witness(gen_var)?.inverse().unwrap_or(F::zero());
         let gen_inv_var = circuit.create_variable(gen_inv)?;
         circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
+        ark_std::println!("base num gates: {}", circuit.num_gates());
         (domain_size_var, gen_var, gen_inv_var)
     } else {
         // In the non-base case, `domain_size` cannot be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
@@ -90,6 +91,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
         let gen_var = circuit.create_constant_variable(domain.group_gen)?;
         let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
+        ark_std::println!("non-base num gates: {}", circuit.num_gates());
         (domain_size_var, gen_var, gen_inv_var)
     };
 
@@ -99,6 +101,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         gen_inv_var,
         domain_size_var,
     )?;
+    ark_std::println!("eval poly num gates: {}", circuit.num_gates());
 
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
@@ -109,6 +112,8 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         &evals,
         &lookup_evals,
     )?;
+
+    ark_std::println!("lin poly num gates: {}", circuit.num_gates());
 
     let mut d_1_coeffs = linearization_scalars_circuit_native(
         circuit,
