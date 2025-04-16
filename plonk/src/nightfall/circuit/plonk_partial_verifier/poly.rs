@@ -150,7 +150,7 @@ where
 
     let domain_size = circuit.witness(domain_size_var)?;
     let zeta_n_var = if IS_BASE {
-        // In the base case, `domain_size` must be either 2^15 or 2^18.
+        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
         if domain_size != F::from(TRANSFER_DOMAIN_SIZE as u32)
             && domain_size != F::from(DEPOSIT_DOMAIN_SIZE as u32)
         {
@@ -174,7 +174,9 @@ where
         }
         // Here is where we are assuming TRANSFER_DOMAIN_SIZE is at most DEPOSIT_DOMAIN_SIZE.
         let mut zeta_deposit_var = zeta_transfer_var;
-        for _ in 0..(DEPOSIT_DOMAIN_SIZE - TRANSFER_DOMAIN_SIZE) {
+        let mut ctr = TRANSFER_DOMAIN_SIZE;
+        while ctr < DEPOSIT_DOMAIN_SIZE {
+            ctr <<= 1;
             zeta_deposit_var = circuit.mul(zeta_deposit_var, zeta_deposit_var)?;
         }
         circuit.conditional_select(is_transfer_var, zeta_deposit_var, zeta_transfer_var)?
