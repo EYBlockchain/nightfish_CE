@@ -82,6 +82,12 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             deposit_gen_inv_var,
             transfer_gen_inv_var,
         )?;
+        let p_i = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&p_i).is_err() {
+            return Err(CircuitError::ParameterError(
+                "Base circuit satisfiability check failed".to_string(),
+            ));
+        }
         (domain_size_var, gen_var, gen_inv_var)
     } else {
         // In the non-base case, we treat `domain_size` as fixed.
@@ -89,6 +95,12 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
         let gen_var = circuit.create_constant_variable(domain.group_gen)?;
         let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
+        let p_i = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&p_i).is_err() {
+            return Err(CircuitError::ParameterError(
+                "Non-base circuit satisfiability check failed".to_string(),
+            ));
+        }
         (domain_size_var, gen_var, gen_inv_var)
     };
 
@@ -98,6 +110,14 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         gen_inv_var,
         domain_size_var,
     )?;
+
+    let p_i = circuit.public_input()?;
+    if circuit.check_circuit_satisfiability(&p_i).is_err() {
+        return Err(CircuitError::ParameterError(
+            "evaluate poly circuit satisfiability check failed".to_string(),
+        ));
+    }
+
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
         gen_inv_var,
@@ -107,6 +127,13 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         &evals,
         &lookup_evals,
     )?;
+
+    let p_i = circuit.public_input()?;
+    if circuit.check_circuit_satisfiability(&p_i).is_err() {
+        return Err(CircuitError::ParameterError(
+            "compute lin poly circuit satisfiability check failed".to_string(),
+        ));
+    }
 
     let mut d_1_coeffs = linearization_scalars_circuit_native(
         circuit,
@@ -118,6 +145,13 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         &lookup_evals,
         gen_inv_var,
     )?;
+
+    let p_i = circuit.public_input()?;
+    if circuit.check_circuit_satisfiability(&p_i).is_err() {
+        return Err(CircuitError::ParameterError(
+            "linearize scalars circuit satisfiability check failed".to_string(),
+        ));
+    }
 
     if lookup_evals.is_none() {
         d_1_coeffs = d_1_coeffs[..24].to_vec();
