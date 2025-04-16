@@ -477,7 +477,7 @@ mod test {
         };
 
         let vk_k = vec![circuit.zero(); 6];
-        let scalars = compute_scalars_for_native_field::<Fr254, false>(
+        let scalars = compute_scalars_for_native_field::<Fr254, true>(
             &mut circuit,
             0,
             &challenges_var,

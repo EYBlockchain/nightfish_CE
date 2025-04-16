@@ -57,12 +57,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
                 "Invalid domain size for base case".to_string(),
             ));
         }
-        let p_i = circuit.public_input()?;
-        if circuit.check_circuit_satisfiability(&p_i).is_err() {
-            return Err(CircuitError::ParameterError(
-                "Initial satisfiability check failed".to_string(),
-            ));
-        }
         let is_transfer_var =
             circuit.create_boolean_variable(domain_size == TRANSFER_DOMAIN_SIZE)?;
         let transfer_domain = Radix2EvaluationDomain::<F>::new(TRANSFER_DOMAIN_SIZE).unwrap();
@@ -78,36 +72,24 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             deposit_domain_size_var,
             transfer_domain_size_var,
         )?;
-        let p_i = circuit.public_input()?;
-        if circuit.check_circuit_satisfiability(&p_i).is_err() {
-            return Err(CircuitError::ParameterError(
-                "Domain satisfiability check failed".to_string(),
-            ));
-        }
         let gen_var =
             circuit.conditional_select(is_transfer_var, deposit_gen_var, transfer_gen_var)?;
         let gen_inv = circuit.witness(gen_var)?.inverse().unwrap_or(F::zero());
         let gen_inv_var = circuit.create_variable(gen_inv)?;
         circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
-        let p_i = circuit.public_input()?;
-        if circuit.check_circuit_satisfiability(&p_i).is_err() {
-            return Err(CircuitError::ParameterError(
-                "Base circuit satisfiability check failed".to_string(),
-            ));
-        }
         (domain_size_var, gen_var, gen_inv_var)
     } else {
+        // In the non-base case, `domain_size` cannot be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+        if domain_size == TRANSFER_DOMAIN_SIZE || domain_size == DEPOSIT_DOMAIN_SIZE {
+            return Err(CircuitError::ParameterError(
+                "Invalid domain size for non-base case".to_string(),
+            ));
+        }
         // In the non-base case, we treat `domain_size` as fixed.
         let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
         let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
         let gen_var = circuit.create_constant_variable(domain.group_gen)?;
         let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
-        let p_i = circuit.public_input()?;
-        if circuit.check_circuit_satisfiability(&p_i).is_err() {
-            return Err(CircuitError::ParameterError(
-                "Non-base circuit satisfiability check failed".to_string(),
-            ));
-        }
         (domain_size_var, gen_var, gen_inv_var)
     };
 
@@ -117,13 +99,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         gen_inv_var,
         domain_size_var,
     )?;
-
-    let p_i = circuit.public_input()?;
-    if circuit.check_circuit_satisfiability(&p_i).is_err() {
-        return Err(CircuitError::ParameterError(
-            "evaluate poly circuit satisfiability check failed".to_string(),
-        ));
-    }
 
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
@@ -135,13 +110,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         &lookup_evals,
     )?;
 
-    let p_i = circuit.public_input()?;
-    if circuit.check_circuit_satisfiability(&p_i).is_err() {
-        return Err(CircuitError::ParameterError(
-            "compute lin poly circuit satisfiability check failed".to_string(),
-        ));
-    }
-
     let mut d_1_coeffs = linearization_scalars_circuit_native(
         circuit,
         vk_k,
@@ -152,13 +120,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         &lookup_evals,
         gen_inv_var,
     )?;
-
-    let p_i = circuit.public_input()?;
-    if circuit.check_circuit_satisfiability(&p_i).is_err() {
-        return Err(CircuitError::ParameterError(
-            "linearize scalars circuit satisfiability check failed".to_string(),
-        ));
-    }
 
     if lookup_evals.is_none() {
         d_1_coeffs = d_1_coeffs[..24].to_vec();
