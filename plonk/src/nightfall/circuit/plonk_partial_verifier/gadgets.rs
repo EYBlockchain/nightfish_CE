@@ -24,6 +24,7 @@ use super::{
         linearization_scalars_circuit_native,
     },
     ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative,
+    {DEPOSIT_DOMAIN_SIZE, TRANSFER_DOMAIN_SIZE},
 };
 
 /// Function to compute the scalars used in partial verification over the native field
@@ -51,24 +52,36 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
 
     let (domain_size_var, gen_var, gen_inv_var) = if IS_BASE {
         // In the base case, `domain_size` must be either 2^15 or 2^18.
-        if domain_size != 1 << 15 && domain_size != 1 << 18 {
+        if domain_size != TRANSFER_DOMAIN_SIZE && domain_size != DEPOSIT_DOMAIN_SIZE {
             return Err(CircuitError::ParameterError(
                 "Invalid domain size for base case".to_string(),
             ));
         }
-        let is_15_var = circuit.create_boolean_variable(domain_size == 1 << 15)?;
-        let domain_15 = Radix2EvaluationDomain::<F>::new(1 << 15).unwrap();
-        let domain_18 = Radix2EvaluationDomain::<F>::new(1 << 18).unwrap();
-        let domain_15_size_var = circuit.create_constant_variable(F::from(domain_15.size))?;
-        let domain_18_size_var = circuit.create_constant_variable(F::from(domain_18.size))?;
-        let gen_var_15 = circuit.create_constant_variable(domain_15.group_gen)?;
-        let gen_var_18 = circuit.create_constant_variable(domain_18.group_gen)?;
-        let gen_inv_var_15 = circuit.create_constant_variable(domain_15.group_gen_inv)?;
-        let gen_inv_var_18 = circuit.create_constant_variable(domain_18.group_gen_inv)?;
-        let domain_size_var =
-            circuit.conditional_select(is_15_var, domain_15_size_var, domain_18_size_var)?;
-        let gen_var = circuit.conditional_select(is_15_var, gen_var_18, gen_var_15)?;
-        let gen_inv_var = circuit.conditional_select(is_15_var, gen_inv_var_18, gen_inv_var_15)?;
+        let is_transfer_var =
+            circuit.create_boolean_variable(domain_size == TRANSFER_DOMAIN_SIZE)?;
+        let transfer_domain = Radix2EvaluationDomain::<F>::new(TRANSFER_DOMAIN_SIZE).unwrap();
+        let deposit_domain = Radix2EvaluationDomain::<F>::new(DEPOSIT_DOMAIN_SIZE).unwrap();
+        let transfer_domain_size_var =
+            circuit.create_constant_variable(F::from(transfer_domain.size))?;
+        let deposit_domain_size_var =
+            circuit.create_constant_variable(F::from(deposit_domain.size))?;
+        let transfer_gen_var = circuit.create_constant_variable(transfer_domain.group_gen)?;
+        let deposit_gen_var = circuit.create_constant_variable(deposit_domain.group_gen)?;
+        let transfer_gen_inv_var =
+            circuit.create_constant_variable(transfer_domain.group_gen_inv)?;
+        let deposit_gen_inv_var = circuit.create_constant_variable(deposit_domain.group_gen_inv)?;
+        let domain_size_var = circuit.conditional_select(
+            is_transfer_var,
+            deposit_domain_size_var,
+            transfer_domain_size_var,
+        )?;
+        let gen_var =
+            circuit.conditional_select(is_transfer_var, deposit_gen_var, transfer_gen_var)?;
+        let gen_inv_var = circuit.conditional_select(
+            is_transfer_var,
+            deposit_gen_inv_var,
+            transfer_gen_inv_var,
+        )?;
         (domain_size_var, gen_var, gen_inv_var)
     } else {
         // In the non-base case, we treat `domain_size` as fixed.
