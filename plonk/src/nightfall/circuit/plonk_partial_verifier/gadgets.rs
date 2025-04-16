@@ -57,6 +57,12 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
                 "Invalid domain size for base case".to_string(),
             ));
         }
+        let p_i = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&p_i).is_err() {
+            return Err(CircuitError::ParameterError(
+                "Initial satisfiability check failed".to_string(),
+            ));
+        }
         let is_transfer_var =
             circuit.create_boolean_variable(domain_size == TRANSFER_DOMAIN_SIZE)?;
         let transfer_domain = Radix2EvaluationDomain::<F>::new(TRANSFER_DOMAIN_SIZE).unwrap();
@@ -67,21 +73,22 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
             circuit.create_constant_variable(F::from(deposit_domain.size))?;
         let transfer_gen_var = circuit.create_constant_variable(transfer_domain.group_gen)?;
         let deposit_gen_var = circuit.create_constant_variable(deposit_domain.group_gen)?;
-        let transfer_gen_inv_var =
-            circuit.create_constant_variable(transfer_domain.group_gen_inv)?;
-        let deposit_gen_inv_var = circuit.create_constant_variable(deposit_domain.group_gen_inv)?;
         let domain_size_var = circuit.conditional_select(
             is_transfer_var,
             deposit_domain_size_var,
             transfer_domain_size_var,
         )?;
+        let p_i = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&p_i).is_err() {
+            return Err(CircuitError::ParameterError(
+                "Domain satisfiability check failed".to_string(),
+            ));
+        }
         let gen_var =
             circuit.conditional_select(is_transfer_var, deposit_gen_var, transfer_gen_var)?;
-        let gen_inv_var = circuit.conditional_select(
-            is_transfer_var,
-            deposit_gen_inv_var,
-            transfer_gen_inv_var,
-        )?;
+        let gen_inv = circuit.witness(gen_var)?.inverse().unwrap_or(F::zero());
+        let gen_inv_var = circuit.create_variable(gen_inv)?;
+        circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
         let p_i = circuit.public_input()?;
         if circuit.check_circuit_satisfiability(&p_i).is_err() {
             return Err(CircuitError::ParameterError(
