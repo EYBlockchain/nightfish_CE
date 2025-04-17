@@ -49,8 +49,7 @@ where
     E::ScalarField: EmulationConfig<F> + PrimeField + RescueParameter,
 {
     // constants
-    let domain_size_emul_var =
-        circuit.create_emulated_variable(E::ScalarField::from(domain_size as u64))?;
+    let domain_size_val = E::ScalarField::from(domain_size as u64);
 
     // ================================
     // compute zeta^n - 1
@@ -98,7 +97,8 @@ where
 
     // lagrange_1_eval
     let zeta_minus_one_emul_var = circuit.emulated_sub(zeta_emul_var, &one_emul_var)?;
-    let divisor_emul_var = circuit.emulated_mul(&domain_size_emul_var, &zeta_minus_one_emul_var)?;
+    let divisor_emul_var =
+        circuit.emulated_mul_constant(&zeta_minus_one_emul_var, domain_size_val)?;
 
     let zeta_n_minus_one = circuit.emulated_witness(&zeta_n_minus_one_emul_var)?;
     let divisor = circuit.emulated_witness(&divisor_emul_var)?;
@@ -218,8 +218,10 @@ where
     circuit.mul_gate(divisor_var, lagrange_1_eval_var, zeta_n_minus_one_var)?;
 
     // Compute lagrange_n_eval
-    let zeta_minus_gen_inv_var = circuit.sub(zeta_var, gen_inv_var)?;
-    let divisor_var = circuit.mul(domain_size_var, zeta_minus_gen_inv_var)?;
+    let divisor_var = circuit.mul_add(
+        &[domain_size_var, zeta_var, domain_size_var, gen_inv_var],
+        &[F::one(), -F::one()],
+    )?;
     let numerator_var = circuit.mul(zeta_n_minus_one_var, gen_inv_var)?;
     let divisor = circuit.witness(divisor_var)?;
     let numerator = circuit.witness(numerator_var)?;
@@ -266,26 +268,35 @@ where
     let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
 
     let pi_len = pub_inputs_var.len();
-    let v_i = (0..pi_len)
-        .map(|x| circuit.create_variable(domain.element(x) / F::from(domain_size as u64)))
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let v_i = (0..pub_inputs_var.len())
+        .map(|x| domain.element(x) / F::from(domain_size as u64))
+        .collect::<Vec<F>>();
 
     // compute L_{i,H}(zeta) = Z_H(zeta) * v_i / (zeta - g^i)
     // where Z_H(z) is the vanishing evaluation.
-    //  we sum over l, the length of the public inputs.
+    // we sum over l, the length of the public inputs.
     let mut lagrange_eval_emul_var: Vec<Variable> = Vec::new();
     let zeta = circuit.witness(*zeta_var)?;
     for (i, v_item) in v_i.iter().enumerate().take(pi_len) {
         // compute L_{i,H}(zeta) and related values in the clear
         let g_i = domain.element(i);
-        let g_i_var = circuit.create_variable(g_i)?;
-        let v_item_val = circuit.witness(*v_item)?;
-        let eval_i = vanish_eval * v_item_val / (zeta - g_i);
+        let eval_i = vanish_eval * v_item / (zeta - g_i);
         let eval_i_var = circuit.create_variable(eval_i)?;
 
-        let tmp = circuit.mul(*vanish_eval_var, *v_item)?;
-        let wires = [eval_i_var, *zeta_var, g_i_var, eval_i_var, tmp];
-        circuit.mul_add_gate(&wires, &[F::one(), -F::one()])?;
+        let wires = [
+            eval_i_var,
+            *zeta_var,
+            circuit.zero(),
+            circuit.zero(),
+            *vanish_eval_var,
+        ];
+        circuit.quad_poly_gate(
+            &wires,
+            &[-g_i, F::zero(), F::zero(), F::zero()],
+            &[F::one(), F::zero()],
+            *v_item,
+            F::zero(),
+        )?;
 
         // finish
         lagrange_eval_emul_var.push(eval_i_var);
