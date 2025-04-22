@@ -36,6 +36,10 @@ pub use poly::*;
 pub use proof_to_var::*;
 pub use structs::*;
 
+// We assume TRANSFER_DOMAIN_SIZE is always at most DEPOSIT_DOMAIN_SIZE.
+pub(crate) const TRANSFER_DOMAIN_SIZE: usize = 1 << 15;
+pub(crate) const DEPOSIT_DOMAIN_SIZE: usize = 1 << 18;
+
 #[derive(Debug, Clone, Eq, PartialEq)]
 /// Represent variable of a Plonk verifying key.
 pub struct VerifyingKeyVar<PCS: PolynomialCommitmentScheme> {
@@ -399,7 +403,7 @@ mod test {
 
             let pi_var = circuit.create_variable(pi)?;
 
-            let scalars = compute_scalars_for_native_field::<P::ScalarField>(
+            let scalars = compute_scalars_for_native_field::<P::ScalarField, false>(
                 &mut circuit,
                 pi_var,
                 &challenges_var,
@@ -473,14 +477,14 @@ mod test {
         };
 
         let vk_k = vec![circuit.zero(); 6];
-        let scalars = compute_scalars_for_native_field::<Fr254>(
+        let scalars = compute_scalars_for_native_field::<Fr254, true>(
             &mut circuit,
             0,
             &challenges_var,
             &proof_evals,
             Some(lookup_evals),
             &vk_k,
-            1 << 15,
+            TRANSFER_DOMAIN_SIZE,
         )
         .unwrap();
 

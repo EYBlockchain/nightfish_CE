@@ -16,7 +16,10 @@ use jf_relation::{
     Circuit, PlonkCircuit, Variable,
 };
 
-use super::{ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative};
+use super::{
+    ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative, DEPOSIT_DOMAIN_SIZE,
+    TRANSFER_DOMAIN_SIZE,
+};
 
 /// This helper function generate the variables for the following data
 /// - Circuit evaluation of vanishing polynomial at point `zeta` i.e., output =
@@ -46,8 +49,7 @@ where
     E::ScalarField: EmulationConfig<F> + PrimeField + RescueParameter,
 {
     // constants
-    let domain_size_emul_var =
-        circuit.create_emulated_variable(E::ScalarField::from(domain_size as u64))?;
+    let domain_size_val = E::ScalarField::from(domain_size as u64);
 
     // ================================
     // compute zeta^n - 1
@@ -95,7 +97,8 @@ where
 
     // lagrange_1_eval
     let zeta_minus_one_emul_var = circuit.emulated_sub(zeta_emul_var, &one_emul_var)?;
-    let divisor_emul_var = circuit.emulated_mul(&domain_size_emul_var, &zeta_minus_one_emul_var)?;
+    let divisor_emul_var =
+        circuit.emulated_mul_constant(&zeta_minus_one_emul_var, domain_size_val)?;
 
     let zeta_n_minus_one = circuit.emulated_witness(&zeta_n_minus_one_emul_var)?;
     let divisor = circuit.emulated_witness(&divisor_emul_var)?;
@@ -132,30 +135,64 @@ where
 ///
 /// Note that evaluation at n is commented out as we don't need it for
 /// partial verification circuit.
-pub(super) fn evaluate_poly_helper_native<F>(
+pub(super) fn evaluate_poly_helper_native<F, const IS_BASE: bool>(
     circuit: &mut PlonkCircuit<F>,
     zeta_var: Variable,
     gen_inv_var: Variable,
-    domain_size: usize,
+    domain_size_var: Variable,
 ) -> Result<[Variable; 4], CircuitError>
 where
     F: PrimeField + RescueParameter,
 {
-    // constants
-    let domain_size_var = circuit.create_variable(F::from(domain_size as u64))?;
-
     // ================================
     // compute zeta^n - 1
     // ================================
 
-    let zeta_val = circuit.witness(zeta_var)?;
-    let zeta_n_var = circuit.create_variable(zeta_val.pow([domain_size as u64]))?;
-
-    //
+    let domain_size = circuit.witness(domain_size_var)?;
+    let zeta_n_var = if IS_BASE {
+        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+        if domain_size != F::from(TRANSFER_DOMAIN_SIZE as u32)
+            && domain_size != F::from(DEPOSIT_DOMAIN_SIZE as u32)
+        {
+            return Err(CircuitError::ParameterError(
+                "Invalid domain size for base case".to_string(),
+            ));
+        }
+        let transfer_domain_const_var =
+            circuit.create_constant_variable(F::from(TRANSFER_DOMAIN_SIZE as u32))?;
+        let deposit_domain_const_var =
+            circuit.create_constant_variable(F::from(DEPOSIT_DOMAIN_SIZE as u32))?;
+        let is_transfer_var = circuit.is_equal(domain_size_var, transfer_domain_const_var)?;
+        let is_deposit_var = circuit.is_equal(domain_size_var, deposit_domain_const_var)?;
+        // We constrain `domain_size_var` to represent either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+        circuit.add_gate(is_transfer_var.into(), is_deposit_var.into(), circuit.one())?;
+        let mut zeta_transfer_var = zeta_var;
+        let mut ctr = 1;
+        while ctr < TRANSFER_DOMAIN_SIZE {
+            ctr <<= 1;
+            zeta_transfer_var = circuit.mul(zeta_transfer_var, zeta_transfer_var)?;
+        }
+        // Here is where we are assuming TRANSFER_DOMAIN_SIZE is at most DEPOSIT_DOMAIN_SIZE.
+        let mut zeta_deposit_var = zeta_transfer_var;
+        let mut ctr = TRANSFER_DOMAIN_SIZE;
+        while ctr < DEPOSIT_DOMAIN_SIZE {
+            ctr <<= 1;
+            zeta_deposit_var = circuit.mul(zeta_deposit_var, zeta_deposit_var)?;
+        }
+        circuit.conditional_select(is_transfer_var, zeta_deposit_var, zeta_transfer_var)?
+    } else {
+        // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
+        let mut zeta_n_var = zeta_var;
+        let mut ctr = F::from(1u8);
+        while ctr < domain_size {
+            ctr *= F::from(2u8);
+            zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
+        }
+        zeta_n_var
+    };
 
     // zeta^n = zeta_n_minus_1 + 1
-
-    let zeta_n_minus_one_var = circuit.sub(zeta_n_var, circuit.one())?;
+    let zeta_n_minus_one_var = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
 
     // ================================
     // evaluate lagrange at 1
@@ -181,8 +218,10 @@ where
     circuit.mul_gate(divisor_var, lagrange_1_eval_var, zeta_n_minus_one_var)?;
 
     // Compute lagrange_n_eval
-    let zeta_minus_gen_inv_var = circuit.sub(zeta_var, gen_inv_var)?;
-    let divisor_var = circuit.mul(domain_size_var, zeta_minus_gen_inv_var)?;
+    let divisor_var = circuit.mul_add(
+        &[domain_size_var, zeta_var, domain_size_var, gen_inv_var],
+        &[F::one(), -F::one()],
+    )?;
     let numerator_var = circuit.mul(zeta_n_minus_one_var, gen_inv_var)?;
     let divisor = circuit.witness(divisor_var)?;
     let numerator = circuit.witness(numerator_var)?;
@@ -229,26 +268,35 @@ where
     let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
 
     let pi_len = pub_inputs_var.len();
-    let v_i = (0..pi_len)
-        .map(|x| circuit.create_variable(domain.element(x) / F::from(domain_size as u64)))
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let v_i = (0..pub_inputs_var.len())
+        .map(|x| domain.element(x) / F::from(domain_size as u64))
+        .collect::<Vec<F>>();
 
     // compute L_{i,H}(zeta) = Z_H(zeta) * v_i / (zeta - g^i)
     // where Z_H(z) is the vanishing evaluation.
-    //  we sum over l, the length of the public inputs.
+    // we sum over l, the length of the public inputs.
     let mut lagrange_eval_emul_var: Vec<Variable> = Vec::new();
     let zeta = circuit.witness(*zeta_var)?;
     for (i, v_item) in v_i.iter().enumerate().take(pi_len) {
         // compute L_{i,H}(zeta) and related values in the clear
         let g_i = domain.element(i);
-        let g_i_var = circuit.create_variable(g_i)?;
-        let v_item_val = circuit.witness(*v_item)?;
-        let eval_i = vanish_eval * v_item_val / (zeta - g_i);
+        let eval_i = vanish_eval * v_item / (zeta - g_i);
         let eval_i_var = circuit.create_variable(eval_i)?;
 
-        let tmp = circuit.mul(*vanish_eval_var, *v_item)?;
-        let wires = [eval_i_var, *zeta_var, g_i_var, eval_i_var, tmp];
-        circuit.mul_add_gate(&wires, &[F::one(), -F::one()])?;
+        let wires = [
+            eval_i_var,
+            *zeta_var,
+            circuit.zero(),
+            circuit.zero(),
+            *vanish_eval_var,
+        ];
+        circuit.quad_poly_gate(
+            &wires,
+            &[-g_i, F::zero(), F::zero(), F::zero()],
+            &[F::one(), F::zero()],
+            *v_item,
+            F::zero(),
+        )?;
 
         // finish
         lagrange_eval_emul_var.push(eval_i_var);
@@ -293,7 +341,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    domain_size: usize,
+    gen_inv_var: Variable,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     pi: Variable,
@@ -304,9 +352,6 @@ where
     F: PrimeField + RescueParameter,
 {
     let zeta_var = challenges.zeta;
-    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-    let generator_inv = domain.group_gen_inv;
-    let gen_inv_var = circuit.create_variable(generator_inv)?;
 
     // r_plonk
     //  = PI - L1(x) * alpha^2 - alpha *
@@ -483,7 +528,7 @@ pub fn linearization_scalars_circuit_native<F>(
     evals: &[Variable; 4],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
-    domain_size: usize,
+    gen_inv_var: Variable,
 ) -> Result<Vec<Variable>, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -571,10 +616,6 @@ where
 
     // Now calculate lookup scalars if they are present
     let (lookup_prod_coeff, h_2_coeff) = if let Some(lookup_evals) = lookup_evals {
-        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-        let gen_inv = domain.group_gen_inv;
-        let gen_inv_var = circuit.create_variable(gen_inv)?;
-
         let g_mul_one_plus_b = circuit.mul_add(
             &[
                 circuit.one(),
