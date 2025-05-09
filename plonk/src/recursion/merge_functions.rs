@@ -608,9 +608,11 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 let (challenge, leftover) = bytes.split_at(31);
 
                 let pi_hash = circuit.create_variable(Fq254::from_le_bytes_mod_order(challenge))?;
-
                 let leftover_var =
                     circuit.create_variable(Fq254::from_le_bytes_mod_order(leftover))?;
+
+                circuit.enforce_in_range(pi_hash, 8 * 31)?;
+                circuit.enforce_in_range(leftover_var, 6)?;
 
                 let coeff = Fq254::from(2u32).pow([248u64]);
 
@@ -737,9 +739,11 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 let (challenge, leftover) = bytes.split_at(31);
 
                 let pi_hash = circuit.create_variable(Fq254::from_le_bytes_mod_order(challenge))?;
-
                 let leftover_var =
                     circuit.create_variable(Fq254::from_le_bytes_mod_order(leftover))?;
+
+                circuit.enforce_in_range(pi_hash, 8 * 31)?;
+                circuit.enforce_in_range(leftover_var, 6)?;
 
                 let coeff = Fq254::from(2u32).pow([248u64]);
 
@@ -1680,6 +1684,9 @@ fn convert_to_hash_form(
     let low_var = circuit.create_variable(low_elem)?;
     let high_var = circuit.create_variable(high_elem)?;
 
+    circuit.enforce_in_range(low_var, 8 * 31)?;
+    circuit.enforce_in_range(high_var, 6)?;
+
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],
         &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
@@ -1706,6 +1713,9 @@ fn convert_to_hash_form_fq254(
 
     let low_var = circuit.create_variable(low_elem)?;
     let high_var = circuit.create_variable(high_elem)?;
+
+    circuit.enforce_in_range(low_var, 8 * 31)?;
+    circuit.enforce_in_range(high_var, 6)?;
 
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],
