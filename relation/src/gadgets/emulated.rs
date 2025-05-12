@@ -350,7 +350,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
             E::NUM_LIMBS,
         );
 
-        // enforcing a * b - k * E::MODULUS = c mod 2^t
+        // enforcing a * b - k * E::MODULUS = c mod 2^T
 
         // first compare the first limb
         let mut val_carry_out =
@@ -438,6 +438,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
 
         // enforcing a * b - k * E::MODULUS = c mod F::MODULUS
+        // Here our use of `mod_to_native_field` is valid as we don't
+        // actually care what `a`, `b`, `c` and `k` are modulo `F::MODULUS`.
+        // We are using `mod_to_native_field` to constrain an integer relationship
+        // by constraining everything modulo `F::MODULUS` and modulo `2^T`.
         let a_mod = self.mod_to_native_field(a)?;
         let b_mod = self.mod_to_native_field(b)?;
         let k_mod = self.mod_to_native_field(&k)?;
@@ -506,7 +510,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
             E::NUM_LIMBS,
         );
 
-        // enforcing a * b - k * E::MODULUS = c mod 2^t
+        // enforcing a * b - k * E::MODULUS = c mod 2^T
 
         // first compare the first limb
         let mut val_carry_out =
@@ -569,6 +573,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
 
         // enforcing a * b - k * E::MODULUS = c mod F::MODULUS
+        // Here our use of `mod_to_native_field` is valid as we don't
+        // actually care what `a`, `b`, `c` and `k` are modulo `F::MODULUS`.
+        // We are using `mod_to_native_field` to constrain an integer relationship
+        // by constraining everything modulo `F::MODULUS` and modulo `2^T`.
         let a_mod = self.mod_to_native_field(a)?;
         let b_mod = F::from(val_b);
         let k_mod = self.mod_to_native_field(&k)?;
@@ -877,10 +885,14 @@ impl<F: PrimeField> PlonkCircuit<F> {
         Ok(a_field_elems_vars)
     }
 
-    /// Given an emulated field element `a`, return `a mod F::MODULUS` in the
-    /// native field. This does not ensure that the `EmulatedVariable` is represents
-    /// an integer less than `E::MODULUS`. Usually this check is required, in which
-    /// case use `mod_to_native_field`.
+    /// Given an emulated field element `a`, return `a mod F::MODULUS` in the native
+    /// field. This does not ensure that the `EmulatedVariable` represents an
+    /// integer less than `E::MODULUS`. This is because it is assumed that `a`
+    /// represents an integer less than `2^n`, the smallest power of 2 greater than
+    /// `E::MODULUS`. This ensures that this function will return a `Variable`
+    /// representing either `a mod F::MODULUS` or `a + E::MODULUS mod F::MODULUS`.
+    /// Since `mod_to_native_field` is nearly always used on a randomly squeezed
+    /// scalar, this is good enough.
     pub fn mod_to_native_field<E: EmulationConfig<F>>(
         &mut self,
         a: &EmulatedVariable<E>,
