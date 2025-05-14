@@ -448,6 +448,11 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_arithmetization()?;
 
+        ark_std::println!(
+            "decider circuit num public inputs: {:?}",
+            circuit.public_input()?.len(),
+        );
+
         // Run the following code only when testing
         #[cfg(test)]
         {
