@@ -1045,10 +1045,11 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-    type ChallengesAndTranscript = (MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>);
+    let mut bn254_acc_vars = Vec::<Variable>::new();
+    let mut pi_hash_vars = Vec::<Variable>::new();
 
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
-    let (next_grumpkin_challenges, pi_hash_vars): (Vec<ChallengesAndTranscript>, Vec<usize>) =
+    let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
         izip!(
             grumpkin_info.bn254_outputs.chunks_exact(2),
             grumpkin_info.grumpkin_outputs.iter(),
@@ -1146,6 +1147,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 .flatten()
                 .collect::<Vec<Variable>>();
 
+                bn254_acc_vars.extend_from_slice(&bn254_acc);
+
                 let bn254_pi_hashes = bn254_outputs
                     .iter()
                     .map(|bn| circuit.create_variable(bn.pi_hash))
@@ -1198,6 +1201,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
                 )?;
 
+                pi_hash_vars.push(pi_hash);
+
                 // For checking correctness during testing
                 #[cfg(test)]
                 {
@@ -1215,12 +1220,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
                 >(output, &vk_var, circuit)?;
-                Ok((next_grumpkin_challenges, pi_hash))
+                Ok(next_grumpkin_challenges)
             },
         )
-        .collect::<Result<Vec<(ChallengesAndTranscript, usize)>, CircuitError>>()?
-        .into_iter()
-        .unzip();
+        .collect::<Result<Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)>, CircuitError>>()?;
 
     let mut transcript = next_grumpkin_challenges[0].1.clone();
 
@@ -1266,27 +1269,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             .try_for_each(|var| circuit.set_variable_public(*var))
     })?;
 
-    let forwarded_acc_elems = grumpkin_info
-        .forwarded_acumulators
-        .iter()
-        .flat_map(|acc| {
-            let point = Point::<Fq254>::from(acc.comm);
-            let opening_proof = Point::<Fq254>::from(acc.opening_proof.proof);
-            point
-                .coords()
-                .iter()
-                .chain(opening_proof.coords().iter())
-                .flat_map(|coord| {
-                    let bytes = coord.into_bigint().to_bytes_le();
-                    bytes_to_field_elements::<_, Fr254>(bytes)[1..].to_vec()
-                })
-                .collect::<Vec<Fr254>>()
-        })
-        .collect::<Vec<Fr254>>();
-    let _ = forwarded_acc_elems
-        .into_iter()
-        .map(|elem| circuit.create_public_variable(elem))
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    for var in bn254_acc_vars.iter() {
+        circuit.set_variable_public(*var)?;
+    }
 
     acc_comm
         .get_coords()
@@ -1305,18 +1290,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
     // Finally pi hashes are constructed to fit into either field
-    let _ = grumpkin_info
-        .grumpkin_outputs
-        .iter()
-        .zip(pi_hash_vars.iter())
-        .map(|(output, pi_hash_var)| {
-            let pi_var = circuit.create_public_variable(Fr254::from_le_bytes_mod_order(
-                &output.pi_hash.into_bigint().to_bytes_le(),
-            ))?;
-            circuit.enforce_equal(pi_var, *pi_hash_var)?;
-            Ok(pi_var)
-        })
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    for var in pi_hash_vars.iter() {
+        circuit.set_variable_public(*var)?;
+    }
 
     let specific_pi_field = specific_pi
         .into_iter()
