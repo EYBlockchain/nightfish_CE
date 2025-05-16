@@ -1684,9 +1684,6 @@ fn convert_to_hash_form(
     let low_var = circuit.create_variable(low_elem)?;
     let high_var = circuit.create_variable(high_elem)?;
 
-    circuit.enforce_in_range(low_var, 8 * 31)?;
-    circuit.enforce_in_range(high_var, 6)?;
-
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],
         &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
@@ -1713,9 +1710,6 @@ fn convert_to_hash_form_fq254(
 
     let low_var = circuit.create_variable(low_elem)?;
     let high_var = circuit.create_variable(high_elem)?;
-
-    circuit.enforce_in_range(low_var, 8 * 31)?;
-    circuit.enforce_in_range(high_var, 6)?;
 
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],
