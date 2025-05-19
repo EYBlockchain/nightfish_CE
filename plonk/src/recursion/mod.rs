@@ -253,10 +253,6 @@ pub trait RecursiveProver {
         bn254_circuit_out.specific_pi =
             [extra_checks_pi_field, bn254_circuit_out.specific_pi].concat();
 
-        ark_std::println!("Checking base bn254 circuit satisfiability");
-        let pi = circuit.public_input()?;
-        circuit.check_circuit_satisfiability(&pi)?;
-
         #[cfg(test)]
         {
             ark_std::println!(
@@ -266,6 +262,10 @@ pub trait RecursiveProver {
         }
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
+
+        ark_std::println!("Checking base bn254 circuit satisfiability");
+        let pi = circuit.public_input()?;
+        circuit.check_circuit_satisfiability(&pi)?;
 
         // Run the following code only when testing
         #[cfg(test)]
