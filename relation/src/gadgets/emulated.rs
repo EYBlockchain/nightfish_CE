@@ -291,12 +291,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
                 let lower_val = val.clone() % (BigUint::from(2u32).pow(power));
                 let lower_var = self.create_variable(F::from(lower_val))?;
                 emu_var_vec.push(lower_var);
-                self.enforce_in_range(lower_var, power as usize)?;
                 coeff_vec.push(coeff);
 
                 let carry_val = val / (BigUint::from(2u32).pow(power));
                 carry_var = self.create_variable(F::from(carry_val))?;
-                self.enforce_in_range(carry_var, E::B - power as usize)?;
 
                 // `lower_var` and `carry_var` must decompose the `Variable` that straddles two `field_limb_vars`.
                 self.lin_comb_gate(
