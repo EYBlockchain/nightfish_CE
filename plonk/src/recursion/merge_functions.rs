@@ -21,7 +21,10 @@ use itertools::izip;
 use jf_relation::{
     errors::CircuitError,
     gadgets::{
-        ecc::{EmulMultiScalarMultiplicationCircuit, Point, PointVariable},
+        ecc::{
+            EmulMultiScalarMultiplicationCircuit, MultiScalarMultiplicationCircuit, Point,
+            PointVariable,
+        },
         EmulatedVariable,
     },
     Circuit, PlonkCircuit, Variable,
@@ -57,7 +60,6 @@ use crate::{
 };
 
 use super::circuits::{
-    atomic_acc::atomic_accumulate,
     challenges::MLEProofChallenges,
     fft_arithmetic::{calculate_recursion_scalars, calculate_recursion_scalars_base},
     mle_arithmetic::combine_mle_proof_scalars,
@@ -437,9 +439,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         combine_fft_proof_scalars_round_one(&pcs_infos, &r_powers)
     };
 
-    // The instance scalars are given below, the proof scalars are just the powers of r.
-    let instance_scalars: Vec<Fr254> = [scalars.as_slice(), &r_powers[2..]].concat();
-
     // Append the extra accumulator commitments to `bases` for the atomic accumulation.
     bases.extend_from_slice(
         &bn254info
@@ -460,8 +459,36 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         )
         .collect::<Vec<_>>();
     // Now perform the MSM for the accumulation, we only do this in the circuit as the procedure for proving and verifying is identical.
-    let (acc_instance, acc_point) =
-        atomic_accumulate(circuit, &instance_scalars, &bases, &r_powers, &proof_bases)?;
+    let scalar_vars = scalars
+        .iter()
+        .map(|s| circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(s)))
+        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let proof_scalar_vars = r_powers
+        .iter()
+        .map(|s| circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(s)))
+        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let instance_scalar_vars = [scalar_vars.as_slice(), &proof_scalar_vars[2..]].concat();
+
+    let instance_base_vars = bases
+        .iter()
+        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
+        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+    let proof_base_vars = proof_bases
+        .iter()
+        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
+        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+
+    let acc_instance = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
+        circuit,
+        &instance_base_vars,
+        &instance_scalar_vars,
+    )?;
+
+    let acc_proof = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
+        circuit,
+        &proof_base_vars[1..],
+        &proof_scalar_vars[1..],
+    )?;
 
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
@@ -649,14 +676,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
 
-        instance_scalars.iter().try_for_each(|x| {
-            let var = circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(x))?;
-            circuit.set_variable_public(var)
-        })?;
-        r_powers[..2].iter().try_for_each(|x| {
-            let var = circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(x))?;
-            circuit.set_variable_public(var)
-        })?;
+        instance_scalar_vars
+            .iter()
+            .try_for_each(|var| circuit.set_variable_public(*var))?;
+        proof_scalar_vars[..2]
+            .iter()
+            .try_for_each(|var| circuit.set_variable_public(*var))?;
         scalars_and_acc_evals
             .iter()
             .zip(bn254info.forwarded_acumulators.iter())
@@ -683,7 +708,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .get_coords()
             .iter()
             .try_for_each(|&var| circuit.set_variable_public(var))?;
-        acc_point
+        acc_proof
             .get_coords()
             .iter()
             .try_for_each(|&var| circuit.set_variable_public(var))?;
@@ -698,7 +723,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<Fq254>, CircuitError>>()?;
 
         let acc_instance_point = circuit.point_witness(&acc_instance)?;
-        let acc_proof_point = circuit.point_witness(&acc_point)?;
+        let acc_proof_point = circuit.point_witness(&acc_proof)?;
 
         let acc_instance_real: Affine<BnConfig> = acc_instance_point.into();
         let acc_proof_real: Affine<BnConfig> = acc_proof_point.into();
@@ -780,15 +805,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
 
-        instance_scalars.iter().try_for_each(|x| {
-            let var = circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(x))?;
-            circuit.set_variable_public(var)
-        })?;
+        instance_scalar_vars
+            .iter()
+            .try_for_each(|var| circuit.set_variable_public(*var))?;
 
-        r_powers[..2].iter().try_for_each(|x| {
-            let var = circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(x))?;
-            circuit.set_variable_public(var)
-        })?;
+        proof_scalar_vars[..2]
+            .iter()
+            .try_for_each(|var| circuit.set_variable_public(*var))?;
 
         // Since this is the first round of recursion there will be no forwarded accumulators
         // so we skip straight to the output accumulator.
@@ -797,7 +820,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .get_coords()
             .iter()
             .try_for_each(|&var| circuit.set_variable_public(var))?;
-        acc_point
+        acc_proof
             .get_coords()
             .iter()
             .try_for_each(|&var| circuit.set_variable_public(var))?;
@@ -812,7 +835,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<Fq254>, CircuitError>>()?;
 
         let acc_instance_point = circuit.point_witness(&acc_instance)?;
-        let acc_proof_point = circuit.point_witness(&acc_point)?;
+        let acc_proof_point = circuit.point_witness(&acc_proof)?;
 
         let acc_instance_real: Affine<BnConfig> = acc_instance_point.into();
         let acc_proof_real: Affine<BnConfig> = acc_proof_point.into();
@@ -860,7 +883,7 @@ fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> 
         opening_proofs.push(pcs_info.opening_proof.proof);
     }
 
-    // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars int he first list
+    // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
     if scalars_list.is_empty() {
         (vec![], vec![])
     } else {
@@ -952,7 +975,7 @@ fn combine_fft_proof_scalars_round_one(
         opening_proofs.push(pcs_info.opening_proof.proof);
     }
 
-    // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars int he first list
+    // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
     if scalars_list.is_empty() {
         (vec![], vec![])
     } else {

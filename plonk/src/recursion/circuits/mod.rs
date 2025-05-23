@@ -8,7 +8,6 @@ use nf_curves::grumpkin::Grumpkin;
 
 use crate::nightfall::{mle::zeromorph::Zeromorph, UnivariateIpaPCS};
 
-pub mod atomic_acc;
 pub mod challenges;
 pub mod emulated_mle_arithmetic;
 pub mod fft_arithmetic;
