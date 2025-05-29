@@ -69,6 +69,8 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<PCSInfoCircuit, CircuitError> {
+    let num_gates = circuit.num_gates();
+
     // First we convert the `output` into the relevant circuit variables.
     let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
 
@@ -104,6 +106,13 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
         &vk_k,
         vk.domain_size,
     )?;
+
+    if IS_BASE {
+        ark_std::println!(
+            "base partial verify num gates {:?}",
+            circuit.num_gates() - num_gates
+        );
+    }
 
     Ok(PCSInfoCircuit::new(scalars, transcript, challenges.u))
 }

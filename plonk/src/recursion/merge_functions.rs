@@ -1053,6 +1053,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
+
+    ark_std::println!("verifying key hash: {}", pk_grumpkin.verifying_key.hash());
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
 
