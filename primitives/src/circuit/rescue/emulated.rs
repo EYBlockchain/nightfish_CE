@@ -968,12 +968,14 @@ mod tests {
                 )
                 .unwrap();
 
-                ark_std::println!(
-                    "num_gates: {}, input_len: {}, output_len: {}",
-                    circuit.num_gates() - num_gates,
-                    input_len,
-                    output_len
-                );
+                if output_len == 1 {
+                    ark_std::println!(
+                        "num_gates: {}, input_len: {}, output_len: {}",
+                        circuit.num_gates() - num_gates,
+                        input_len,
+                        output_len
+                    );
+                }
 
                 // Check consistency between inputs
                 for i in 0..input_len {
@@ -1000,6 +1002,64 @@ mod tests {
                 circuit.set_emulated_witness(&out_var[0], w);
             }
         }
+    }
+
+    #[test]
+    fn test_large_rescue_sponge_with_padding() {
+        test_large_rescue_sponge_with_padding_helper::<FqEd377, Fq377>();
+        test_large_rescue_sponge_with_padding_helper::<Fr254, Fq254>();
+        test_large_rescue_sponge_with_padding_helper::<Fq254, Fr254>()
+    }
+    fn test_large_rescue_sponge_with_padding_helper<E, F>()
+    where
+        F: PrimeField,
+        E: EmulationConfig<F> + RescueParameter,
+    {
+        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+
+        let input_vec: Vec<E> = (0..140).map(|i| E::from((i + 10) as u32)).collect();
+        let input_var: Vec<EmulatedVariable<E>> = input_vec
+            .iter()
+            .map(|x| circuit.create_emulated_variable(*x).unwrap())
+            .collect();
+
+        let num_gates = circuit.num_gates();
+
+        let out_var = RescueEmulatedGadget::<E, F>::rescue_sponge_with_padding(
+            &mut circuit,
+            &input_var,
+            1,
+        )
+        .unwrap();
+
+        ark_std::println!(
+            "num_gates: {}",
+            circuit.num_gates() - num_gates,
+        );
+
+        // Check consistency between inputs
+        for i in 0..140 {
+            assert_eq!(
+                input_vec[i],
+                circuit.emulated_witness(&input_var[i]).unwrap()
+            );
+        }
+
+        // Check consistency between outputs
+        let expected_hash = RescueCRHF::sponge_with_bit_padding(&input_vec, 1);
+
+        for (&e, f) in expected_hash.iter().zip(out_var.iter()) {
+            assert_eq!(e, circuit.emulated_witness(f).unwrap());
+        }
+
+        // Check constraints
+        // good path
+        assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+        // bad path: incorrect output
+        let w = circuit.emulated_witness(&out_var[0]).unwrap();
+        circuit.set_emulated_witness(&out_var[0], E::from(1_u32));
+        assert!(circuit.check_circuit_satisfiability(&[]).is_err());
+        circuit.set_emulated_witness(&out_var[0], w);
     }
 
     #[test]
