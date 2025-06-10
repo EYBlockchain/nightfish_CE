@@ -1545,6 +1545,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
             .iter()
             .map(|&i| self.witness[i])
             .collect::<Vec<F>>();
+        ark_std::println!(
+            "Recursive arithmetization public input length: {:?}",
+            public_input.len()
+        );
         let new_public_input: F = H::hash_public_inputs::<F>(&public_input)
             .map_err(|_| CircuitError::InternalError("Public input hashing failed".to_string()))?;
 
@@ -1670,6 +1674,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
             .iter()
             .map(|&i| self.witness[i])
             .collect::<Vec<F>>();
+        ark_std::println!(
+            "Recursive MLE arithmetization public input length: {:?}",
+            public_input.len()
+        );
         let new_public_input: F = H::hash_public_inputs::<F>(&public_input)
             .map_err(|_| CircuitError::InternalError("Public input hashing failed".to_string()))?;
 
