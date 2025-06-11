@@ -1111,6 +1111,55 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
         Ok(())
     }
+
+    /// Hash the public input in a circuit
+    /// As this is done in the verifier circuit as well, this is an emulated hash
+    pub fn emulated_hash_public_inputs<E: EmulationConfig<F>>(
+        &self,
+        pub_inputs: &Vec<Variable>,
+    ) -> Result<Variable, CircuitError> {
+        let mut input = Vec::<EmulatedVariable<E>>::new();
+        let e_modulus: BigUint = E::MODULUS.into();
+        let f_modulus: BigUint = F::MODULUS.into();
+        let size_check = e_modulus >= f_modulus;
+
+        for var in pub_inputs.iter() {
+            let emu_var = self.to_emulated_variable(*var)?;
+            if size_check {
+                input.push(emu_var);
+            } else {
+                let two_power = BigUint::from(1u8) << 248;
+                let big_uint_val: BigUint = self.emulated_witness(&emu_var)?.into_bigint().into();
+                let lower_val: BigUint = big_uint_val % two_power;
+                let upper_val: BigUint = big_uint_val / two_power;
+                let lower_var = self.create_emulated_variable(
+                    E::from_le_bytes_mod_order(&lower_val.to_bytes_le()),
+                )?;
+                let upper_var = self.create_emulated_variable(
+                    E::from_le_bytes_mod_order(&upper_val.to_bytes_le()),
+                )?;
+                let prod_var = self.emulated_mul_constant(&upper_var, E::from(2u32).pow([248]))?;
+                self.emulated_add_gate(&lower_var, &prod_var, &emu_var)?;
+
+                input.extend_from_slice(&[lower_var, upper_var]);
+            }
+        }
+        let output = Self::sponge_with_bit_padding(&input, 1)[0];
+
+        // Find the byte length of the scalar field (minus one).
+        let field_bytes_length = (E::MODULUS_BIT_SIZE as usize - 1) / 8;
+        let hash = E::from_le_bytes_mod_order(
+            output
+                .into_bigint()
+                .to_bytes_le()
+                .iter()
+                .take(field_bytes_length)
+                .copied()
+                .collect::<Vec<u8>>()
+                .as_slice(),
+        );
+        Ok(hash)
+    }
 }
 
 impl EmulationConfig<ark_bn254::Fr> for ark_bls12_377::Fq {
