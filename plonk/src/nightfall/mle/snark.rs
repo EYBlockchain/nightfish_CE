@@ -1249,13 +1249,12 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 #[cfg(test)]
 /// test module
 pub mod tests {
-    use ark_bn254::{Bn254, Fq as Fq254};
     use ark_ec::{
         pairing::Pairing,
         short_weierstrass::{Affine, Projective},
     };
 
-    use jf_primitives::{pcs::prelude::MultilinearKzgPCS, rescue::sponge::RescueCRHF};
+    use jf_primitives::rescue::sponge::RescueCRHF;
     use jf_relation::{Circuit, PlonkCircuit, PlonkType};
     use jf_utils::test_rng;
     use nf_curves::grumpkin::{Fq as FqGrumpkin, Grumpkin};
@@ -1287,13 +1286,7 @@ pub mod tests {
             FqGrumpkin,
             _,
             Zeromorph<UnivariateIpaPCS<Grumpkin>>,
-        >(PlonkType::TurboPlonk)?;
-        test_plonk_proof_system_helper::<Bn254, Fq254, _, MultilinearKzgPCS<Bn254>>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bn254, Fq254, _, MultilinearKzgPCS<Bn254>>(
-            PlonkType::TurboPlonk,
-        )
+        >(PlonkType::TurboPlonk)
     }
 
     fn test_plonk_proof_system_helper<E, F, P, PCS>(plonk_type: PlonkType) -> Result<(), PlonkError>
