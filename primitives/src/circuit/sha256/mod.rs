@@ -885,6 +885,10 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         let other_bits = first_limb >> 4;
         let low_bits_var = self.create_variable(F::from(first_four_bits))?;
         let high_bits_var = self.create_variable(F::from(other_bits))?;
+
+        self.enforce_in_range(low_bits_var, 4)?;
+        self.enforce_in_range(high_bits_var, 28)?;
+
         self.lc_gate(
             &[
                 low_bits_var,
@@ -1314,12 +1318,6 @@ mod tests {
             }
 
             circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
-
-            ark_std::println!(
-                "num field elements: {}, circuit size: {}",
-                num_field_elems,
-                circuit.num_gates()
-            );
             circuit.check_circuit_satisfiability(&[])?;
 
             for i in 0..32 {
@@ -1366,12 +1364,6 @@ mod tests {
         }
 
         circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
-
-        ark_std::println!(
-            "num field elements: {}, circuit size: {}",
-            num_field_elems,
-            circuit.num_gates()
-        );
         circuit.check_circuit_satisfiability(&[])?;
 
         for i in 0..32 {
