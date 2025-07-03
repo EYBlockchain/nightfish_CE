@@ -575,7 +575,7 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         let mut last_rot = 0_u32;
         let mut output_vars = [Variable::default(); 4];
         for (i, rot) in ext_rots.iter().enumerate() {
-            // rot_diff is the size of the chunk of the inout we want represented by 'output_var'
+            // rot_diff is the size of the chunk of the input we want represented by 'output_var'
             let rot_diff = *rot as i32 - last_rot as i32;
             if rot_diff <= 0 || rot_diff >= 32 {
                 return Err(CircuitError::ParameterError(
@@ -624,6 +624,12 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
 
             last_rot = *rot;
         }
+        let mut coeffs = vec![F::one()];
+        for rot in rots {
+            coeffs.push(F::from(2u8).pow([*rot as u64 * 2]));
+        }
+        self.lin_comb_gate(&coeffs, &F::zero(), &output_vars, var)?;
+
         Ok(output_vars)
     }
 
