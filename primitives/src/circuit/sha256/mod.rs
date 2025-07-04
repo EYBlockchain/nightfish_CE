@@ -73,7 +73,7 @@ type CompOutputVar = [Variable; 8];
 // Takes a non-spread BigUint element < 2^{11} and returns the spread version.
 // Also returns the floor(log_2(input)) + 1. This is '0' if 'input = 0'.
 // Returns 'None' if input is outside desired range.
-// Takes in a BigUint and outputs an F, as this will be must useful.
+// Takes in a BigUint and outputs an F, as this will be most useful.
 fn field_to_spread_field<F: PrimeField>(non_spread_big_uint: &BigUint) -> Option<(F, u32)> {
     // We first check if input 'BigUint' is less than 2^{11}.
     if *non_spread_big_uint >= BigUint::from(2048_u32) {
@@ -91,25 +91,9 @@ fn field_to_spread_field<F: PrimeField>(non_spread_big_uint: &BigUint) -> Option
     Some((spread_val, log_val))
 }
 
-fn new_field_to_spread_field<F: PrimeField>(input: u32) -> Option<(F, u32)> {
-    if input >= 2048u32 {
-        return None;
-    }
-
-    let mut spread_val = 0u32;
-    for i in 0..11 {
-        if (input >> i) & 1 == 1 {
-            spread_val += 1 << (2 * i);
-        }
-    }
-
-    let log_val = if input != 0 { input.ilog2() + 1 } else { 0 };
-    Some((F::from(spread_val), log_val))
-}
-
 // Essentially the inverse of 'field_to_spread_field'. Also returns the floor(log_2(input)) + 1.
 // Returns 'None' if input has no inverse.
-// Takes in a BigUint and outputs an F, as this will be must useful.
+// Takes in a BigUint and outputs an F, as this will be most useful.
 fn spread_field_to_field<F: PrimeField>(spread_big_uint: &BigUint) -> Option<(F, u32)> {
     // We first check if input 'BigUint' is less than 4^{11}.
     if *spread_big_uint >= BigUint::from(4194304_u32) {
@@ -133,7 +117,6 @@ fn spread_field_to_field<F: PrimeField>(spread_big_uint: &BigUint) -> Option<(F,
 
 // Takes a non-spread element < 2^{32} and returns the spread version.
 // Returns 'None' if input is outside desired range.
-// Takes in a BigUint and outputs an F, as this will be must useful.
 fn big_field_to_spread_field<F: PrimeField>(input: u32) -> F {
     let mut spread_val = 0u64;
     for i in 0..32 {
@@ -152,7 +135,7 @@ pub trait Sha256HashGadget<F: Sha256Params> {
     /// If 'range_check' is true, we do the range check 'val' < 2^{32}.
     fn non_spread_to_field_chunks(
         &mut self,
-        input: u32,
+        var: &Variable,
         range_check: bool,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<(FieldChunksVar, FieldChunksVar), CircuitError>;
@@ -284,22 +267,26 @@ pub trait Sha256HashGadget<F: Sha256Params> {
 impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
     fn non_spread_to_field_chunks(
         &mut self,
-        input: u32,
+        var: &Variable,
         range_check: bool,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<(FieldChunksVar, FieldChunksVar), CircuitError> {
-        let chunks = (0..3)
-            .map(|j| (input >> (11 * j)) & 2047)
-            .collect::<Vec<_>>();
+        let big_uint_val: BigUint = self.witness(*var)?.into_bigint().into();
 
         let mut non_spread_chunks_var = [Variable::default(); 3];
         let mut spread_chunks_var = [Variable::default(); 3];
 
-        for (i, chunk) in chunks.into_iter().enumerate() {
-            let (spread_val, log_val) = new_field_to_spread_field::<F>(chunk).ok_or(
-                CircuitError::ParameterError("invalid input to field_to_spread_field".to_string()),
+        for i in 0..3 {
+            // 'chunk_val' will represent the next 11 least significant bits of 'big_uint_val'
+            let chunk_val =
+                (&big_uint_val / BigUint::from(2048_u32).pow(i as u32)) % BigUint::from(2048_u32);
+            let non_spread_val =
+                F::from(chunk_val.to_u32().ok_or(CircuitError::ParameterError(
+                    "cannot convert BigUint into u32 as too big".to_string(),
+                ))?);
+            let (spread_val, log_val) = field_to_spread_field::<F>(&chunk_val).ok_or(
+                CircuitError::ParameterError("invalid input to spread_field_to_field".to_string()),
             )?;
-            let non_spread_val = F::from(chunk);
             let non_spread_var = self.create_variable(non_spread_val)?;
             let spread_var = self.create_variable(spread_val)?;
             let log_var = self.create_variable(F::from(log_val))?;
@@ -312,17 +299,16 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
                 self.add_range_check_variable(shifted_log_var)?;
             }
 
-            non_spread_chunks_var[i] = non_spread_var;
-            spread_chunks_var[i] = spread_var;
+            non_spread_chunks_var[i as usize] = non_spread_var;
+            spread_chunks_var[i as usize] = spread_var;
         }
 
-        let var = self.create_variable(F::from(input))?;
         self.lin_comb_gate(
             // coefficients are [1, 2^{11}, 2^{22}]
-            &[F::one(), F::from(2048_u32), F::from(4194304_u32)],
+            &[F::one(), F::from(2048_u64), F::from(4194304_u32)],
             &F::zero(),
             &non_spread_chunks_var,
-            &var,
+            var,
         )?;
         Ok((non_spread_chunks_var, spread_chunks_var))
     }
@@ -511,17 +497,9 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         non_spread_vars.push(overflow_var);
         // The mod 2^{32} relation.
         let non_spread_result_var = self.lin_comb(&coeffs, constant, &non_spread_vars)?;
-        let non_spread_result_big_uint: BigUint =
-            self.witness(non_spread_result_var)?.into_bigint().into();
-        let non_spread_result_u32 =
-            non_spread_result_big_uint
-                .to_u32()
-                .ok_or(CircuitError::ParameterError(
-                    "cannot convert BigUint into u32 as too big".to_string(),
-                ))?;
         // We output the spread form of the output of the mod 2^{32} calculation.
         let (_, spread_result_chunks_var) =
-            self.non_spread_to_field_chunks(non_spread_result_u32, true, lookup_vars)?;
+            self.non_spread_to_field_chunks(&non_spread_result_var, true, lookup_vars)?;
         self.lin_comb(
             // coefficients are [1, 2^{22}, 2^{44}]
             &[F::one(), F::from(4194304_u32), F::from(17592186044416_u64)],
@@ -597,7 +575,7 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         let mut last_rot = 0_u32;
         let mut output_vars = [Variable::default(); 4];
         for (i, rot) in ext_rots.iter().enumerate() {
-            // rot_diff is the size of the chunk of the inout we want represented by 'output_var'
+            // rot_diff is the size of the chunk of the input we want represented by 'output_var'
             let rot_diff = *rot as i32 - last_rot as i32;
             if rot_diff <= 0 || rot_diff >= 32 {
                 return Err(CircuitError::ParameterError(
@@ -646,6 +624,12 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
 
             last_rot = *rot;
         }
+        let mut coeffs = vec![F::one()];
+        for rot in rots {
+            coeffs.push(F::from(2u8).pow([*rot as u64 * 2]));
+        }
+        self.lin_comb_gate(&coeffs, &F::zero(), &output_vars, var)?;
+
         Ok(output_vars)
     }
 
@@ -735,7 +719,7 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
             for j in u32digits.into_iter().rev() {
                 let field_var = self.create_variable(F::from(j))?;
                 let (_, spread_field_chunks_var) =
-                    self.non_spread_to_field_chunks(j, true, lookup_vars)?;
+                    self.non_spread_to_field_chunks(&field_var, true, lookup_vars)?;
                 non_spread_field_vars.push(field_var);
                 spread_field_vars.push(self.lin_comb(
                     &[F::one(), F::from(4194304_u32), F::from(17592186044416_u64)],
@@ -885,6 +869,10 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         let other_bits = first_limb >> 4;
         let low_bits_var = self.create_variable(F::from(first_four_bits))?;
         let high_bits_var = self.create_variable(F::from(other_bits))?;
+
+        self.enforce_in_range(low_bits_var, 4)?;
+        self.enforce_in_range(high_bits_var, 28)?;
+
         self.lc_gate(
             &[
                 low_bits_var,
@@ -1314,12 +1302,6 @@ mod tests {
             }
 
             circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
-
-            ark_std::println!(
-                "num field elements: {}, circuit size: {}",
-                num_field_elems,
-                circuit.num_gates()
-            );
             circuit.check_circuit_satisfiability(&[])?;
 
             for i in 0..32 {
@@ -1366,12 +1348,6 @@ mod tests {
         }
 
         circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
-
-        ark_std::println!(
-            "num field elements: {}, circuit size: {}",
-            num_field_elems,
-            circuit.num_gates()
-        );
         circuit.check_circuit_satisfiability(&[])?;
 
         for i in 0..32 {
