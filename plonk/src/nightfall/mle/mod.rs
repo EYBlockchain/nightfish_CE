@@ -14,7 +14,7 @@ use ark_std::{sync::Arc, vec::Vec};
 #[cfg(any(test, feature = "test-srs"))]
 use jf_primitives::pcs::StructuredReferenceString;
 use jf_primitives::{
-    pcs::{prelude::MultilinearKzgPCS, Accumulation, PolynomialCommitmentScheme},
+    pcs::{Accumulation, PolynomialCommitmentScheme},
     rescue::RescueParameter,
 };
 use jf_relation::{
@@ -34,8 +34,6 @@ use self::{
 };
 
 use super::UnivariateIpaPCS;
-/// Type for permorming MLEPlonk with the mulitlinear KZG polynomial commitment scheme.
-pub type KZGMLEPlonk<E> = MLEPlonk<MultilinearKzgPCS<E>>;
 /// Type for permorming MLEPlonk with the univariate IPA polynomial commitment scheme and Zeromorph.
 pub type ZeromorphMLEPlonk<E> = MLEPlonk<Zeromorph<UnivariateIpaPCS<E>>>;
 

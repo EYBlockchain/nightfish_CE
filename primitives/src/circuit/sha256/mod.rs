@@ -92,7 +92,7 @@ fn field_to_spread_field<F: PrimeField>(non_spread_big_uint: &BigUint) -> Option
 }
 
 fn new_field_to_spread_field<F: PrimeField>(input: u32) -> Option<(F, u32)> {
-    if input > 2048u32 {
+    if input >= 2048u32 {
         return None;
     }
 

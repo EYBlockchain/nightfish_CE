@@ -272,60 +272,6 @@ fn fftplonk_recursive_prove_ultra_benchmark(c: &mut Criterion) {
     });
 }
 
-fn mleplonk_prove_turbo_benchmark(c: &mut Criterion) {
-    let rng = &mut jf_utils::test_rng();
-    let circuit =
-        gen_circuit_for_mle_bench::<Fr254>(NUM_GATES_LARGE, PlonkType::TurboPlonk).unwrap();
-
-    let num_vars = NUM_GATES_LARGE.ilog2() as usize;
-    let srs = MultilinearKzgPCS::<Bn254>::gen_srs_for_testing(rng, num_vars).unwrap();
-    let (pk, _) = MLEPlonk::<MultilinearKzgPCS<Bn254>>::preprocess_helper(&circuit, &srs).unwrap();
-
-    c.bench_function("Kzg MLE plonk prove", |b| {
-        b.iter(|| {
-            MLEPlonk::<MultilinearKzgPCS<Bn254>>::prove::<_, _, _, RescueTranscript<Fr254>>(
-                &circuit, &pk,
-            );
-        })
-    });
-}
-
-fn mleplonk_prove_ultra_benchmark(c: &mut Criterion) {
-    let rng = &mut jf_utils::test_rng();
-    let circuit =
-        gen_circuit_for_mle_bench::<Fr254>(NUM_GATES_LARGE, PlonkType::UltraPlonk).unwrap();
-
-    let num_vars = NUM_GATES_LARGE.ilog2() as usize;
-    let srs = MultilinearKzgPCS::<Bn254>::gen_srs_for_testing(rng, num_vars).unwrap();
-    let (pk, _) = MLEPlonk::<MultilinearKzgPCS<Bn254>>::preprocess_helper(&circuit, &srs).unwrap();
-
-    c.bench_function("Kzg MLE ultraplonk prove", |b| {
-        b.iter(|| {
-            MLEPlonk::<MultilinearKzgPCS<Bn254>>::prove::<_, _, _, RescueTranscript<Fr254>>(
-                &circuit, &pk,
-            );
-        })
-    });
-}
-
-fn mleplonk_kzg_solidity_prove_ultra_benchmark(c: &mut Criterion) {
-    let rng = &mut jf_utils::test_rng();
-    let circuit =
-        gen_circuit_for_mle_bench::<Fr254>(NUM_GATES_LARGE, PlonkType::UltraPlonk).unwrap();
-
-    let num_vars = NUM_GATES_LARGE.ilog2() as usize;
-    let srs = MultilinearKzgPCS::<Bn254>::gen_srs_for_testing(rng, num_vars).unwrap();
-    let (pk, _) = MLEPlonk::<MultilinearKzgPCS<Bn254>>::preprocess_helper(&circuit, &srs).unwrap();
-
-    c.bench_function("Kzg MLE Solidity ultraplonk prove", |b| {
-        b.iter(|| {
-            MLEPlonk::<MultilinearKzgPCS<Bn254>>::prove::<_, _, _, SolidityTranscript>(
-                &circuit, &pk,
-            );
-        })
-    });
-}
-
 fn mleplonk_prove_ultra_zeromorph_benchmark(c: &mut Criterion) {
     let rng = &mut jf_utils::test_rng();
     let circuit =

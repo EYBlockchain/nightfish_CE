@@ -6,7 +6,6 @@
 
 //! Polynomial Commitment Scheme
 pub mod errors;
-mod multilinear_kzg;
 mod poly;
 pub mod prelude;
 mod transcript;
