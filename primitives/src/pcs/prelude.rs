@@ -7,11 +7,6 @@
 //! Prelude
 pub use crate::pcs::{
     errors::PCSError,
-    multilinear_kzg::{
-        srs::{MultilinearProverParam, MultilinearUniversalParams, MultilinearVerifierParam},
-        util::{get_batched_nv, merge_polynomials},
-        MultilinearKzgBatchProof, MultilinearKzgPCS, MultilinearKzgProof, MLE,
-    },
     univariate_kzg::{
         srs::{UnivariateProverParam, UnivariateUniversalParams, UnivariateVerifierParam},
         UnivariateKzgBatchProof, UnivariateKzgPCS, UnivariateKzgProof,

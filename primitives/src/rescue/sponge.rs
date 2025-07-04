@@ -266,12 +266,13 @@ impl<T: RescueParameter, const RATE: usize> FieldBasedCryptographicSponge<T>
         // extract current rate before calling PRP again
         loop {
             let extract = remaining.min(RATE);
-            result.extend_from_slice(&self.state.vec[0..extract]);
+            result.extend_from_slice(&self.state.vec[..extract]);
+            // always permute
+            self.state = self.permutation.eval(&self.state);
             remaining -= extract;
             if remaining == 0 {
                 break;
             }
-            self.state = self.permutation.eval(&self.state)
         }
         result
     }
