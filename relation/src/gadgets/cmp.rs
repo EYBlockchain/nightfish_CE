@@ -254,29 +254,60 @@ impl<F: PrimeField> PlonkCircuit<F> {
         if self.support_lookup() {
             return self.is_gt_constant_lookup_internal(a, constant);
         }
-        let a_bits_le = self.unpack(a, F::MODULUS_BIT_SIZE as usize)?;
-        let const_bits_le = constant.into_bigint().to_bits_le();
+        if *constant + F::one() == F::zero() {
+            return Ok(BoolVar(self.zero()));
+        }
+        // We first determine if `a` can fit into `F::MODULUS_BIT_SIZE - 1` bits.
+        let a_big_unit: BigUint = self.witness(a)?.into_bigint().into();
+        let less_than_half = a_big_unit < BigUint::from(1_u8) << (F::MODULUS_BIT_SIZE - 1);
+        let less_than_half_var = self.create_boolean_variable(less_than_half)?;
 
+        // If `a` is greater than or equal to 2^(F::MODULUS_BIT_SIZE - 1), we can unpack `-a` instead
+        let neg_a = self.sub(self.zero(), a)?;
+        let var_to_cmp = self.conditional_select(less_than_half_var, neg_a, a)?;
+        let bits_to_cmp = self.unpack(var_to_cmp, F::MODULUS_BIT_SIZE as usize - 1)?;
+
+        // We compare `var_to_cmp` with both `constant` and `-constant-1`.
         // Iterating from LSB to MSB. Skip the front consecutive 1's.
         // Put an OR gate for bit 0 and an AND gate for bit 1.
-        let mut zipped = const_bits_le
-            .into_iter()
-            .chain(ark_std::iter::repeat(false))
-            .take(a_bits_le.len())
-            .zip(a_bits_le.iter())
-            .skip_while(|(b, _)| *b);
-        if let Some((_, &var)) = zipped.next() {
-            zipped.try_fold(var, |current, (b, a)| -> Result<BoolVar, CircuitError> {
-                if b {
-                    self.logic_and(*a, current)
-                } else {
-                    self.logic_or(*a, current)
-                }
-            })
-        } else {
-            // the constant is all one
-            Ok(BoolVar(self.zero()))
+        // We compare `var_to_cmp` with both `constant` and `-constant`.
+        let mut res_bools = Vec::<BoolVar>::new();
+        for c in [*constant, -*constant - F::one()] {
+            let c_bigint = c.into_bigint();
+            if c >= F::from(2u8).pow([F::MODULUS_BIT_SIZE as u64 - 1]) {
+                res_bools.push(BoolVar(self.zero()));
+                continue;
+            }
+            let c_bits_le = c_bigint.to_bits_le();
+            let mut zipped = c_bits_le
+                .into_iter()
+                .chain(ark_std::iter::repeat(false))
+                .take(bits_to_cmp.len())
+                .zip(bits_to_cmp.iter())
+                .skip_while(|(b, _)| *b);
+            let res_bool = if let Some((_, &var)) = zipped.next() {
+                zipped.try_fold(var, |current, (b, a)| -> Result<BoolVar, CircuitError> {
+                    if b {
+                        self.logic_and(*a, current)
+                    } else {
+                        self.logic_or(*a, current)
+                    }
+                })
+            } else {
+                // the constant is all one
+                Ok(BoolVar(self.zero()))
+            }?;
+            res_bools.push(res_bool);
         }
+
+        // If `a` can fit into `F::MODULUS_BIT_SIZE - 1` bits, we take `res_bools[0]`.
+        // if `-a` can fit into `F::MODULUS_BIT_SIZE - 1` bits, we take not `res_bools[1]`.
+        let not_res_bool1 = self.logic_neg(res_bools[1])?;
+        Ok(BoolVar(self.conditional_select(
+            less_than_half_var,
+            not_res_bool1.0,
+            res_bools[0].0,
+        )?))
     }
 
     // Function designed specifically for when lookups are enabled to
@@ -289,7 +320,6 @@ impl<F: PrimeField> PlonkCircuit<F> {
         if *constant + F::one() == F::zero() {
             return Ok(BoolVar(self.zero()));
         }
-
         let big_int_const_0: BigUint = constant.into_bigint().into() + BigUint::from(1u8);
         let num_bits_0 = big_int_const_0.bits() as usize - 1;
         let big_int_power_constant_0: BigUint = BigUint::from(1_u8) << num_bits_0;
