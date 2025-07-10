@@ -672,6 +672,7 @@ pub trait RecursiveProver {
         extra_decider_info: &[Fr254],
         extra_base_info: &[Vec<Fr254>],
     ) -> Result<RecursiveProof, PlonkError> {
+        ark_std::println!("JJ: am provingg recursive proof");
         // First check that we have the same number of outputs and pi's and that they are also non-zero in length
         if outputs_and_circuit_type.len() != specific_pi.len() {
             return Err(PlonkError::InvalidParameters(format!(
@@ -706,12 +707,34 @@ pub trait RecursiveProver {
         let merge_grumpkin_pk = Self::get_merge_grumpkin_pk();
         let merge_bn254_pk = Self::get_merge_bn254_pk();
         let decider_pk = Self::get_decider_pk();
+        ark_std::println!(
+            "JJ: base_grumpkin_pk: {:?}, base_bn254_pk: {:?}, merge_grumpkin_pk: {:?}, merge_bn254_pk: {:?}, decider_pk: {:?}",
+            base_grumpkin_pk, base_bn254_pk, merge_grumpkin_pk, merge_bn254_pk, decider_pk
+        );
 
         let kzg_srs = UnivariateUniversalParams::<Bn254> {
             powers_of_g: decider_pk.commit_key.powers_of_g.clone(),
             h: decider_pk.vk.open_key.h,
             beta_h: decider_pk.vk.open_key.beta_h,
         };
+        // Chunking Inputs:
+        // The code takes the list of base proof outputs (outputs), their public inputs (specific_pi), and their verifying keys (circuit_indices), and splits each into chunks of 2.
+        // This is because the recursion tree aggregates proofs in pairs at each layer.
+        // Zipping Chunks:
+
+        // It zips together the corresponding chunks from each list, so each iteration gets a tuple of:
+        // 2 proof outputs,
+        // 2 sets of public inputs,
+        // 2 verifying keys.
+        // Type Conversion:
+
+        // Each chunk is converted into a fixed-size array of length 2 (required by the circuit interface).
+        // Calling the Base Grumpkin Circuit:
+
+        // For each pair, it calls Self::base_grumpkin_circuit, which creates a new circuit that verifies both proofs and their public inputs, and accumulates them for the next recursion layer.
+        // Collecting Results:
+
+        // The results (one per pair) are collected into a vector. Each result is a GrumpkinOut, which contains the new circuit and its output.
         let base_grumpkin_out = cfg_chunks!(outputs, 2)
             .zip(cfg_chunks!(specific_pi, 2))
             .zip(cfg_chunks!(circuit_indices, 2))
@@ -734,7 +757,20 @@ pub trait RecursiveProver {
                 Self::base_grumpkin_circuit(out_slice, pi_slice, vk_indices, &kzg_srs)
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+        // Start with base_grumpkin_out:
 
+        // This is a vector of GrumpkinOut (each is a tuple: a circuit and its output), produced by the previous step where base proofs were aggregated in pairs.
+        // Chunking:
+
+        // .chunks(2) splits the vector into groups of 2. This is because the recursion tree aggregates proofs in pairs at each layer.
+        // Collecting and Converting:
+
+        // For each chunk (which is an iterator over 2 GrumpkinOut), it collects them into a Vec<GrumpkinOut>, then tries to convert that into a fixed-size array [GrumpkinOut; 2].
+        // If the chunk is not exactly 2 elements, it returns an error.
+        // Result:
+
+        // We get a Vec<[GrumpkinOut; 2]>, i.e., a vector of arrays, each array containing exactly 2 GrumpkinOut.
+        // This is the format needed for the next layer of recursion, which expects pairs of proofs/circuits as input.
         let base_grumpkin_chunks: Vec<[GrumpkinOut; 2]> = base_grumpkin_out
             .into_iter()
             .chunks(2)
@@ -747,7 +783,13 @@ pub trait RecursiveProver {
                 })
             })
             .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
-
+        // Iterate over all verifying keys (circuit_indices).
+        // Chunk them into groups of 4 using .chunks(4).
+        // For each chunk:
+        // Collect the chunk into a Vec<VerifyingKey<Kzg>>.
+        // Try to convert that vector into a fixed-size array [VerifyingKey<Kzg>; 4].
+        // If the chunk is not exactly 4 elements, return an error.
+        // Collect all these arrays into a vector: Vec<[VerifyingKey<Kzg>; 4]>.
         let vk_chunks = circuit_indices
             .into_iter()
             .chunks(4)
@@ -857,6 +899,53 @@ pub trait RecursiveProver {
                 .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
         }
 
+        // 1. How the recursion tree works for 64 proofs
+        // Step-by-step for 64 proofs:
+        // Start: 64 base proofs (BN254)
+        // Layer 1:
+        // Group into 32 pairs (chunks of 2) → 32 Grumpkin circuits (base_grumpkin_circuit)
+        // Layer 2:
+        // Group into 16 pairs (chunks of 2) → 16 GrumpkinOut arrays
+        // Group verifying keys into 16 groups of 4 → 16 [VerifyingKey<Kzg>; 4]
+        // 16 BN254 circuits (base_bn254_circuit)
+        // Layer 3:
+        // Group into 8 pairs (chunks of 2) → 8 [Bn254Out; 2]
+        // 8 Grumpkin circuits (merge_grumpkin_circuit)
+        // Layer 4:
+        // Group into 4 pairs (chunks of 2) → 4 [GrumpkinOut; 2]
+        // 4 BN254 circuits (merge_bn254_circuit)
+        // Layer 5:
+        // Group into 2 pairs (chunks of 2) → 2 [Bn254Out; 2]
+        // 2 Grumpkin circuits (merge_grumpkin_circuit)
+        // Final:
+        // 2 GrumpkinOut → decider_circuit
+        // 2. How the recursion tree works for 256 proofs
+        // Step-by-step for 256 proofs:
+        // Start: 256 base proofs (BN254)
+        // Layer 1:
+        // Group into 128 pairs (chunks of 2) → 128 Grumpkin circuits (base_grumpkin_circuit)
+        // Layer 2:
+        // Group into 64 pairs (chunks of 2) → 64 GrumpkinOut arrays
+        // Group verifying keys into 64 groups of 4 → 64 [VerifyingKey<Kzg>; 4]
+        // 64 BN254 circuits (base_bn254_circuit)
+        // Layer 3:
+        // Group into 32 pairs (chunks of 2) → 32 [Bn254Out; 2]
+        // 32 Grumpkin circuits (merge_grumpkin_circuit)
+        // Layer 4:
+        // Group into 16 pairs (chunks of 2) → 16 [GrumpkinOut; 2]
+        // 16 BN254 circuits (merge_bn254_circuit)
+        // Layer 5:
+        // Group into 8 pairs (chunks of 2) → 8 [Bn254Out; 2]
+        // 8 Grumpkin circuits (merge_grumpkin_circuit)
+        // Layer 6:
+        // Group into 4 pairs (chunks of 2) → 4 [GrumpkinOut; 2]
+        // 4 BN254 circuits (merge_bn254_circuit)
+        // Layer 7:
+        // Group into 2 pairs (chunks of 2) → 2 [Bn254Out; 2]
+        // 2 Grumpkin circuits (merge_grumpkin_circuit)
+        // Final:
+        // 2 GrumpkinOut → decider_circuit
+
         let decider_input: [GrumpkinOut; 2] = merge_grumpkin_out.try_into().map_err(|_| {
             PlonkError::InvalidParameters("Could not create final decider input".to_string())
         })?;
@@ -871,7 +960,7 @@ pub trait RecursiveProver {
             &merge_grumpkin_pk,
             &merge_bn254_pk,
         )?;
-
+        // is it a good idea to use system time as a seed?
         let seed = ark_std::time::SystemTime::now()
             .duration_since(ark_std::time::UNIX_EPOCH)
             .unwrap()
@@ -883,6 +972,13 @@ pub trait RecursiveProver {
             &decider_pk,
             None,
         )?;
+        ark_std::println!("Recursive proof: {:?}", proof);
+        // get the public inputs
+        let public_inputs = circuit.public_input().unwrap();
+        ark_std::println!("Public Inputs of this Recursive proof: {:?}", public_inputs);
+        //verify this proof
+        ark_std::println!("JJ: Verifying recursive proof with decider vk");
+        PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(&decider_pk.vk, &public_inputs, &proof, None).unwrap();
 
         Ok(RecursiveProof {
             proof,
