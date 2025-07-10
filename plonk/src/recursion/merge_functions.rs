@@ -1658,6 +1658,11 @@ pub fn decider_circuit(
 
     // Generate challenge from state bytes using little-endian order
     let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
+    ark_std::println!(
+        "Decider circuit pi hash is keccak256(specific_pi || forwarded_accumulators) ",
+    );
+    ark_std::println!("Decider circuit pi hash: {}", pi_hash);
+    ark_std::println!("Decider circuit pi hash: {:?}", pi_hash);
 
     circuit.create_public_variable(pi_hash)?;
     Ok(field_pi_out)

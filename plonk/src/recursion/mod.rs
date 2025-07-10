@@ -980,7 +980,13 @@ pub trait RecursiveProver {
         ark_std::println!("accumulators as return: {:?}", accumulators);
         //verify this proof
         ark_std::println!("JJ: Verifying recursive proof with decider vk");
-        PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(&decider_pk.vk, &public_inputs, &proof, None).unwrap();
+        PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
+            &decider_pk.vk,
+            &public_inputs,
+            &proof,
+            None,
+        )
+        .unwrap();
 
         Ok(RecursiveProof {
             proof,
