@@ -457,11 +457,11 @@ pub trait RecursiveProver {
         }
 
         let GrumpkinRecursiveInfo {
-            forwarded_acumulators,
+            forwarded_accumulators,
             ..
         } = grumpkin_info;
 
-        Ok(DeciderOut::new(circuit, pi_out, forwarded_acumulators))
+        Ok(DeciderOut::new(circuit, pi_out, forwarded_accumulators))
     }
 
     /// The function for preprocessing the circuits and storing the keys produced
