@@ -745,6 +745,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .specific_pi
             .iter()
             .map(|pi_vec| {
+                ark_std::println!("Client circuit public input length: {}", pi_vec.len());
                 pi_vec
                     .iter()
                     .map(|s| circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(s)))
