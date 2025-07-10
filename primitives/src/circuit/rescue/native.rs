@@ -135,8 +135,7 @@ where
     ) -> Result<RescueStateVar, CircuitError> {
         let prp_instance = PRP::<F>::default();
         let mds_states = prp_instance.mds_matrix_ref();
-        let keys_vars =
-            RescueNativeGadget::<F>::key_schedule(self, mds_states, key_var, &prp_instance)?;
+        let keys_vars = self.key_schedule(mds_states, key_var, &prp_instance)?;
         self.prp_with_round_keys(input_var, mds_states, &keys_vars)
     }
 

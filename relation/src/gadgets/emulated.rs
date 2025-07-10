@@ -161,6 +161,18 @@ impl<F: PrimeField> PlonkCircuit<F> {
         to_emulated_field(&values)
     }
 
+    /// Changes the value represented by an emulated variable
+    pub fn set_emulated_witness<E: EmulationConfig<F>>(
+        &mut self,
+        var: &EmulatedVariable<E>,
+        val: E,
+    ) {
+        let values = from_emulated_field(val);
+        for (v, &witness) in var.0.iter().zip(values.iter()) {
+            *self.witness_mut(*v) = witness;
+        }
+    }
+
     /// Add an emulated variable
     pub fn create_emulated_variable<E: EmulationConfig<F>>(
         &mut self,
