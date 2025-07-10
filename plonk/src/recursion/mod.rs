@@ -976,6 +976,8 @@ pub trait RecursiveProver {
         // get the public inputs
         let public_inputs = circuit.public_input().unwrap();
         ark_std::println!("Public Inputs of this Recursive proof: {:?}", public_inputs);
+        ark_std::println!("specific_pi as return: {:?}", specific_pi);
+        ark_std::println!("accumulators as return: {:?}", accumulators);
         //verify this proof
         ark_std::println!("JJ: Verifying recursive proof with decider vk");
         PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(&decider_pk.vk, &public_inputs, &proof, None).unwrap();
