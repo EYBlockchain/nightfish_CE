@@ -713,10 +713,10 @@ pub trait RecursiveProver {
         let merge_grumpkin_pk = Self::get_merge_grumpkin_pk();
         let merge_bn254_pk = Self::get_merge_bn254_pk();
         let decider_pk = Self::get_decider_pk();
-        ark_std::println!(
-            "JJ: base_grumpkin_pk: {:?}, base_bn254_pk: {:?}, merge_grumpkin_pk: {:?}, merge_bn254_pk: {:?}, decider_pk: {:?}",
-            base_grumpkin_pk, base_bn254_pk, merge_grumpkin_pk, merge_bn254_pk, decider_pk
-        );
+        // ark_std::println!(
+        //     "JJ: base_grumpkin_pk: {:?}, base_bn254_pk: {:?}, merge_grumpkin_pk: {:?}, merge_bn254_pk: {:?}, decider_pk: {:?}",
+        //     base_grumpkin_pk, base_bn254_pk, merge_grumpkin_pk, merge_bn254_pk, decider_pk
+        // );
 
         let kzg_srs = UnivariateUniversalParams::<Bn254> {
             powers_of_g: decider_pk.commit_key.powers_of_g.clone(),
