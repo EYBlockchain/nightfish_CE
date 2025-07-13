@@ -150,9 +150,23 @@ where
             &verify_keys[0].open_key, // all open_key are the same
             &pcs_infos,
         ) {
-            Ok(false) => Err(PlonkError::WrongProof),
-            Err(e) => Err(e),
-            Ok(true) => Ok(()),
+            // Ok(false) => Err(PlonkError::WrongProof),
+            // Err(e) => Err(e),
+            // Ok(true) => Ok(()),
+            Ok(false) => {
+                ark_std::println!(
+                    "batch_verify_opening_proofs failed: returned Ok(false) — proof is invalid."
+                );
+                Err(PlonkError::WrongProof)
+            },
+            Err(e) => {
+                ark_std::println!("batch_verify_opening_proofs returned error: {:?}", e);
+                Err(e)
+            },
+            Ok(true) => {
+                ark_std::println!("batch_verify_opening_proofs succeeded.");
+                Ok(())
+            },
         }
     }
 
@@ -656,6 +670,7 @@ where
     where
         T: Transcript,
     {
+        ark_std::println!("am inside PlonkKzgSnark::verify");
         Self::batch_verify::<T>(
             &[verify_key],
             &[public_input],

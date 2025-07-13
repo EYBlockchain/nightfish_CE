@@ -442,17 +442,17 @@ pub trait RecursiveProver {
 
         // #[cfg(test)]
         // {
-            ark_std::println!(
-                "decider circuit circuit size pre-finalize: {}",
-                circuit.num_gates()
-            );
+        ark_std::println!(
+            "decider circuit circuit size pre-finalize: {}",
+            circuit.num_gates()
+        );
         // }
 
         circuit.finalize_for_arithmetization()?;
         ark_std::println!(
-                "decider circuit circuit size after finalize: {}",
-                circuit.num_gates()
-            );
+            "decider circuit circuit size after finalize: {}",
+            circuit.num_gates()
+        );
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -993,6 +993,7 @@ pub trait RecursiveProver {
             None,
         )
         .unwrap();
+     ark_std::println!("JJ: Verifying recursive proof with decider vk is done");
 
         Ok(RecursiveProof {
             proof,
