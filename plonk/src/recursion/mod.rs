@@ -438,15 +438,21 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
-        #[cfg(test)]
-        {
+        ark_std::println!("JJ: pi_out: {:?}", pi_out);
+
+        // #[cfg(test)]
+        // {
             ark_std::println!(
                 "decider circuit circuit size pre-finalize: {}",
                 circuit.num_gates()
             );
-        }
+        // }
 
         circuit.finalize_for_arithmetization()?;
+        ark_std::println!(
+                "decider circuit circuit size after finalize: {}",
+                circuit.num_gates()
+            );
 
         // Run the following code only when testing
         #[cfg(test)]
