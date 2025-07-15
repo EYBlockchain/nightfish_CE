@@ -103,6 +103,7 @@ pub trait Transcript {
     where
         Self: Sized,
     {
+        // ark_std::println!("t: {:?}", visitor);
         visitor.append_to_transcript(self)
     }
 

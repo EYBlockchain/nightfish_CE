@@ -146,6 +146,8 @@ where
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
 
+        ark_std::println!("pcs_infos: {:?}", pcs_infos);
+
         match Verifier::batch_verify_opening_proofs::<T>(
             &verify_keys[0].open_key, // all open_key are the same
             &pcs_infos,
@@ -1736,5 +1738,32 @@ pub mod test {
         assert_eq!(de, proof);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_full_transfer() {
+        use ark_ed_on_bn254::Fq;
+        let mut circuit = PlonkCircuit::<Fq>::new_ultra_plonk(8);
+        let _ = circuit.create_public_variable(Fq::from(2)).unwrap();
+
+        circuit.finalize_for_arithmetization().unwrap();
+        let mut rng = test_rng();
+        let srs_size = circuit.srs_size().unwrap();
+        let srs =
+            PlonkKzgSnark::<Bn254>::universal_setup_for_testing(srs_size, &mut rng)
+                .unwrap();
+        let (pk, vk) = PlonkKzgSnark::<Bn254>::preprocess(&srs, &circuit).unwrap();
+        ark_std::println!("vk:{:?}", vk);
+        let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
+            &mut rng, &circuit, &pk, None,
+        )
+        .unwrap();
+
+        let mut inputs = Vec::new();
+        inputs.push(Fq::from(2));
+
+        let _ = PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
+            &vk, &inputs, &proof, None,
+        );
     }
 }
