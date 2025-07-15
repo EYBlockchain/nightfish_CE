@@ -146,13 +146,29 @@ where
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
 
+        ark_std::println!("pcs_infos: {:?}", pcs_infos);
+
         match Verifier::batch_verify_opening_proofs::<T>(
             &verify_keys[0].open_key, // all open_key are the same
             &pcs_infos,
         ) {
-            Ok(false) => Err(PlonkError::WrongProof),
-            Err(e) => Err(e),
-            Ok(true) => Ok(()),
+            // Ok(false) => Err(PlonkError::WrongProof),
+            // Err(e) => Err(e),
+            // Ok(true) => Ok(()),
+            Ok(false) => {
+                ark_std::println!(
+                    "batch_verify_opening_proofs failed: returned Ok(false) — proof is invalid."
+                );
+                Err(PlonkError::WrongProof)
+            },
+            Err(e) => {
+                ark_std::println!("batch_verify_opening_proofs returned error: {:?}", e);
+                Err(e)
+            },
+            Ok(true) => {
+                ark_std::println!("batch_verify_opening_proofs succeeded.");
+                Ok(())
+            },
         }
     }
 
@@ -656,6 +672,7 @@ where
     where
         T: Transcript,
     {
+        ark_std::println!("am inside PlonkKzgSnark::verify");
         Self::batch_verify::<T>(
             &[verify_key],
             &[public_input],
@@ -691,7 +708,7 @@ pub mod test {
         pairing::Pairing,
         short_weierstrass::{Affine, Projective},
     };
-    use ark_ff::{One, PrimeField, Zero};
+    use ark_ff::{prelude, One, PrimeField, Zero};
     use ark_poly::{
         univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial,
         Radix2EvaluationDomain,
@@ -1721,5 +1738,54 @@ pub mod test {
         assert_eq!(de, proof);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_full_transfer() {
+        use ark_ed_on_bn254::Fq;
+        let mut circuit = PlonkCircuit::<Fq>::new_ultra_plonk(8);
+        let _ = circuit.create_public_variable(Fq::from(2)).unwrap();
+
+        circuit.finalize_for_arithmetization().unwrap();
+        let mut rng = test_rng();
+        let srs_size = circuit.srs_size().unwrap();
+        let srs =
+            PlonkKzgSnark::<Bn254>::universal_setup_for_testing(srs_size, &mut rng)
+                .unwrap();
+        let (pk, vk) = PlonkKzgSnark::<Bn254>::preprocess(&srs, &circuit).unwrap();
+        // ark_std::println!("vk:{:?}", vk);
+
+        let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
+            &mut rng, &circuit, &pk, None,
+        )
+        .unwrap();
+
+        // convert proof to bytes 
+        use ark_ff::BigInteger;
+        let proof_vec: Vec<Fq254> = proof.into();
+        let proof_bytes = proof_vec
+            .into_iter()
+            .flat_map(|x| {
+                let mut bytes: Vec<u8> = x.into_bigint().to_bytes_le();
+                bytes.resize(32, 0u8);
+                bytes.reverse();
+                bytes
+            })
+            .collect::<Vec<u8>>();
+        use ethers::types::Bytes;
+        let proof_bytes_final = Bytes::from(proof_bytes);
+        use ark_serialize::Write;
+        let mut file = std::fs::File::create("proof.txt").unwrap();
+        write!(file, "Printing the block to proof.txt{:#?}", &proof_bytes_final).unwrap();
+
+        let mut file = std::fs::File::create("vk.txt").unwrap();
+        write!(file, "Printing the block to vk.txt{:#?}", &vk).unwrap();
+
+        let mut inputs = Vec::new();
+        inputs.push(Fq::from(2));
+
+        let _ = PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
+            &vk, &inputs, &proof, None,
+        );
     }
 }

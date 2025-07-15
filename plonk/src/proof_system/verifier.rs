@@ -311,13 +311,15 @@ where
         if let Some(msg) = extra_transcript_init_msg {
             transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
         }
+        // ark_std::println!("transcript: {:?}", transcript);
         for (&vk, &pi) in verify_keys.iter().zip(public_inputs.iter()) {
+            ark_std::println!("putting vk: {:?}", vk);
             transcript.append_visitor(vk)?;
             for pub_input in pi.iter() {
                 transcript.push_message(b"public_input", pub_input)?;
             }
         }
-
+       
         for wires_poly_comms in batch_proof.wires_poly_comms_vec.iter() {
             transcript.append_curve_points(b"wire_poly_comms", wires_poly_comms)?;
         }
