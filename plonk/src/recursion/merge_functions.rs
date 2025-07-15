@@ -671,6 +671,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
         // Now do the specific pi checks.
         let specific_pi_vars: Vec<Variable> = specific_pi_fn(&impl_pi_vars, circuit)?;
+        
+
 
         specific_pi_vars
             .iter()
@@ -1618,6 +1620,11 @@ pub fn decider_circuit(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
     let specific_pi = specific_pi_fn(&impl_spec_pi, circuit)?;
 
+    ark_std::println!(
+            "Specific pi vars size: {}",
+            specific_pi.len()
+        );
+
     verify_zeromorph_circuit(
         circuit,
         &pk_grumpkin.verifying_key.pcs_verifier_params,
@@ -1632,10 +1639,18 @@ pub fn decider_circuit(
         .iter()
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
+
+    ark_std::println!(
+            "specific_pi witeness : field_pi_out: {:?}",
+            field_pi_out
+        );
     let field_pi = field_pi_out
         .iter()
         .flat_map(|f| f.into_bigint().to_bytes_be())
         .collect::<Vec<u8>>();
+
+    ark_std::println!("JJ grumpkin_info
+        .forwarded_accumulators, this is the output accumulators which has 2  automic instance: {:?}", grumpkin_info.forwarded_accumulators);
 
     let acc_elems = grumpkin_info
         .forwarded_accumulators

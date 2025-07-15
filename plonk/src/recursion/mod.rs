@@ -275,6 +275,7 @@ pub trait RecursiveProver {
         base_bn254_pk: &ProvingKey<Kzg>,
         base_grumpkin_pk: &MLEProvingKey<Zmorph>,
     ) -> Result<GrumpkinOut, PlonkError> {
+        ark_std::println!("JJ: am merging grumpkin circuit");
         let (circuits, bn254_circuit_outs_vec): (
             Vec<PlonkCircuit<Fr254>>,
             Vec<Bn254CircuitOutput>,
