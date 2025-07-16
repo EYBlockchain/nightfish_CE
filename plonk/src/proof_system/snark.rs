@@ -643,7 +643,7 @@ where
             Self: Sized,
             C: Arithmetization<<<UnivariateKzgPCS<E> as PolynomialCommitmentScheme>::Commitment as ark_ec::AffineRepr>::ScalarField>,
             R: CryptoRng + RngCore,
-    T: Transcript{
+            T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize {
         unimplemented!("Recursive proving is not supported for PlonkKzgSnark")
     }
 

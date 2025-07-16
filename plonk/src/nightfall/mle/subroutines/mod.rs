@@ -384,6 +384,7 @@ where
 
 /// A struct that represents a Sumcheck proof minus the final evaluation check.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(CanonicalSerialize, CanonicalDeserialize)]
 pub struct SumCheckProof<F: Field, O: Oracle<F>> {
     /// Claimed initial evaluation of the polynomial over the boolean hypercube
     pub eval: F,
