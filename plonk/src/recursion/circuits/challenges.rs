@@ -127,7 +127,7 @@ pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     output: &RecursiveOutput<PCS, Scheme, T>,
     vk: &MLEVerifyingKeyVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
-) -> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
+)-> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
 where
     PCS: Accumulation<
         Commitment = Affine<P>,
@@ -139,7 +139,7 @@ where
     P::ScalarField: PrimeField + RescueParameter + EmulationConfig<F>,
     P::BaseField: PrimeField,
     F: PrimeField + RescueParameter + EmulationConfig<P::ScalarField>,
-    T: Transcript,
+    T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     C: CircuitTranscript<F>,
 {
     // First lets instantiate the transcript and make the variable version of the proof and pi_commitment.

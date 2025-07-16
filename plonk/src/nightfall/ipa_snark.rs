@@ -126,7 +126,7 @@ where
     ) -> Result<(), PlonkError>
     where
         PCS: Accumulation,
-        T: Transcript,
+        T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         let verifier = FFTVerifier::<PCS>::new(verify_key.domain_size)?;
         let pcs_info = verifier.prepare_pcs_info::<T>(
@@ -737,7 +737,7 @@ where
             <<PCS as PolynomialCommitmentScheme>::Commitment as ark_ec::AffineRepr>::ScalarField,
         >,
         R: CryptoRng + RngCore,
-        T: Transcript,
+        T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         let (proof, transcript) = Self::recursive_prove_internal::<_, _, T>(
             rng,
@@ -1160,7 +1160,7 @@ pub mod test {
         F: RescueParameter,
         E: HasTEForm<BaseField = F>,
         E::ScalarField: EmulationConfig<F> + RescueParameter,
-        T: Transcript,
+        T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         // 1. Simulate universal setup
         let rng = &mut test_rng();

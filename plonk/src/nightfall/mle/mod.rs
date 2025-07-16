@@ -107,7 +107,7 @@ where
             <<PCS as PolynomialCommitmentScheme>::Commitment as AffineRepr>::ScalarField,
         >,
         R: CryptoRng + RngCore,
-        T: Transcript,
+        T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
         let pi_hash = circuit.public_input()?[0];

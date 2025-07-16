@@ -191,7 +191,7 @@ where
     }
 }
 /// The proof returned by a [`MLEPlonk`] struct.
-#[derive(Clone)]
+#[derive(Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct MLEProof<PCS: PolynomialCommitmentScheme> {
     /// Commitments to the witness wires.
     pub wire_commitments: Vec<PCS::Commitment>,
@@ -213,7 +213,7 @@ pub struct MLEProof<PCS: PolynomialCommitmentScheme> {
 ///
 /// This should only be used in the context of recursive proving where we do not care about zero knowledge as
 /// it requires us to pass around the witness polynomials.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct SAMLEProof<PCS: Accumulation> {
     /// Commitments to the witness wires.
     pub wire_commitments: Vec<PCS::Commitment>,
@@ -250,7 +250,7 @@ impl<PCS: Accumulation> SAMLEProof<PCS> {
 }
 
 /// The claimed evaluations of the witness wires, selectors and permutation related polynomials.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct MLEProofEvals<PCS: PolynomialCommitmentScheme> {
     /// The claimed evaluations of the witness wires.
     pub wire_evals: Vec<PCS::Evaluation>,
@@ -261,7 +261,7 @@ pub struct MLEProofEvals<PCS: PolynomialCommitmentScheme> {
 }
 
 /// Proof struct with items pertaining to lookup arguments.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct MLELookupProof<PCS: PolynomialCommitmentScheme> {
     /// Commitments to the multiplicity polynomial.
     pub m_poly_comm: PCS::Commitment,
@@ -270,7 +270,7 @@ pub struct MLELookupProof<PCS: PolynomialCommitmentScheme> {
 }
 
 /// The claimed evaluations of the lookup polynomials at the challenge point.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct MLELookupEvals<PCS: PolynomialCommitmentScheme> {
     /// Range table eval.
     pub range_table_eval: PCS::Evaluation,
