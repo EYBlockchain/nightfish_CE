@@ -46,7 +46,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
             self.add_range_check_variable(var)?;
         }
         if leftover > 0 {
-            self.range_gate_internal(reprs_le_vars[lookup_len], leftover)?;
+            if self.range_bit_len()? < F::MODULUS_BIT_SIZE as usize {
+                self.offset_range_gate_with_lookup(reprs_le_vars[lookup_len], leftover)?;
+            } else {
+                self.range_gate_internal(reprs_le_vars[lookup_len], leftover)?;
+            }
         }
 
         // add linear combination gates
@@ -83,7 +87,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
             self.add_range_check_variable(var)?;
         }
         if leftover > 0 {
-            self.range_gate_internal(reprs_le_vars[lookup_len], leftover)?;
+            if self.range_bit_len()? < F::MODULUS_BIT_SIZE as usize {
+                self.offset_range_gate_with_lookup(reprs_le_vars[lookup_len], leftover)?;
+            } else {
+                self.range_gate_internal(reprs_le_vars[lookup_len], leftover)?;
+            }
         }
 
         let mut coeffs = Vec::<F>::new();
@@ -96,6 +104,30 @@ impl<F: PrimeField> PlonkCircuit<F> {
         // add linear combination gates
         let res_var = self.lin_comb(&coeffs, &F::zero(), &reprs_le_vars)?;
         self.is_equal(a, res_var)
+    }
+
+    // Like `range_gate_with_lookup` but specifically for checking `bit_len` that are less than `range_bit_len`.
+    fn offset_range_gate_with_lookup(
+        &mut self,
+        a: Variable,
+        bit_len: usize,
+    ) -> Result<(), CircuitError> {
+        if bit_len >= self.range_bit_len()? {
+            return Err(ParameterError(
+                "bit_len must be striclty less than self.range_bit_len".to_string(),
+            ));
+        }
+        if self.range_bit_len()? >= F::MODULUS_BIT_SIZE as usize {
+            return Err(ParameterError(
+                "self.range_bit_len must be less than F::MODULUS_BIT_SIZE".to_string(),
+            ));
+        }
+        self.add_range_check_variable(a)?;
+        let shift_const = F::from(1u64 << self.range_bit_len()?) - F::from(1u64 << bit_len);
+        let shifted_a = self.add_constant(a, &shift_const)?;
+        self.add_range_check_variable(shifted_a)?;
+
+        Ok(())
     }
 
     /*/// Use this function to decompose a variable into `self.range_bit_len()` size limbs
