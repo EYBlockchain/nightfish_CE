@@ -972,7 +972,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let c = self.emulated_witness(a)? * self.emulated_witness(b)?;
         let c = self.create_emulated_variable(c)?;
         // 2) enforce a·b = c via all the limb‐sums + mod q and mod m checks
-        self.emulated_mul_gate_2(a, b, &c)?;
+        self.emulated_mul_gate(a, b, &c)?;
         Ok(c)
     }
 
@@ -1617,17 +1617,17 @@ impl EmulationConfig<ark_bn254::Fr> for ark_bls12_377::Fq {
 }
 
 impl EmulationConfig<ark_bn254::Fr> for ark_bn254::Fq {
-    const T: usize = 52 * 5; //288;
+    /*const T: usize = 52 * 5; //288;
                              //const B: usize = 96;
                              //const NUM_LIMBS: usize = 3;
     const B: usize = 52;
-    const NUM_LIMBS: usize = 5;
+    const NUM_LIMBS: usize = 5;*/
     //const T: usize = 42 * 6;
     //const B: usize = 43;
     //const NUM_LIMBS: usize = 6;
-    //const T: usize = 64 * 4;
-    //const B: usize = 64;
-    //const NUM_LIMBS: usize = 4;
+    const T: usize = 64 * 4;
+    const B: usize = 64;
+    const NUM_LIMBS: usize = 4;
 }
 
 impl EmulationConfig<ark_bn254::Fq> for ark_bn254::Fr {
@@ -1969,6 +1969,7 @@ mod tests {
         F: PrimeField,
     {
         let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(16);
+        let sz = circuit.num_gates();
         let x = E::from(6732u64);
         let y = E::from(E::MODULUS.into() - 12387u64);
         let expected = x * y;
@@ -1979,7 +1980,7 @@ mod tests {
         assert_eq!(circuit.emulated_witness(&var_x).unwrap(), x);
         assert_eq!(circuit.emulated_witness(&var_y).unwrap(), y);
         assert_eq!(circuit.emulated_witness(&var_z).unwrap(), expected);
-        ark_std::println!("circuit size = {}", circuit.num_gates());
+        ark_std::println!("circuit size = {}", circuit.num_gates() - sz);
         assert!(circuit
             .check_circuit_satisfiability(&from_emulated_field(x))
             .is_ok());
