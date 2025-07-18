@@ -1,10 +1,14 @@
 //! Code for performing a Poseidon hash.
 pub(crate) mod constants;
+pub(crate) mod sponge;
 pub use self::constants::PoseidonParams;
 use ark_ff::PrimeField;
-use ark_std::{error::Error, fmt::Display, marker::PhantomData, string::ToString, vec};
+use ark_std::{error::Error, fmt::Display, marker::PhantomData, string::ToString, vec, vec::Vec};
 
-/// Error enum for the Poseidon hash function.  
+/// The state size of poseidon hash.
+pub const STATE_SIZE: usize = 4;
+
+/// Error enum for the Poseidon hash function.
 ///
 /// See Variants for more information about when this error is thrown.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +51,127 @@ impl<F: PoseidonParams> Poseidon<F> {
 impl<F: PoseidonParams> Default for Poseidon<F> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Copy, Default)]
+/// Data type for rescue prp inputs, keys and internal data
+pub struct PoseidonVector<F> {
+    pub(crate) vec: [F; STATE_SIZE],
+}
+
+impl<F: PrimeField> From<&Vec<F>> for PoseidonVector<F> {
+    fn from(vector: &Vec<F>) -> Self {
+        let vec: [F; STATE_SIZE] = (*vector).clone().try_into().unwrap();
+        Self { vec }
+    }
+}
+
+// Private functions
+impl<F: PrimeField> PoseidonVector<F> {
+    // To be consistent with `Poseidon::hash()`, we need start adding elements in position `STATE_SIZE - rate`.
+    fn add_assign_elems(&mut self, elems: &[F], rate: usize) {
+        self.vec
+            .iter_mut()
+            .skip(STATE_SIZE - rate)
+            .zip(elems.iter())
+            .for_each(|(a, b)| a.add_assign(b));
+    }
+
+    fn add_assign(&mut self, pos_vec: &PoseidonVector<F>) {
+        for (a, b) in self.vec.iter_mut().zip(pos_vec.vec.iter()) {
+            a.add_assign(b);
+        }
+    }
+
+    fn full_pow(&mut self, exp: &[u64]) {
+        self.vec.iter_mut().for_each(|elem| {
+            *elem = elem.pow(exp);
+        });
+    }
+
+    fn part_pow(&mut self, exp: &[u64]) {
+        self.vec[0] = self.vec[0].pow(exp);
+    }
+
+    fn dot_product(&self, pos_vec: &PoseidonVector<F>) -> F {
+        let mut r = F::zero();
+        for (a, b) in self.vec.iter().zip(pos_vec.vec.iter()) {
+            r.add_assign(&a.mul(b));
+        }
+        r
+    }
+}
+
+/// A matrix that consists of `STATE_SIZE` number of rescue vectors.
+#[derive(Debug, Clone)]
+pub struct PoseidonMatrix<F> {
+    matrix: [PoseidonVector<F>; STATE_SIZE],
+}
+
+impl<F: PrimeField> From<&Vec<Vec<F>>> for PoseidonMatrix<F> {
+    fn from(matrix: &Vec<Vec<F>>) -> Self {
+        let mat: [PoseidonVector<F>; STATE_SIZE] = matrix
+            .iter()
+            .map(PoseidonVector::from)
+            .collect::<Vec<PoseidonVector<F>>>()
+            .try_into()
+            .unwrap();
+        Self { matrix: mat }
+    }
+}
+
+impl<F: PrimeField> PoseidonMatrix<F> {
+    fn mul_vec(&self, vector: &PoseidonVector<F>) -> PoseidonVector<F> {
+        let mut result = [F::zero(); STATE_SIZE];
+        self.matrix
+            .iter()
+            .enumerate()
+            .for_each(|(i, row)| result[i] = row.dot_product(vector));
+        PoseidonVector { vec: result }
+    }
+}
+
+/// A `PoseidonPerm` consists of a matrix, round constants and the number of partial rounds
+#[derive(Debug, Clone)]
+pub struct PoseidonPerm<F> {
+    mds: PoseidonMatrix<F>,                  // poseidon permutation MDS matrix
+    round_constants: Vec<PoseidonVector<F>>, // poseidon round constants
+    num_part_rounds: usize,                  // number of partial rounds
+}
+
+impl<F: PoseidonParams> PoseidonPerm<F> {
+    #[cfg(test)]
+    /// Retrieves the appropriate Poseidon parameters for the given field `F`.
+    pub fn perm() -> Result<Self, PoseidonError> {
+        let (constants, matrix, num_part_rounds) = F::params(STATE_SIZE)?;
+        let round_constants = constants
+            .iter()
+            .map(PoseidonVector::from)
+            .collect::<Vec<PoseidonVector<F>>>();
+        Ok(PoseidonPerm {
+            mds: PoseidonMatrix::<F>::from(&matrix),
+            round_constants,
+            num_part_rounds,
+        })
+    }
+
+    /// Compute the permutation on PoseidonVector `input`
+    pub fn eval(&self, input: &mut PoseidonVector<F>) {
+        for (i, constants) in self
+            .round_constants
+            .iter()
+            .enumerate()
+            .take(8 + self.num_part_rounds)
+        {
+            input.add_assign(constants);
+            if i < 4 || i >= 4 + self.num_part_rounds {
+                input.full_pow(&[5u64]);
+            } else {
+                input.part_pow(&[5u64]);
+            }
+            *input = self.mds.mul_vec(input);
+        }
     }
 }
 
