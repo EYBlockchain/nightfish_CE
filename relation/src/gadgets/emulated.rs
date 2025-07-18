@@ -1625,9 +1625,12 @@ impl EmulationConfig<ark_bn254::Fr> for ark_bn254::Fq {
     //const T: usize = 42 * 6;
     //const B: usize = 43;
     //const NUM_LIMBS: usize = 6;
-    const T: usize = 64 * 4;
-    const B: usize = 64;
-    const NUM_LIMBS: usize = 4;
+    //const T: usize = 64 * 4;
+    //const B: usize = 64;
+    //const NUM_LIMBS: usize = 4;
+    const T: usize = 288;
+    const B: usize = 96;
+    const NUM_LIMBS: usize = 3;
 }
 
 impl EmulationConfig<ark_bn254::Fq> for ark_bn254::Fr {
