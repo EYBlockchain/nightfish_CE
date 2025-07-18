@@ -1625,9 +1625,12 @@ impl EmulationConfig<ark_bn254::Fr> for ark_bn254::Fq {
     //const T: usize = 42 * 6;
     //const B: usize = 43;
     //const NUM_LIMBS: usize = 6;
-    const T: usize = 64 * 4;
-    const B: usize = 64;
-    const NUM_LIMBS: usize = 4;
+    //const T: usize = 64 * 4;
+    //const B: usize = 64;
+    //const NUM_LIMBS: usize = 4;
+    const T: usize = 288;
+    const B: usize = 96;
+    const NUM_LIMBS: usize = 3;
 }
 
 impl EmulationConfig<ark_bn254::Fq> for ark_bn254::Fr {
@@ -1969,13 +1972,12 @@ mod tests {
         F: PrimeField,
     {
         let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(16);
-        let sz = circuit.num_gates();
         let x = E::from(6732u64);
         let y = E::from(E::MODULUS.into() - 12387u64);
         let expected = x * y;
         let var_x = circuit.create_public_emulated_variable(x).unwrap();
         let var_y = circuit.create_emulated_variable(y).unwrap();
-        //ark_std::println!("circuit size = {}", circuit.num_gates() - sz);
+        let sz = circuit.num_gates();
         let var_z = circuit.emulated_mul(&var_x, &var_y).unwrap();
         assert_eq!(circuit.emulated_witness(&var_x).unwrap(), x);
         assert_eq!(circuit.emulated_witness(&var_y).unwrap(), y);
