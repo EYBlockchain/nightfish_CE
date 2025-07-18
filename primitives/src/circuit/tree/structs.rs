@@ -357,6 +357,7 @@ impl IMTCircuitInsertionInfoVar {
     }
 
     /// Verify the insertion of a subtree into an Indexed Merkle Tree is correct.
+    /// Here, we assume the subtree depth is 3.
     pub fn verify_subtree_insertion_gadget<F: PoseidonParams>(
         &self,
         circuit: &mut PlonkCircuit<F>,
@@ -368,6 +369,25 @@ impl IMTCircuitInsertionInfoVar {
             .map(|x| x.value)
             .collect::<Vec<Variable>>();
         let mut leaf_index = imt_insert_var.first_index;
+        // We constrain `leaf_index` to match up with the membership proof of the subtree root.
+        // Since a `true` direction means the node is on the left and a `false` direction means the node is on the right,
+        // we calculate `2^3 * sum_i (1 - direction[i]) * 2^i`. The `2^3` is due to the subtree depth being 3.
+        // Therefore, the initial 3 directions are all left.
+        let (coeffs, path_vars): (Vec<F>, Vec<Variable>) = imt_insert_var
+            .circuit_info
+            .proof
+            .path_elements()
+            .iter()
+            .enumerate()
+            .map(|(i, path)| (-F::from(2u8).pow([i as u64 + 3]), path.direction.0))
+            .collect::<Vec<(F, Variable)>>()
+            .into_iter()
+            .unzip();
+        let constant = F::from(8u8)
+            * (F::from(2u8).pow([imt_insert_var.circuit_info.proof.path_elements().len() as u64])
+                - F::one());
+        circuit.lin_comb_gate(&coeffs, &constant, &path_vars, &leaf_index)?;
+
         let mut pending_insertions = Vec::<LeafDBEntryVar>::new();
         let mut root = imt_insert_var.old_root;
         let mut zero_flags = Vec::<BoolVar>::new();
