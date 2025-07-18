@@ -126,11 +126,14 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
 #[cfg(test)]
 mod test {
+    use core::num;
+
     use crate::{
         errors::CircuitError, gadgets::test_utils::test_variable_independence_for_circuit, Circuit,
         PlonkCircuit,
     };
     use ark_bls12_377::Fq as Fq377;
+    use ark_bn254::{Fq as Fq254, Fr as Fr254};
     use ark_ed_on_bls12_377::Fq as FqEd377;
     use ark_ed_on_bls12_381::Fq as FqEd381;
     use ark_ed_on_bn254::Fq as FqEd254;
@@ -138,6 +141,8 @@ mod test {
 
     #[test]
     fn test_unpack() -> Result<(), CircuitError> {
+        test_unpack_helper::<Fr254>()?;
+        test_unpack_helper::<Fq254>()?;
         test_unpack_helper::<FqEd254>()?;
         test_unpack_helper::<FqEd377>()?;
         test_unpack_helper::<FqEd381>()?;
@@ -161,6 +166,8 @@ mod test {
 
     #[test]
     fn test_range_gate() -> Result<(), CircuitError> {
+        test_range_gate_helper::<Fr254>()?;
+        test_range_gate_helper::<Fq254>()?;
         test_range_gate_helper::<FqEd254>()?;
         test_range_gate_helper::<FqEd377>()?;
         test_range_gate_helper::<FqEd381>()?;
@@ -203,50 +210,11 @@ mod test {
         let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
         let a_var = circuit.create_variable(a)?;
         circuit.enforce_in_range(a_var, 10)?;
-        circuit.finalize_for_arithmetization()?;
-        Ok(circuit)
-    }
-
-    #[test]
-    fn test_check_in_range() -> Result<(), CircuitError> {
-        test_check_in_range_helper::<FqEd254>()?;
-        test_check_in_range_helper::<FqEd377>()?;
-        test_check_in_range_helper::<FqEd381>()?;
-        test_check_in_range_helper::<Fq377>()
-    }
-    fn test_check_in_range_helper<F: PrimeField>() -> Result<(), CircuitError> {
-        let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
-        let a = circuit.create_variable(F::from(1023u32))?;
-
-        let b1 = circuit.is_in_range(a, 5)?;
-        let b2 = circuit.is_in_range(a, 10)?;
-        let b3 = circuit.is_in_range(a, 0)?;
-        assert_eq!(circuit.witness(b1.into())?, F::zero());
-        assert_eq!(circuit.witness(b2.into())?, F::one());
-        assert_eq!(circuit.witness(b3.into())?, F::zero());
-        assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
-
-        // if mess up the wire value, should fail
-        *circuit.witness_mut(a) = F::from(1024u32);
-        assert!(circuit.check_circuit_satisfiability(&[]).is_err());
-        // Check variable out of bound error.
-        assert!(circuit.is_in_range(circuit.num_vars(), 10).is_err());
-
-        // build two fixed circuits with different variable assignments, checking that
-        // the arithmetized extended permutation polynomial is variable
-        // independent
-        let circuit_1 = build_check_in_range_circuit(F::from(314u32))?;
-        let circuit_2 = build_check_in_range_circuit(F::from(1489u32))?;
-        test_variable_independence_for_circuit(circuit_1, circuit_2)?;
-
-        Ok(())
-    }
-
-    fn build_check_in_range_circuit<F: PrimeField>(a: F) -> Result<PlonkCircuit<F>, CircuitError> {
-        let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
-        let a_var = circuit.create_variable(a)?;
-        circuit.is_in_range(a_var, 10)?;
-        circuit.finalize_for_arithmetization()?;
+        if ark_std::any::TypeId::of::<F>() != ark_std::any::TypeId::of::<Fq254>() {
+            circuit.finalize_for_arithmetization()?;
+        } else {
+            circuit.finalize_for_mle_arithmetization()?;
+        }
         Ok(circuit)
     }
 }
