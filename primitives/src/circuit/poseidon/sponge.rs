@@ -60,10 +60,7 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
         loop {
             let extract = remaining.min(CRHF_RATE);
             result_vars.extend_from_slice(&state_vars_vec[0..extract]);
-            remaining -= extract;
-            if remaining == 0 {
-                break;
-            }
+            // always permute
             state_vars_vec = self
                 .poseidon_perm(&state_vars_vec)?
                 .try_into()
@@ -72,6 +69,10 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
                         "Failed to convert Poseidon state to array".to_string(),
                     )
                 })?;
+            remaining -= extract;
+            if remaining == 0 {
+                break;
+            }
         }
         Ok(result_vars)
     }
