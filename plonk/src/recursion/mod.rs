@@ -994,7 +994,7 @@ pub trait RecursiveProver {
             None,
         )
         .unwrap();
-     ark_std::println!("JJ: Verifying recursive proof with decider vk is done");
+        ark_std::println!("JJ: Verifying recursive proof with decider vk is done");
 
         Ok(RecursiveProof {
             proof,

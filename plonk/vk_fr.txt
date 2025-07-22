@@ -1,4 +1,4 @@
-Printing the block to vk.txtVerifyingKey {
+Printing the block to vk_fr.txtVerifyingKey {
     domain_size: 512,
     num_inputs: 1,
     sigma_comms: [

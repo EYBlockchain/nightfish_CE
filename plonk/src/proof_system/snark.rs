@@ -1739,9 +1739,357 @@ pub mod test {
 
         Ok(())
     }
+    use num_bigint::BigInt;
+    // use ark_std::One;
+    // use ark_std::Zero;
+    fn limbs_to_bigint(limbs: &[u64]) -> BigInt {
+        let base: BigInt = BigInt::one() << 64; // 2^64
+        let mut result = BigInt::zero();
+
+        for (i, &limb) in limbs.iter().enumerate() {
+            // Convert each limb to BigInt and multiply by base^i, then add to the result
+            result += BigInt::from(limb) * &base.pow(i as u32);
+        }
+
+        result
+    }
+    #[test]
+    fn computelimbs() {
+        let limbs = [
+            1498550656755501633,
+            17535904378296467095,
+            13662487483690744200,
+            1650028419754313080,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("eval :{}", number);
+
+        let limbs = [
+            6747794650380115274,
+            8343600644736648579,
+            14186666776515854412,
+            3426625727323716674,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            8642425561836072997,
+            12117114499865058575,
+            16909044641442056587,
+            2226599695563257254,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            7390506393745820682,
+            10739710388571243222,
+            722964096321623691,
+            2324602359751907451,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            16974668271594891393,
+            10336778905378360787,
+            16093533663716567580,
+            3326912476909627786,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            7375583020425122349,
+            3508263444531022153,
+            11331865344093720739,
+            2243062753607816983,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+    }
 
     #[test]
-    fn test_full_transfer() {
+    fn computelimbs2() {
+        let limbs = [
+            8557823325847503409,
+            14584017314173614266,
+            2560526420816908067,
+            1098471066269355079,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            3013116332488413282,
+            16051187809942021426,
+            17974998914565988520,
+            1854145294617082082,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            5478404068252475535,
+            3851592540035153957,
+            4504282478176394388,
+            3347050653812288955,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            15152306034418732415,
+            11867609611116136823,
+            7539341394167265011,
+            1943412136289096220,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            2861976824964929607,
+            6124499470868281621,
+            14295915398047471280,
+            1472216834686328751,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            15035097258840013245,
+            523871028102998561,
+            3071803440157793154,
+            180336871065448866,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            16077450790700901919,
+            12919764473497038752,
+            1226682062291664253,
+            2184212120010954408,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            18382392468378609890,
+            6680521321820293284,
+            8506293067185512990,
+            2156205281035112747,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            15307703230237223693,
+            5436185846842919597,
+            2866292183350944060,
+            2301744080597063169,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            5317972769847792076,
+            15654304139575514851,
+            6998528614035476774,
+            2011327264376726046,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            5222884517841285880,
+            6818244009838214387,
+            2946402344156470653,
+            1759513112693796697,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("decimal version :{}", number);
+        let limbs = [
+            214410125894298279,
+            16265300518984856829,
+            13298382454513104132,
+            2208166274786225528,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("perm_next_eval :{}", number);
+
+        let limbs = [
+            6079066836205408621,
+            17215977460304844406,
+            10654507876679749231,
+            2897526758735680797,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("range_table_eval :{}", number);
+        let limbs = [
+            3205939085171590886,
+            15347119746576981625,
+            17276069224590333625,
+            226802443946136790,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("key_table_eval :{}", number);
+        let limbs = [
+            16979887437073022849,
+            11037617831368376035,
+            15147176120451106095,
+            112120185820105756,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("table_dom_sep_eval :{}", number);
+        let limbs = [
+            5159453544292051337,
+            11923509525059260795,
+            9612977623238496477,
+            29530529940727857,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("q_dom_sep_eval :{}", number);
+        let limbs = [
+            14826905375927475494,
+            17143647186820438449,
+            13308920540043234480,
+            606292410789445541,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("h_1_eval: {}", number);
+        let limbs = [
+            17107134555729773110,
+            16868011635945440458,
+            1765827502833131940,
+            899218374219156140,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!(" q_lookup_eval {}", number);
+        let limbs = [
+            6159011973517747144,
+            18153025485977921257,
+            1270443180666488413,
+            1618050282741772520,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("prod_next_eval {}", number);
+        let limbs = [
+            17451657287905778946,
+            2268231191011350865,
+            13943989903365443857,
+            415126469450928883,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("range_table_next_eval {}", number);
+        let limbs = [
+            10695989154816488475,
+            8835520545736223295,
+            3303381999921100010,
+            2106032347219011364,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("key_table_next_eval {}", number);
+        let limbs = [
+            761937417525220519,
+            680216209609236949,
+            2155593266787494662,
+            189755435098364818,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("table_dom_sep_next_eval {}", number);
+        let limbs = [
+            7361064897026178971,
+            1163160138045094049,
+            491998700351652210,
+            45070722808992200,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("h_1_next_eval :{}", number);
+        let limbs = [
+            14574582507566557268,
+            17243672145483152207,
+            14203680203396416456,
+            138504589608000929,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("h_2_next_eval :{}", number);
+        let limbs = [
+            14912967835659038283,
+            18252703937437436296,
+            2550870989801925802,
+            2122044464309889433,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("q_lookup_next_eval {}", number);
+        let limbs = [
+            2430893192948427593,
+            10966307914785296923,
+            657788070424642693,
+            188287792790950572,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("w_3_next_eval {}", number);
+        let limbs = [
+            5293325341595747366,
+            1629650408264415133,
+            17845787992624829591,
+            2695031872677946573,
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("w_4_next_eval {}", number);
+    }
+    #[test]
+    fn computelimbs3() {
+        let limbs = [
+            6836808385242880672,
+            15644404618211077872,
+            5582344447614087552,
+            2387644828194800589,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("buffer_v_and_uv_basis1 :{}", number);
+
+        let limbs = [
+            13053925617501864406,
+            10445238508766957398,
+            11151237227749935590,
+            1277081613829696776,
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("buffer_v_and_uv_basis2 :{}", number);
+
+        let limbs = [
+            16573485741425376250,
+            15074738627292932728,
+            4314157415471167568,
+            3058412252875949079,
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("buffer_v_and_uv_basis3 :{}", number);
+    }
+    #[test]
+    fn test_full_proving_verification() {
         use ark_ed_on_bn254::Fq;
         let mut circuit = PlonkCircuit::<Fq>::new_ultra_plonk(8);
         let _ = circuit.create_public_variable(Fq::from(2)).unwrap();
@@ -1749,20 +2097,31 @@ pub mod test {
         circuit.finalize_for_arithmetization().unwrap();
         let mut rng = test_rng();
         let srs_size = circuit.srs_size().unwrap();
-        let srs =
-            PlonkKzgSnark::<Bn254>::universal_setup_for_testing(srs_size, &mut rng)
-                .unwrap();
+        let srs = PlonkKzgSnark::<Bn254>::universal_setup_for_testing(srs_size, &mut rng).unwrap();
         let (pk, vk) = PlonkKzgSnark::<Bn254>::preprocess(&srs, &circuit).unwrap();
-        // ark_std::println!("vk:{:?}", vk);
+        ark_std::println!("publicinputs:{:?}", circuit.public_input().unwrap());
+        let public_inputs = circuit.public_input().unwrap();
+        use ark_ff::BigInteger;
+        let public_inputs_bytes: Vec<u8> = public_inputs
+            .iter()
+            .flat_map(|x| {
+                let mut bytes = x.into_bigint().to_bytes_le();
+                bytes.resize(32, 0u8); // pad to 32 bytes if needed
+                bytes.reverse(); // optional: reverse for big-endian if required
+                bytes
+            })
+            .collect();
+        ark_std::println!("publicinputs:{:?}", Bytes::from(public_inputs_bytes));
 
         let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
             &mut rng, &circuit, &pk, None,
         )
         .unwrap();
+        let proof_fr = proof.clone();
+        ark_std::println!("proof_fr:{:?}", proof_fr);
 
-        // convert proof to bytes 
-        use ark_ff::BigInteger;
-        let proof_vec: Vec<Fq254> = proof.into();
+        // convert proof to bytes
+        let proof_vec: Vec<Fq254> = proof.clone().into();
         let proof_bytes = proof_vec
             .into_iter()
             .flat_map(|x| {
@@ -1776,16 +2135,45 @@ pub mod test {
         let proof_bytes_final = Bytes::from(proof_bytes);
         use ark_serialize::Write;
         let mut file = std::fs::File::create("proof.txt").unwrap();
-        write!(file, "Printing the block to proof.txt{:#?}", &proof_bytes_final).unwrap();
+        write!(
+            file,
+            "Printing the block to proof.txt{:#?}",
+            &proof_bytes_final
+        )
+        .unwrap();
+        let mut file = std::fs::File::create("proof_fr.txt").unwrap();
+        write!(file, "Printing the block to proof_fr.txt{:#?}", &proof_fr).unwrap();
 
-        let mut file = std::fs::File::create("vk.txt").unwrap();
-        write!(file, "Printing the block to vk.txt{:#?}", &vk).unwrap();
+        let mut file = std::fs::File::create("vk_fr.txt").unwrap();
+        write!(file, "Printing the block to vk_fr.txt{:#?}", &vk).unwrap();
+        // Serialize vk to bytes
+        let mut vk_bytes = Vec::new();
+        vk.serialize_compressed(&mut vk_bytes).unwrap();
+        vk_bytes.reverse();
+
+        // Convert bytes to hex string
+        use ark_std::string::String;
+        use ethers::types::U256;
+        let vk_vec = Vec::<Fq254>::from(vk.clone())
+            .into_iter()
+            .map(|x| U256::from_little_endian(&x.into_bigint().to_bytes_le()))
+            .collect::<Vec<_>>();
+        //     let vk_vec = Vec::<Fq254>::from(vk.clone())
+        // .into_iter()
+        // .map(|x| {
+        //     let mut bytes = x.into_bigint().to_bytes_le();
+        //     bytes.resize(32, 0u8);
+        //     bytes.reverse(); // for big-endian
+        //     bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+        // })
+        // .collect::<Vec<_>>();
+
+        let mut file = std::fs::File::create("vk_hex.txt").unwrap();
+        write!(file, "Printing the block to vk_hex.txt{:#?}", &vk_vec).unwrap();
 
         let mut inputs = Vec::new();
         inputs.push(Fq::from(2));
 
-        let _ = PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
-            &vk, &inputs, &proof, None,
-        );
+        let _ = PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(&vk, &inputs, &proof, None);
     }
 }

@@ -671,8 +671,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
         // Now do the specific pi checks.
         let specific_pi_vars: Vec<Variable> = specific_pi_fn(&impl_pi_vars, circuit)?;
-        
-
 
         specific_pi_vars
             .iter()
@@ -1620,10 +1618,7 @@ pub fn decider_circuit(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
     let specific_pi = specific_pi_fn(&impl_spec_pi, circuit)?;
 
-    ark_std::println!(
-            "Specific pi vars size: {}",
-            specific_pi.len()
-        );
+    ark_std::println!("Specific pi vars size: {}", specific_pi.len());
 
     verify_zeromorph_circuit(
         circuit,
@@ -1640,10 +1635,7 @@ pub fn decider_circuit(
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
-    ark_std::println!(
-            "specific_pi witeness : field_pi_out: {:?}",
-            field_pi_out
-        );
+    ark_std::println!("specific_pi witeness : field_pi_out: {:?}", field_pi_out);
     let field_pi = field_pi_out
         .iter()
         .flat_map(|f| f.into_bigint().to_bytes_be())

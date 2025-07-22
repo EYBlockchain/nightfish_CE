@@ -10,11 +10,11 @@ use crate::errors::PlonkError;
 
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
+use ark_std::fmt;
 use ark_std::vec::Vec;
 use jf_relation::gadgets::ecc::HasTEForm;
 use jf_utils::to_bytes;
 use merlin::Transcript;
-use ark_std::fmt;
 /// A wrapper of `merlin::Transcript`.
 
 pub struct StandardTranscript(Transcript);

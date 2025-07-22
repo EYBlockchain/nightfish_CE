@@ -991,7 +991,10 @@ where
 
         hasher.update(&bytes);
         let buf = hasher.finalize();
-        ark_std::println!("VK Hashing done:{}",E::ScalarField::from_be_bytes_mod_order(&buf));
+        ark_std::println!(
+            "VK Hashing done:{}",
+            E::ScalarField::from_be_bytes_mod_order(&buf)
+        );
         E::ScalarField::from_be_bytes_mod_order(&buf)
     }
 }
