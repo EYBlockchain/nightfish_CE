@@ -1755,61 +1755,72 @@ pub mod test {
     }
     #[test]
     fn computelimbs() {
+
         let limbs = [
-            1498550656755501633,
-            17535904378296467095,
-            13662487483690744200,
-            1650028419754313080,
+            2926047054239123492, 4903212974864344542, 667343794278214781, 294803806892809820
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("hash1  :{}", number);
+
+        let limbs = [
+            294803806892809820, 667343794278214781, 4903212974864344542, 2926047054239123492
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("hash2  :{}", number);
+
+
+
+        let limbs = [
+            0, 0, 0, 0
         ];
 
         let number = limbs_to_bigint(&limbs);
-        ark_std::println!("eval :{}", number);
+        ark_std::println!("pi0 :{}", number);
 
         let limbs = [
-            6747794650380115274,
-            8343600644736648579,
-            14186666776515854412,
-            3426625727323716674,
+            2789502291327605069, 6593227209667882183, 7777108491352984793, 53282797450875412
         ];
 
         let number = limbs_to_bigint(&limbs);
-        ark_std::println!("decimal version :{}", number);
-        let limbs = [
-            8642425561836072997,
-            12117114499865058575,
-            16909044641442056587,
-            2226599695563257254,
-        ];
+        ark_std::println!("pi1:{}", number);
 
-        let number = limbs_to_bigint(&limbs);
-        ark_std::println!("decimal version :{}", number);
         let limbs = [
-            7390506393745820682,
-            10739710388571243222,
-            722964096321623691,
-            2324602359751907451,
+            0, 0, 0, 0
         ];
-
         let number = limbs_to_bigint(&limbs);
-        ark_std::println!("decimal version :{}", number);
+        ark_std::println!("pi2:{}", number);
+
         let limbs = [
-            16974668271594891393,
-            10336778905378360787,
-            16093533663716567580,
-            3326912476909627786,
+            456360902070329788, 17743961935272067608, 16807260203975643797, 2570265758118854874
         ];
-
         let number = limbs_to_bigint(&limbs);
-        ark_std::println!("decimal version :{}", number);
+        ark_std::println!("pi3:{}", number);
+
         let limbs = [
-            7375583020425122349,
-            3508263444531022153,
-            11331865344093720739,
-            2243062753607816983,
+            10310362332156628081, 6354745436209101016, 5478649870382774283, 896275421547078522
         ];
-
         let number = limbs_to_bigint(&limbs);
-        ark_std::println!("decimal version :{}", number);
+        ark_std::println!("pi4:{}", number);
+
+        let limbs = [
+            10310362332156628081, 6354745436209101016, 5478649870382774283, 896275421547078522
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("pi5:{}", number);
+
+        let limbs = [
+            0, 0, 0, 0
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("pi6:{}", number);
+
+
+        let limbs = [
+            9620398018852155032, 2761216499168948262, 12759775944260803173, 2215491955547248140
+        ];
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("pi7:{}", number);
+    
     }
 
     #[test]
