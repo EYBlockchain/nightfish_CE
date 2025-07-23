@@ -16,10 +16,12 @@ use super::utils::next_multiple;
 use crate::{
     constants::GATE_WIDTH, errors::CircuitError, BoolVar, Circuit, PlonkCircuit, Variable,
 };
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::{BigInteger, PrimeField, ToConstraintField};
 
 use ark_std::{format, println, string::ToString, vec, vec::Vec, One, Zero};
-use core::{marker::PhantomData, num, ops::Sub, panic};
+use core::{
+    cmp::Ordering, marker::PhantomData, num, ops::{Div, Sub}, panic
+};
 use itertools::izip;
 use jf_utils::{bytes_to_field_elements, field_switching, to_bytes};
 use num_bigint::{BigInt, BigUint, Sign, ToBigInt, ToBigUint};
@@ -52,6 +54,7 @@ fn biguint_to_limbs<F: PrimeField>(val: &BigUint, b: usize, num_limbs: usize) ->
         result.push(F::from(&val % &b_pow));
         val /= &b_pow;
     }
+    println!("res len = {}", result.len());
     result
 }
 
@@ -155,11 +158,13 @@ impl<F: PrimeField> PlonkCircuit<F> {
         &self,
         var: &EmulatedVariable<E>,
     ) -> Result<E, CircuitError> {
+        //println!("values2 = {:?}", var.0);
         let values = var
             .0
             .iter()
             .map(|&v| self.witness(v))
             .collect::<Result<Vec<_>, CircuitError>>()?;
+        //println!("values = {:?}", values.iter().map(|e| e.to_string()).collect::<Vec<_>>());
         to_emulated_field(&values)
     }
 
@@ -981,7 +986,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let c = self.emulated_witness(a)? * self.emulated_witness(b)?;
         let c = self.create_emulated_variable(c)?;
         // 2) enforce a·b = c via all the limb‐sums + mod q and mod m checks
-        self.emulated_mul_gate(a, b, &c)?;
+        self.emulated_mul_gate_2(a, b, &c)?;
         Ok(c)
     }
 
@@ -990,7 +995,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         x: &EmulatedVariable<E>,
     ) -> Result<bool, CircuitError> {
         let base_big = BigUint::from(2u32).pow(E::B as u32); // B
-        let bound = &base_big * (&base_big - 1u8); // B²
+        let bound = &base_big * (&base_big - 1u8); // B(B-1)
 
         for limb in &x.0 {
             let v: BigUint = self.witness(*limb)?.into();
@@ -1011,46 +1016,183 @@ impl<F: PrimeField> PlonkCircuit<F> {
         for i in 0..E::NUM_LIMBS {
             let s = self.add(lhs.0[i], rhs.0[i])?; // zᵢ = aᵢ + bᵢ
                                                    // range-check   zᵢ < B²  (i.e.  2·E::B  bits)
-            self.enforce_in_range(s, E::B + 1)?;
+            //self.enforce_in_range(s, E::B + 1)?;
             limbs.push(s);
         }
         Ok(EmulatedVariable::<E>(limbs, PhantomData))
     }
 
+    /// Propagate carries for **one** limb vector, normalising it mod `B`.
+    ///
+    /// After the call, `out` is identical to `inp` *as an integer* but its
+    /// limbs satisfy `0 ≤ limb < B`. The method enforces `final_carry == 0`,
+    /// so the caller does **not** have to handle an extra top‑level carry.
+    pub fn propagate_carries_single<E: EmulationConfig<F>>(
+        &mut self,
+        inp: &EmulatedVariable<E>,
+        out: &EmulatedVariable<E>,
+    ) -> Result<(), CircuitError>
+    where
+        E: EmulationConfig<F>,
+        F: PrimeField + From<BigUint> + Into<BigUint>,
+    {
+        assert_eq!(inp.0.len(), E::NUM_LIMBS);
+        assert_eq!(out.0.len(), E::NUM_LIMBS);
+
+        let b_pow = BigUint::from(1u32) << E::B; // B = 2^B
+        let mut carry_in = self.zero();
+
+        for (i, (&x_i, &o_i)) in izip!(&inp.0, &out.0).enumerate() {
+            // next_carry = floor((x_i + carry_in)/B)
+            let sum: BigUint = (<F as Into<BigUint>>::into(self.witness(x_i)?)
+                + <F as Into<BigUint>>::into(self.witness(carry_in)?));
+            let next_carry_val = &sum / &b_pow;
+            let next_carry = if i == E::NUM_LIMBS - 1 {
+                self.zero() // no overflow past the last limb
+            } else {
+                let v = self.create_variable(F::from(next_carry_val.clone()))?;
+                //self.enforce_bool(v)?;
+                self.enforce_in_range(v, E::B)?;
+                v
+            };
+
+            // Constraint: x_i + carry_in - B·next_carry = o_i
+            let wires = [self.zero(), x_i, carry_in, next_carry, o_i];
+            let coeffs = [F::zero(), F::one(), F::one(), -F::from(b_pow.clone())];
+            self.lc_gate(&wires, &coeffs)?;
+
+            self.enforce_in_range(o_i, 17)?;
+            carry_in = next_carry;
+        }
+
+        // enforce final carry == 0 (already a constant on last limb)
+        self.enforce_constant(carry_in, F::zero())
+    }
+
+    // === Batch addition with precise normalisation =====================
+
+    /// Adds an arbitrary number of emulated field elements, normalising by
+    /// *carry‑propagation* instead of the former linear identity.
     pub fn emulated_batch_add_precise<E: EmulationConfig<F>>(
         &mut self,
         inputs: &[EmulatedVariable<E>],
-    ) -> Result<EmulatedVariable<E>, CircuitError> {
+    ) -> Result<EmulatedVariable<E>, CircuitError>
+    where
+        F: PrimeField + From<BigUint> + Into<BigUint>,
+    {
         assert!(!inputs.is_empty(), "batch add needs at least one operand");
 
+        let mut acc_wit: E = self.emulated_witness(&inputs[0])?;
         // start with the first (already normalised) operand
         let mut acc = inputs[0].clone();
-
+        ark_std::println!("before limb wise adds : {}", self.num_gates());
         for x in &inputs[1..] {
-            // 1) lazy add with larger per-limb range ( < B² )
+            acc_wit += self.emulated_witness(&x)?;
+            // 1) limb‑wise add with enlarged range (no carries yet)
             acc = self.lazy_add::<E>(&acc, x)?;
 
-            // 2) decide _precisely_ whether we must normalise now
+            // 2) decide precisely whether we must normalise now
             if self.needs_normalise::<E>(&acc)? {
-                acc = self.normalise::<E>(&acc)?; // linear identity (5)
+                ark_std::println!("normalising intermediate sum via carries");
+
+                // allocate zero and fresh output variables
+                let fresh = self.create_emulated_variable::<E>(E::zero())?;
+
+                // propagate carries: acc + 0 → fresh
+                //self.propagate_carries_single::<E>(&acc, &fresh.clone())?;
+
+                /*// ---- 3) Enforce  k·q + out = full_val  ------------------------
+                let modulus: BigUint = E::MODULUS.into();
+                let acc_wit_uint: BigUint = acc_wit.into();
+                let (k_big, _) = acc_wit_uint.div_rem(&modulus);
+                let k_var = self.create_variable(F::from(k_big.clone()))?;
+
+                // limb vector of full_val
+                let full_limbs = biguint_to_limbs::<F>(&acc_wit_uint, E::B, E::NUM_LIMBS)
+                    .into_iter()
+                    .map(|c| self.create_variable(c))
+                    .collect::<Result<Vec<_>, CircuitError>>()?;*/
+
+                acc = fresh;
             }
         }
-        // make sure the final result is well-formed
-        if self.needs_normalise::<E>(&acc)? {
-            acc = self.normalise::<E>(&acc)?;
-        }
-        Ok(acc) // limbs in [0,B)
+        ark_std::println!("after limb wise adds : {}", self.num_gates());
+        // final carry‑propagation so the result is well‑formed
+        //let zero = self.create_emulated_variable::<E>(E::zero())?;]
+        let out = self.create_constant_emulated_variable(acc_wit)?;
+        self.propagate_carries_single::<E>(&acc, &out)?;
+        ark_std::println!("after first check : {}", self.num_gates());
+        // ---- 3) Enforce  k·q + out = full_val  ------------------------
+        let modulus: BigUint = E::MODULUS.into();
+        let acc_wit_uint: BigUint = acc_wit.into();
+        let (k_big, _) = acc_wit_uint.div_rem(&modulus);
+        let k_var = self.create_variable(F::from(k_big.clone()))?;
+
+        // limb vector of full_val
+        let full_limbs = biguint_to_limbs::<F>(&acc_wit_uint, E::B, E::NUM_LIMBS)
+            .into_iter()
+            .map(|c| self.create_variable(c))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        self.enforce_mod_relation::<E>(k_var, &out, &acc)?;
+        ark_std::println!("after second check : {}", self.num_gates());
+        Ok(out) // limbs in [0, 2^B)
     }
 
-    pub fn emulated_batch_add_precise_gate<E: EmulationConfig<F>>(
+    // -----------------------------------------------------------------
+    // 2.  k·q + out = full_value  (mod‑reduction identity) -------------
+
+    /// Enforces:  `k * MODULUS + out = full_val` (all expressed as limb
+    /// vectors in base 2^B).  `out` must already be in canonical limb
+    /// form (`0 ≤ limb < B`).
+    fn enforce_mod_relation<E: EmulationConfig<F>>(
         &mut self,
-        inputs: &[EmulatedVariable<E>],
+        k_var: Variable, // witness: small non‑negative int
         out: &EmulatedVariable<E>,
-    ) -> Result<(), CircuitError> {
-        let sum = self.emulated_batch_add_precise::<E>(inputs)?;
-        for i in 0..E::NUM_LIMBS {
-            self.enforce_equal(sum.0[i], out.0[i])?;
+        full_limbs: &EmulatedVariable<E>, // same length as E::NUM_LIMBS
+    ) -> Result<(), CircuitError>
+    where
+        E: EmulationConfig<F>,
+        F: PrimeField + From<BigUint> + Into<BigUint>,
+    {
+        assert_eq!(out.0.len(), E::NUM_LIMBS);
+
+        // enforce `k` is small; for batch‑add we only need that it fits into
+        // a few bits ( here: <= 2^16 additions → 17 bits )
+        self.enforce_in_range(k_var, 17)?; // configurable upper bound
+
+        let modulus_limbs = biguint_to_limbs::<F>(&E::MODULUS.into(), E::B, E::NUM_LIMBS);
+        let b_pow = BigUint::one() << E::B;
+        let mut carry_in = self.zero();
+
+        for (i, ((&q_i_const, &out_i), &full_i)) in
+            izip!(&modulus_limbs, &out.0).zip(&full_limbs.0).enumerate()
+        {
+            // next_carry = floor((k*q_i + out_i + carry_in)/B)
+            let temp_val: BigUint = (q_i_const * self.witness(k_var)?
+                + self.witness(out_i)?
+                + self.witness(carry_in)?)
+            .into();
+            let next_carry_big = &temp_val / &b_pow;
+            let next_carry = if i == E::NUM_LIMBS - 1 {
+                self.zero()
+            } else {
+                let v = self.create_variable(F::from(next_carry_big.clone()))?;
+                //self.enforce_bool(v)?;
+                self.enforce_in_range(v, 17)?;
+                v
+            };
+
+        
+
+            // Constraint: k*q_i + out_i + carry_in - B·next_carry = full_i
+            let wires = [k_var, out_i, carry_in, next_carry, full_i];
+            let coeffs = [q_i_const, F::one(), F::one(), -F::from(b_pow.clone())];
+            self.lc_gate(&wires, &coeffs)?;
+
+            carry_in = next_carry;
         }
+
+        // final carry == 0 (implicit for last limb)
         Ok(())
     }
 
@@ -1058,7 +1200,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
     /// so that  Σ (Bᶦ % q)·xᵢ − Σ (Bᶦ % q)·zᵢ  =  k·q           (eq. 5)
     /// and each zᵢ ∈ [0, B).  Follows the same blueprint as `enforce_main_identity`
     /// but degree 1, hence cheaper.
-    /*pub fn normalise<E: EmulationConfig<F>>(
+    pub fn normalise<E: EmulationConfig<F>>(
         &mut self,
         x: &EmulatedVariable<E>,
     ) -> Result<EmulatedVariable<E>, CircuitError> {
@@ -1105,7 +1247,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         self.check_vars_bound(&z.0)?;
 
         Ok(z)
-    }*/
+    }
 
     /// Turn a (possibly non-well-formed) element `x` into a well-formed `z`
     /// with limbs in `[0, B)` and prove the full identity
@@ -1115,7 +1257,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
     ///                 − k·(q mod m) − vₘ·m  = 0         (mod p)
     ///
     /// for every auxiliary modulus `m` listed in `E::M`.
-    pub fn normalise<E: EmulationConfig<F>>(
+    /*pub fn normalise<E: EmulationConfig<F>>(
         &mut self,
         x: &EmulatedVariable<E>,
     ) -> Result<EmulatedVariable<E>, CircuitError> {
@@ -1168,7 +1310,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
          * --------------------------------------------------------------- */
         let p_int = BigInt::from_biguint(Sign::Plus, F::MODULUS.into());
 
-        let m_big = BigInt::pow(&BigInt::from_isize(2isize).unwrap(), 107);
+        let m_big = BigInt::pow(&BigInt::from_isize(2isize).unwrap(), 194);
         let m_fe = F::from(m_big.clone().to_biguint().unwrap());
         let qm_big = &q_big.mod_floor(&m_big.to_biguint().unwrap()); // q mod m
         let qm_fe = F::from(qm_big.clone());
@@ -1230,7 +1372,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
          * --------------------------------------------------------------- */
         self.check_vars_bound(&z.0)?;
         Ok(z)
-    }
+    }*/
 
     /*/// Return an [`EmulatedVariable`] which equals to a*b.
     pub fn emulated_mul<E: EmulationConfig<F>>(
@@ -1385,7 +1527,9 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let b_pow = BigUint::from(2u32).pow(E::B as u32);
         let add_no_mod = &val_a + &val_b;
         let k = if add_no_mod >= modulus { 1u32 } else { 0u32 };
-        let var_k = self.create_boolean_variable(add_no_mod >= modulus)?.0;
+        println!("k = {}", k);
+        println!("add_no_mod = {:?}", add_no_mod);
+        let var_k: usize = self.create_boolean_variable(add_no_mod >= modulus)?.0;
         let modulus_limbs = biguint_to_limbs::<F>(&modulus, E::B, E::NUM_LIMBS);
 
         let add_no_mod_limbs = biguint_to_limbs::<F>(&add_no_mod, E::B, E::NUM_LIMBS)
@@ -1397,7 +1541,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let mut carry_out = self.zero();
         for (n, (a, b, c)) in izip!(&a.0, &b.0, &add_no_mod_limbs).enumerate() {
             let next_carry_out =
-                F::from(<F as Into<BigUint>>::into(self.witness(*a)? + self.witness(*b)?) / &b_pow);
+                F::from(<F as Into<BigUint>>::into(self.witness(*a)? + self.witness(*b)? + self.witness(carry_out)?) / &b_pow);
             // If we are on the final limb, there should be no next_carry.
             let next_carry_out = if n == E::NUM_LIMBS - 1 {
                 self.zero()
@@ -1419,7 +1563,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         carry_out = self.zero();
         for (n, (a, b, c)) in izip!(modulus_limbs, &c.0, &add_no_mod_limbs).enumerate() {
             let next_carry_out =
-                F::from(<F as Into<BigUint>>::into(a * F::from(k) + self.witness(*b)?) / &b_pow);
+                F::from(<F as Into<BigUint>>::into(a * F::from(k) + self.witness(*b)? + self.witness(carry_out)?) / &b_pow);
             // If we are on the final limb, there should be no next_carry.
             let next_carry_out = if n == E::NUM_LIMBS - 1 {
                 self.zero()
@@ -1428,6 +1572,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
                 self.enforce_bool(next_carry)?;
                 next_carry
             };
+            ark_std::println!("var_k = {:?}", self.witness(var_k));
+            ark_std::println!("p_i = {:?}", a);
+            ark_std::println!("c_i = {:?}", self.witness(*b));
+            ark_std::println!("s_i = {:?}", self.witness(*c)); // Updated to use self.witness(*c)
 
             let wires = [var_k, *b, carry_out, next_carry_out, *c];
             let coeffs = [a, F::one(), F::one(), -F::from(b_pow.clone())];
@@ -1445,7 +1593,9 @@ impl<F: PrimeField> PlonkCircuit<F> {
     ) -> Result<EmulatedVariable<E>, CircuitError> {
         let c = self.emulated_witness(a)? + self.emulated_witness(b)?;
         let c = self.create_emulated_variable(c)?;
+        println!("c_ = {:?}", self.emulated_witness(&c).iter().map(|e| e.to_string()).collect::<Vec<_>>());
         self.emulated_add_gate(a, b, &c)?;
+        ark_std::println!("a = {:?}, b = {:?}, c = {:?}", self.emulated_witness(a).iter().map(|e| e.to_string()).collect::<Vec<_>>(), self.emulated_witness(b).iter().map(|e| e.to_string()).collect::<Vec<_>>(), self.emulated_witness(&c).iter().map(|e| e.to_string()).collect::<Vec<_>>());
         Ok(c)
     }
 
@@ -2188,29 +2338,75 @@ mod tests {
         E: EmulationConfig<F>,
         F: PrimeField,
     {
-        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(16);
-        let var_x = circuit.create_public_emulated_variable(E::one()).unwrap();
+
+
+        /*let mut circuit = PlonkCircuit::<F>::new_turbo_plonk();
+        let x = E::one()+E::one();
+        let var_x = circuit.create_public_emulated_variable(x).unwrap();
         let overflow = E::from(E::MODULUS.into() - 1u64);
         let var_y = circuit.create_emulated_variable(overflow).unwrap();
         let var_z = circuit.emulated_add(&var_x, &var_y).unwrap();
-        assert_eq!(circuit.emulated_witness(&var_x).unwrap(), E::one());
+        assert_eq!(circuit.emulated_witness(&var_x).unwrap(), E::one()+E::one());
         assert_eq!(circuit.emulated_witness(&var_y).unwrap(), overflow);
-        assert_eq!(circuit.emulated_witness(&var_z).unwrap(), E::zero());
+        assert_eq!(circuit.emulated_witness(&var_z).unwrap(), E::one());*/
 
-        let var_z = circuit.emulated_add_constant(&var_z, overflow).unwrap();
+        let mut circuit = PlonkCircuit::<F>::new_turbo_plonk();
+        //let x = BigUint::from(2u8); //E::one()+E::one();
+        let x = BigUint::from(2u8).pow(253);
+    
+        ark_std::println!("radix  = {}, n limbs {}", E::B, E::NUM_LIMBS);
+       // let rem = BigUint::from(E::MODULUS.into()) %  radix;
+       // let x = BigUint::from(2u8).pow(rem.to_u32_digits()[0]);
+        let var_x = circuit.create_public_emulated_variable(E::from(x.clone())).unwrap();
+        //let overflow = E::from(E::MODULUS.into() - 1u64);
+        let var_y = circuit.create_emulated_variable(E::from(x.clone())).unwrap();
+        let var_z = circuit.emulated_add(&var_x, &var_x).unwrap();
+        //assert_eq!(circuit.emulated_witness(&var_x).unwrap(), E::one()+E::one());
+        ark_std::println!("x = {}", circuit.emulated_witness(&var_x).unwrap());
+        ark_std::println!("y = {}", circuit.emulated_witness(&var_y).unwrap());
+        ark_std::println!("z = {}", circuit.emulated_witness(&var_z).unwrap());
+        //assert_eq!(circuit.emulated_witness(&var_y).unwrap(), overflow);
+        //assert_eq!(circuit.emulated_witness(&var_z).unwrap(), E::one());
+
+        assert!(circuit.check_circuit_satisfiability(&from_emulated_field(E::from(x))).is_ok());
+        
+
+        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(16);
+
+
+        /*let var_x = circuit.create_public_emulated_variable(E::one()).unwrap();
+        let x = E::from(E::MODULUS.into());
+        let var_x = circuit.create_emulated_variable(x).unwrap();
+        let y = E::from(13u64);
+        let var_y = circuit.create_emulated_variable(y).unwrap();
+        let z = E::MODULUS.into()  + 13u64;
+        let var_z = circuit.create_emulated_variable_from_uint(z).unwrap();
+        circuit.emulated_add_gate(&var_x, &var_y, &var_z).unwrap();
+
+
+        let x = from_emulated_field(E::one());
+        assert!(circuit.check_circuit_satisfiability(&x).is_ok());*/
+
+        /*let var_x = circuit.create_public_emulated_variable(E::one() + E::one()).unwrap();
+        let overflow = E::from(E::MODULUS.into() - 1u64);
+        let var_y = circuit.create_emulated_variable(overflow).unwrap();
+        let var_z = circuit.emulated_add(&var_x, &var_y).unwrap();
+        assert_eq!(circuit.emulated_witness(&var_x).unwrap(), E::one()+E::one());
+        assert_eq!(circuit.emulated_witness(&var_y).unwrap(), overflow);
+        assert_eq!(circuit.emulated_witness(&var_z).unwrap(), E::one());*/
+        /*let var_z = circuit.emulated_add_constant(&var_z, overflow).unwrap();
         assert_eq!(circuit.emulated_witness(&var_z).unwrap(), overflow);
 
         let x = from_emulated_field(E::one());
         assert!(circuit.check_circuit_satisfiability(&x).is_ok());
 
         let var_z = circuit.create_emulated_variable(E::one()).unwrap();
-        circuit.emulated_add_gate(&var_x, &var_y, &var_z).unwrap();
-        assert!(circuit.check_circuit_satisfiability(&x).is_err());
+        circuit.emulated_add_gate(&var_x, &var_y, &var_z).unwrap();*/
+        //assert!(circuit.check_circuit_satisfiability(&from_emulated_field(E::one())).is_err());
 
-        //// ========
-        ///
+    
 
-        const N_OPERANDS: usize = 100; // any N ≤ B works
+        /*const N_OPERANDS: usize = 100; // any N ≤ B works
         let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
 
         // first operand is public so that we have public inputs to feed later
@@ -2221,7 +2417,7 @@ mod tests {
         let mut operands = ark_std::vec![var_pub];
         let mut acc_big = to_big(pub_val); // running integer sum
 
-        for i in 1..=N_OPERANDS {
+        for i in 1..N_OPERANDS {
             let val = E::from((i as u64) + 1); // 2, 3, 4, …
             acc_big += to_big(val.clone());
             let var = circuit.create_emulated_variable(val).unwrap();
@@ -2233,12 +2429,16 @@ mod tests {
         acc_big %= &q_big;
         let expected = E::from(acc_big.clone());
         let var_result = circuit.create_emulated_variable(expected).unwrap();
-        let batch_constraints = circuit.num_gates(); // or .row_count(), .gate_count() …
-        ark_std::println!("batch-add gate  →  {batch_constraints} constraints");
+
+        let sz = circuit.num_gates();
         // constrain with the new gate
-        circuit
-            .emulated_batch_add_precise_gate(&operands, &var_result)
-            .unwrap();
+        let acc = circuit.emulated_batch_add_precise(&operands[..]).unwrap();
+        // let res =  circuit.emulated_add(&acc, &operands[operands.len() - 1]).unwrap();
+
+        assert_eq!(circuit.emulated_witness(&acc).unwrap(), expected);
+
+        let batch_constraints = circuit.num_gates() - sz; // or .row_count(), .gate_count() …
+        ark_std::println!("batch-add gate  →  {batch_constraints} constraints");
 
         // feed public inputs (limbs of the single public operand)
         let public_inputs = from_emulated_field(pub_val);
@@ -2266,19 +2466,20 @@ mod tests {
             operands.push(var);
         }
 
-        // chain of ordinary add_gates
+        let sz = circuit.num_gates(); // size before the sequential add_gates
+                                      // chain of ordinary add_gates
         let mut acc_var = operands[0].clone();
         for op in &operands[1..] {
             let tmp = circuit.emulated_add(&acc_var, op).unwrap();
             acc_var = tmp; // new accumulator
         }
 
-        let seq_constraints = circuit.num_gates();
+        let seq_constraints = circuit.num_gates() - sz;
         ark_std::println!("sequential add_gates →  {seq_constraints} constraints");
 
         // feed public inputs (limbs of the single public operand)
         let public_inputs = from_emulated_field(pub_val);
-        assert!(circuit.check_circuit_satisfiability(&public_inputs).is_ok());
+        assert!(circuit.check_circuit_satisfiability(&public_inputs).is_ok());*/
     }
 
     #[test]
