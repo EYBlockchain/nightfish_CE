@@ -42,7 +42,16 @@ pub trait PolynomialCommitmentScheme: Clone + Default {
         + CanonicalSerialize
         + CanonicalDeserialize;
     /// Polynomial input domain
-    type Point: Clone + Ord + Debug + Sync + Hash + PartialEq + Eq + Default + CanonicalSerialize + CanonicalDeserialize;
+    type Point: Clone
+        + Ord
+        + Debug
+        + Sync
+        + Hash
+        + PartialEq
+        + Eq
+        + Default
+        + CanonicalSerialize
+        + CanonicalDeserialize;
     /// Polynomial Evaluation
     type Evaluation: PrimeField + Default;
     /// Commitments

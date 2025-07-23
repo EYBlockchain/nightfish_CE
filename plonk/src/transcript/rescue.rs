@@ -10,6 +10,7 @@ use crate::errors::PlonkError;
 
 use ark_ff::{BigInteger, PrimeField};
 
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{any::TypeId, cmp::max, marker::PhantomData, vec::Vec};
 use jf_primitives::{
     circuit::rescue::RescueNativeGadget,
@@ -18,7 +19,6 @@ use jf_primitives::{
 };
 use jf_relation::{errors::CircuitError, gadgets::ecc::HasTEForm, Circuit, PlonkCircuit, Variable};
 use jf_utils::bytes_to_field_elements;
-use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 
 /// Transcript with rescue hash function.
 ///

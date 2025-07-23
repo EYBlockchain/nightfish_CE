@@ -1,11 +1,11 @@
 //! GKR subroutines for the MLE protocol.
- //!
- //! This module contains the implementation of the GKR protocol for verifying polynomial evaluations
- //! in the context of the MLE protocol. It includes structures for circuit layers, structured circuits,
- //! GKR proofs, and deferred checks, as well as functions for proving and verifying GKR claims.
- //!
- //! The GKR protocol is a recursive proof system that allows for efficient verification of polynomial
- //! evaluations by reducing the problem to a series of sum checks.
+//!
+//! This module contains the implementation of the GKR protocol for verifying polynomial evaluations
+//! in the context of the MLE protocol. It includes structures for circuit layers, structured circuits,
+//! GKR proofs, and deferred checks, as well as functions for proving and verifying GKR claims.
+//!
+//! The GKR protocol is a recursive proof system that allows for efficient verification of polynomial
+//! evaluations by reducing the problem to a series of sum checks.
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 use crate::{

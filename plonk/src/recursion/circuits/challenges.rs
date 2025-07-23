@@ -127,7 +127,7 @@ pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     output: &RecursiveOutput<PCS, Scheme, T>,
     vk: &MLEVerifyingKeyVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
-)-> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
+) -> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
 where
     PCS: Accumulation<
         Commitment = Affine<P>,

@@ -146,7 +146,8 @@ where
     PCS: Accumulation,
     PCS::Commitment: AffineRepr,
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
-    <PCS::Commitment as AffineRepr>::ScalarField: PrimeField + CanonicalSerialize + CanonicalDeserialize,
+    <PCS::Commitment as AffineRepr>::ScalarField:
+        PrimeField + CanonicalSerialize + CanonicalDeserialize,
     Scheme: UniversalSNARK<PCS>,
     Scheme::RecursiveProof: CanonicalSerialize + CanonicalDeserialize,
     T: Transcript + CanonicalSerialize + CanonicalDeserialize,
@@ -164,7 +165,8 @@ where
     PCS: Accumulation,
     PCS::Commitment: AffineRepr,
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
-    <PCS::Commitment as AffineRepr>::ScalarField: PrimeField + CanonicalSerialize + CanonicalDeserialize,
+    <PCS::Commitment as AffineRepr>::ScalarField:
+        PrimeField + CanonicalSerialize + CanonicalDeserialize,
     Scheme: UniversalSNARK<PCS>,
     Scheme::RecursiveProof: CanonicalSerialize + CanonicalDeserialize,
     T: Transcript + CanonicalSerialize + CanonicalDeserialize,
