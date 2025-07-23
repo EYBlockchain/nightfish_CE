@@ -631,8 +631,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
         // Checking whether a + b = add_no_mod_limbs
         let mut carry_out = self.zero();
         for (n, (a, b, c)) in izip!(&a.0, &b.0, &add_no_mod_limbs).enumerate() {
-            let next_carry_out =
-                F::from(<F as Into<BigUint>>::into(self.witness(*a)? + self.witness(*b)?) / &b_pow);
+            let next_carry_out = F::from(
+                <F as Into<BigUint>>::into(
+                    self.witness(*a)? + self.witness(*b)? + self.witness(carry_out)?,
+                ) / &b_pow,
+            );
             // If we are on the final limb, there should be no next_carry.
             let next_carry_out = if n == E::NUM_LIMBS - 1 {
                 self.zero()
@@ -653,8 +656,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
         // Checking whether k * E::MODULUS + c = add_no_mod_limbs
         carry_out = self.zero();
         for (n, (a, b, c)) in izip!(modulus_limbs, &c.0, &add_no_mod_limbs).enumerate() {
-            let next_carry_out =
-                F::from(<F as Into<BigUint>>::into(a * F::from(k) + self.witness(*b)?) / &b_pow);
+            let next_carry_out = F::from(
+                <F as Into<BigUint>>::into(
+                    a * F::from(k) + self.witness(*b)? + self.witness(carry_out)?,
+                ) / &b_pow,
+            );
             // If we are on the final limb, there should be no next_carry.
             let next_carry_out = if n == E::NUM_LIMBS - 1 {
                 self.zero()
@@ -726,8 +732,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
         // Checking whether a + b = add_no_mod_limbs
         let mut carry_out = self.zero();
         for (a, b, c) in izip!(&a.0, b_limbs, &add_no_mod_limbs) {
-            let next_carry_out =
-                F::from(<F as Into<BigUint>>::into(self.witness(*a)? + b) / &b_pow);
+            let next_carry_out = F::from(
+                <F as Into<BigUint>>::into(self.witness(*a)? + b + self.witness(carry_out)?)
+                    / &b_pow,
+            );
             let next_carry_out = self.create_variable(next_carry_out)?;
             self.enforce_bool(next_carry_out)?;
 
@@ -742,8 +750,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
         // Checking whether k * q + c = add_no_mod_limbs
         carry_out = self.zero();
         for (a, b, c) in izip!(q_limbs, &c.0, &add_no_mod_limbs) {
-            let next_carry_out =
-                F::from(<F as Into<BigUint>>::into(a * F::from(k) + self.witness(*b)?) / &b_pow);
+            let next_carry_out = F::from(
+                <F as Into<BigUint>>::into(
+                    a * F::from(k) + self.witness(*b)? + self.witness(carry_out)?,
+                ) / &b_pow,
+            );
             let next_carry_out = self.create_variable(next_carry_out)?;
             self.enforce_bool(next_carry_out)?;
 
@@ -1243,6 +1254,13 @@ mod tests {
         E: EmulationConfig<F>,
         F: PrimeField,
     {
+        // used to fail before adding the previous carry in the carry calculation (fixed in https://github.com/EYBlockchain/nightfish_CE/pull/39)
+        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
+        let x = BigUint::from(2u32).pow(253);
+        let var_x = circuit.create_emulated_variable(E::from(x)).unwrap();
+        circuit.emulated_add(&var_x, &var_x).unwrap();
+        assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+
         let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
         let var_x = circuit.create_public_emulated_variable(E::one()).unwrap();
         let overflow = E::from(E::MODULUS.into() - 1u64);
