@@ -66,9 +66,18 @@ impl Transcript for SolidityTranscript {
         E: HasTEForm,
         E::BaseField: PrimeField,
     {
+        ark_std::println!("squeeze_scalar_challenge in solidity");
         // Concatenate state and transcript with additional bytes
         let input = [self.state.as_ref(), self.transcript.as_ref()].concat();
-
+        ark_std::println!(
+            "input in squeeze_scalar_challenge solidity: {:?}",
+            input.clone()
+        );
+        use ethers::types::Bytes;
+        ark_std::println!(
+            "input in squeeze_scalar_challenge solidity: {:?}",
+            Bytes::from(input.clone())
+        );
         // Hash the inputs using Keccak256
         let mut hasher = Keccak256::new();
         hasher.update(&input);
