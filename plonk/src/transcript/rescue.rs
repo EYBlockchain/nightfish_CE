@@ -10,7 +10,7 @@ use crate::errors::PlonkError;
 
 use ark_ff::{BigInteger, PrimeField};
 
-use ark_serialize::CanonicalSerialize;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{any::TypeId, cmp::max, marker::PhantomData, vec::Vec};
 use jf_primitives::{
     circuit::rescue::RescueNativeGadget,
@@ -33,10 +33,10 @@ use jf_utils::bytes_to_field_elements;
 /// 1. state: \[F: STATE_SIZE\] = hash(state|transcript)
 /// 2. challenge = state\[0\]
 /// 3. transcript = vec!\[challenge\]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct RescueTranscript<F>
 where
-    F: RescueParameter,
+    F: RescueParameter + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
 {
     transcript: Vec<F>,
     state: [F; STATE_SIZE],

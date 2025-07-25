@@ -1048,7 +1048,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         P: HasTEForm<BaseField = F>,
         P::ScalarField: EmulationConfig<F>,
         R: RngCore + CryptoRng,
-        T: Transcript,
+        T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         let mut transcript = T::new_transcript(b"mle_plonk");
         let proof = &recursion_output.proof;

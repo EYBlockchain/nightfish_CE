@@ -1,4 +1,12 @@
-//! Code for running the GKR protocol. We use this to prove fractional SumChecks.
+//! GKR subroutines for the MLE protocol.
+//!
+//! This module contains the implementation of the GKR protocol for verifying polynomial evaluations
+//! in the context of the MLE protocol. It includes structures for circuit layers, structured circuits,
+//! GKR proofs, and deferred checks, as well as functions for proving and verifying GKR claims.
+//!
+//! The GKR protocol is a recursive proof system that allows for efficient verification of polynomial
+//! evaluations by reducing the problem to a series of sum checks.
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 
 use crate::{
     errors::PlonkError,
@@ -40,11 +48,14 @@ pub struct StructuredCircuit<F: Field> {
 }
 
 /// A GKR Proof
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, CanonicalSerialize, CanonicalDeserialize)]
 pub struct GKRProof<F: Field> {
-    pub(crate) sumcheck_proofs: Vec<SumCheckProof<F, PolyOracle<F>>>,
-    pub(crate) evals: Vec<Vec<F>>,
-    pub(crate) challenge_point: Vec<F>,
+    /// The sumcheck proofs for the GKR protocol.
+    pub sumcheck_proofs: Vec<SumCheckProof<F, PolyOracle<F>>>,
+    /// The evaluations of the polynomials at each layer.
+    pub evals: Vec<Vec<F>>,
+    /// The challenge point used in the GKR protocol.
+    pub challenge_point: Vec<F>,
 }
 
 impl<F: Field> GKRProof<F> {

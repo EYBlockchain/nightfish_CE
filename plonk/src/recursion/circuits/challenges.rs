@@ -139,7 +139,7 @@ where
     P::ScalarField: PrimeField + RescueParameter + EmulationConfig<F>,
     P::BaseField: PrimeField,
     F: PrimeField + RescueParameter + EmulationConfig<P::ScalarField>,
-    T: Transcript,
+    T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     C: CircuitTranscript<F>,
 {
     // First lets instantiate the transcript and make the variable version of the proof and pi_commitment.
