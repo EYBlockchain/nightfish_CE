@@ -181,10 +181,7 @@ pub(crate) fn emulated_eval_permutation_equation(
     let tmp2 = circuit.emulated_mul(&pairs[1][0], &epsilon_sq)?;
     let tmp3 = circuit.emulated_mul(&pairs[0][1], &epsilon_cubed)?;
     let tmp4 = circuit.emulated_mul(&pairs[1][1], &epsilon_four)?;
-    let tmp5 = circuit.emulated_add(&tmp1, &tmp2)?;
-    let tmp6 = circuit.emulated_add(&tmp3, &tmp4)?;
-
-    circuit.emulated_add(&tmp5, &tmp6)
+    circuit.emulated_batch_add(&[tmp1, tmp2, tmp3, tmp4])
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -232,7 +229,7 @@ pub(crate) fn build_emulated_zerocheck_eval(
     eq_eval: &EmulatedVariable<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<EmulatedVariable<Fq254>, CircuitError> {
-    let mut sc_eval = emulated_eval_gate_equation(
+    let sc_eval = emulated_eval_gate_equation(
         circuit,
         gate_info,
         &evals.selector_evals[..17],
@@ -247,8 +244,7 @@ pub(crate) fn build_emulated_zerocheck_eval(
         circuit,
     )?;
 
-    sc_eval = circuit.emulated_add(&permutation_eval, &sc_eval)?;
-
+    let mut operands = ark_std::vec![sc_eval, permutation_eval];
     if let Some(lookup_evals) = lookup_evals {
         let lookup_eq_eval = emulated_eval_lookup_equation(
             &evals.wire_evals,
@@ -262,8 +258,9 @@ pub(crate) fn build_emulated_zerocheck_eval(
             circuit,
         )?;
 
-        sc_eval = circuit.emulated_add(&lookup_eq_eval, &sc_eval)?;
+        operands.push(lookup_eq_eval);
     }
+    let sc_eval = circuit.emulated_batch_add(&operands)?;
     circuit.emulated_mul(eq_eval, &sc_eval)
 }
 

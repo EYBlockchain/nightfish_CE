@@ -379,9 +379,8 @@ where
     let mut f_prod_eval_var = one_var.clone();
     for (w_eval_var, id_eval_var) in wire_evals_var.iter().zip(id_evals_var.iter()) {
         let tmp1 = circuit.emulated_mul(beta_var, id_eval_var)?;
-        let tmp2 = circuit.emulated_add(&tmp1, gamma_var)?;
-        let tmp3 = circuit.emulated_add(w_eval_var, &tmp2)?;
-        f_prod_eval_var = circuit.emulated_mul(&f_prod_eval_var, &tmp3)?;
+        let tmp2 = circuit.emulated_batch_add(&[w_eval_var.clone(), tmp1, gamma_var.clone()])?;
+        f_prod_eval_var = circuit.emulated_mul(&f_prod_eval_var, &tmp2)?;
     }
     let mut g_prod_eval_var = one_var.clone();
     for (w_eval_var, p_eval_var) in wire_evals_var.iter().zip(perm_evals_var.iter()) {

@@ -317,10 +317,7 @@ where
         }
 
         // denominator
-        let mut denominator_var = products_var[0].clone();
-        for product_var in products_var.iter().skip(1) {
-            denominator_var = self.emulated_add(&denominator_var, product_var)?;
-        }
+        let denominator_var = self.emulated_batch_add(&products_var)?;
 
         let denominator_inv = (self.emulated_witness(&denominator_var)?)
             .inverse()
