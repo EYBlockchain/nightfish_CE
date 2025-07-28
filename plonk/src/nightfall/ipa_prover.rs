@@ -1114,6 +1114,7 @@ where
         quot_poly: &DensePolynomial<P::ScalarField>,
         num_wire_types: usize,
     ) -> Result<Vec<DensePolynomial<P::ScalarField>>, PlonkError> {
+        ark_std::println!("JJ: am here in split_quotient_polynomial in plonk/src/nightfall/ipa_prover.rs");
         let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
         if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());

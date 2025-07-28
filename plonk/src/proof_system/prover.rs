@@ -908,6 +908,7 @@ impl<E: Pairing> Prover<E> {
         quot_poly: &DensePolynomial<E::ScalarField>,
         num_wire_types: usize,
     ) -> Result<Vec<DensePolynomial<E::ScalarField>>, PlonkError> {
+        ark_std::println!("JJ: am here in split_quotient_polynomial in plonk/src/proof_system/prover.rs");
         let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
         if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
