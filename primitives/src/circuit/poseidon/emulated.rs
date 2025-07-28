@@ -1,18 +1,21 @@
 //! Circuit implementation of poseidon hash function.
 
-mod emulated;
-mod sponge;
+use core::marker::PhantomData;
 
-use ark_ff::{Field, PrimeField};
+use ark_ff::{BigInt, BigInteger, Field, PrimeField};
 use ark_std::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec, Zero};
+use itertools::Itertools;
 use jf_relation::{
-    constants::GATE_WIDTH, errors::CircuitError, gates::*, Circuit, PlonkCircuit, Variable,
+    constants::GATE_WIDTH,
+    errors::CircuitError,
+    gadgets::{EmulatedVariable, EmulationConfig},
+    gates::*,
+    Circuit, PlonkCircuit,
 };
 
-use crate::{
-    circuit::poseidon::sponge::{PoseidonStateVar, SpongePoseidonHashGadget},
-    poseidon::{constants::PoseidonParams, sponge::CRHF_RATE, STATE_SIZE},
-};
+use crate::poseidon::PoseidonParams;
+
+//use crate::{circuit::poseidon::sponge::{PoseidonStateVar, SpongePoseidonHashGadget}, poseidon::{constants::PoseidonParams, sponge::CRHF_RATE, STATE_SIZE}};
 
 #[derive(Debug, Clone)]
 /// Used in full Poseidon rounds
@@ -184,25 +187,26 @@ impl<F: PrimeField> Gate<F> for GeneralPoseidonGate<F> {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 /// Used to store a `Variable` and its corresponding linear and power coefficients in a potential linear combination.
-pub struct VariableCoefficents<F> {
-    pub(crate) variable: Variable,
-    pub(crate) linear_coeff: F,
-    pub(crate) power_coeff: F,
+pub struct VariableCoefficents<F: PrimeField, E: EmulationConfig<F>> {
+    pub(crate) variable: EmulatedVariable<E>,
+    pub(crate) linear_coeff: E,
+    pub(crate) power_coeff: E,
+    phantom: PhantomData<F>,
 }
 
 #[derive(Clone)]
 /// Used to store a several `VariableCoefficients` and a constant in a linear combination.
-pub struct LinearCombination<F> {
-    pub(crate) var_coeffs_vec: Vec<VariableCoefficents<F>>,
-    pub(crate) constant: F,
+pub struct LinearCombination<F: PrimeField, E: EmulationConfig<F>> {
+    pub(crate) var_coeffs_vec: Vec<VariableCoefficents<F, E>>,
+    pub(crate) constant: E,
 }
 
 /// Used to store a single `Variable` and a set of `LinearCombination`s. This is used in the `partial_round_relations_transformation` method.
-pub struct PartialRoundLinearCombinations<F> {
-    pub(crate) variable: Variable,
-    pub(crate) lin_combs: Vec<LinearCombination<F>>,
+pub struct PartialRoundLinearCombinations<F: PrimeField, E: EmulationConfig<F>> {
+    pub(crate) variable: EmulatedVariable<E>,
+    pub(crate) lin_combs: Vec<LinearCombination<F, E>>,
 }
 
 fn dot_product<F: PrimeField>(vec_one: &[F], vec_two: &[F]) -> F {
@@ -224,16 +228,16 @@ fn dot_product<F: PrimeField>(vec_one: &[F], vec_two: &[F]) -> F {
     output
 }*/
 
-fn combine_linear_combinations<F: PrimeField>(
-    lin_combs: &[LinearCombination<F>],
-    coeffs_vec: &[F],
-    constant: &F,
-) -> LinearCombination<F> {
-    let mut var_coeffs_map = BTreeMap::<Variable, (F, F)>::new();
+fn combine_linear_combinations<F: PrimeField, E: EmulationConfig<F>>(
+    lin_combs: &[LinearCombination<F, E>],
+    coeffs_vec: &[E],
+    constant: &E,
+) -> LinearCombination<F, E> {
+    let mut var_coeffs_map = BTreeMap::<EmulatedVariable<E>, (E, E)>::new();
     let mut constant_result = *constant;
     for (lin_comb, coeff) in lin_combs.iter().zip(coeffs_vec.iter()) {
         for var_coeffs in lin_comb.var_coeffs_vec.iter() {
-            let entry = var_coeffs_map.entry(var_coeffs.variable);
+            let entry = var_coeffs_map.entry(var_coeffs.variable.clone());
             entry
                 .and_modify(|(x, y)| {
                     *x += *coeff * var_coeffs.linear_coeff;
@@ -247,12 +251,13 @@ fn combine_linear_combinations<F: PrimeField>(
         constant_result += *coeff * lin_comb.constant;
     }
 
-    let mut var_coeffs_result = Vec::<VariableCoefficents<F>>::new();
+    let mut var_coeffs_result = Vec::<VariableCoefficents<F, E>>::new();
     for (variable, (linear_coeff, power_coeff)) in var_coeffs_map {
         var_coeffs_result.push(VariableCoefficents {
             variable,
             linear_coeff,
             power_coeff,
+            phantom: PhantomData,
         });
     }
     LinearCombination {
@@ -329,87 +334,151 @@ fn optimal_partial_rounds_batching(
 }
 
 /// Used to perform a Poseidon hash inside a circuit with optimised gates.
-pub trait PoseidonHashGadget<F: PoseidonParams> {
+pub trait PoseidonHashGadget<F: PoseidonParams, E: EmulationConfig<F>> {
+    fn general_poseidon_emulated(
+        &mut self,
+        inputs: &[EmulatedVariable<E>], // w_0 … w_{t-1}
+        linear_coeffs: &[E],            // ℓ_0 … ℓ_{t-1}
+        power_coeffs: &[E],             // h_0 … h_{t-1}
+        constant: E,                    // c
+    ) -> Result<EmulatedVariable<E>, CircuitError>;
+
     /// Decompose a (potentially large) linear relationship into a number of general Poseidon gates and insert into the circuit
     fn decompose_into_general_poseidon_gates(
         &mut self,
-        lin_comb: &LinearCombination<F>,
-    ) -> Result<Variable, CircuitError>;
+        lin_comb: &LinearCombination<F, E>,
+    ) -> Result<EmulatedVariable<E>, CircuitError>;
 
     /// Perform a full round of Poseidon hash inside a circuit.
     fn full_round_var(
         &mut self,
-        state_vec: &[Variable],
-        matrix: &[Vec<F>],
-        round_constants: &[F],
-    ) -> Result<Vec<Variable>, CircuitError>;
+        state_vec: &[EmulatedVariable<E>],
+        matrix: &[Vec<E>],
+        round_constants: &[E],
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError>;
 
     /// Transforms a set of linear combinations of `Variable`s into the appropriate linear combinations after one partial round.
     fn partial_round_relations_transformation(
         &mut self,
-        partial_round_lin_comb: &PartialRoundLinearCombinations<F>,
-        matrix: &[Vec<F>],
-        round_constants: &[F],
-    ) -> Result<PartialRoundLinearCombinations<F>, CircuitError>;
+        partial_round_lin_comb: &PartialRoundLinearCombinations<F, E>,
+        matrix: &[Vec<E>],
+        round_constants: &[E],
+    ) -> Result<PartialRoundLinearCombinations<F, E>, CircuitError>;
 
     /// Perform a composition of partial rounds of Poseidon hash inside a circuit.
     fn composed_partial_round_var(
         &mut self,
-        state_vec: &[Variable],
-        matrix: &[Vec<F>],
-        constants: &[Vec<F>],
+        state_vec: &[EmulatedVariable<E>],
+        matrix: &[Vec<E>],
+        constants: &[Vec<E>],
         num_rounds: usize,
-    ) -> Result<Vec<Variable>, CircuitError>;
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError>;
 
     /// Raise a variable to the power of 5 inside a circuit.
-    fn power_of_five(&mut self, var: Variable) -> Result<Variable, CircuitError>;
+    fn power_of_five(
+        &mut self,
+        var: EmulatedVariable<E>,
+    ) -> Result<EmulatedVariable<E>, CircuitError>;
 
     /// Perform a Poseidon permutation inside a circuit.
-    fn poseidon_perm(&mut self, inputs: &[Variable]) -> Result<Vec<Variable>, CircuitError>;
+    fn poseidon_perm(
+        &mut self,
+        inputs: &[EmulatedVariable<E>],
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError>;
 
-    /// Perform a Poseidon hash inside a circuit.
-    fn poseidon_hash(&mut self, inputs: &[Variable]) -> Result<usize, CircuitError>;
+    // /// Perform a Poseidon hash inside a circuit.
+    //fn poseidon_hash(&mut self, inputs: &[EmulatedVariable<E>]) -> Result<usize, CircuitError>;
 
-    /// Performs a tree hash, where if both inputs are zero it outputs zero.
-    fn tree_hash(&mut self, inputs: &[Variable; 2]) -> Result<Variable, CircuitError>;
+    // /// Performs a tree hash, where if both inputs are zero it outputs zero.
+    //fn tree_hash(&mut self, inputs: &[EmulatedVariable<E>; 2]) -> Result<EmulatedVariable<E>, CircuitError>;
 }
 
-impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
+impl<F: PoseidonParams, E: EmulationConfig<F>> PoseidonHashGadget<F, E> for PlonkCircuit<F> {
+    /// Emulated equivalent of `GeneralPoseidonGate`:
+    ///   out = Σ_i (ℓ_i · w_i) + Σ_i (h_i · w_i^5) + c
+    fn general_poseidon_emulated(
+        &mut self,
+        inputs: &[EmulatedVariable<E>], // w_0 … w_{t-1}
+        linear_coeffs: &[E],            // ℓ_0 … ℓ_{t-1}
+        power_coeffs: &[E],             // h_0 … h_{t-1}
+        constant: E,                    // c
+    ) -> Result<EmulatedVariable<E>, CircuitError> {
+        let t = inputs.len();
+        assert_eq!(linear_coeffs.len(), t);
+        assert_eq!(power_coeffs.len(), t);
+
+        // Start accumulator with the constant term c
+        let mut acc = self.create_constant_emulated_variable::<E>(constant)?;
+
+        // 1) add all ℓ_i · w_i
+        for (w, &lc) in inputs.iter().zip(linear_coeffs.iter()) {
+            if !lc.is_zero() {
+                let lc_ev = self.create_constant_emulated_variable::<E>(lc)?;
+                let term = self.emulated_mul::<E>(&lc_ev, w)?;
+                acc = self.emulated_add::<E>(&acc, &term)?;
+            }
+        }
+
+        // 2) add all h_i · (w_i^5)
+        for (w, &hc) in inputs.iter().zip(power_coeffs.iter()) {
+            if !hc.is_zero() {
+                // compute w^5
+                let w2 = self.emulated_mul::<E>(w, w)?;
+                let w4 = self.emulated_mul::<E>(&w2, &w2)?;
+                let w5 = self.emulated_mul::<E>(&w4, w)?;
+                // multiply by h_i
+                let hc_ev = self.create_constant_emulated_variable::<E>(hc)?;
+                let term = self.emulated_mul::<E>(&hc_ev, &w5)?;
+                acc = self.emulated_add::<E>(&acc, &term)?;
+            }
+        }
+
+        // `acc` now holds Σ ℓ_i·w_i + Σ h_i·w_i^5 + c
+        Ok(acc)
+    }
+
     fn decompose_into_general_poseidon_gates(
         &mut self,
-        lin_comb: &LinearCombination<F>,
-    ) -> Result<Variable, CircuitError> {
+        lin_comb: &LinearCombination<F, E>,
+    ) -> Result<EmulatedVariable<E>, CircuitError> {
         // We first add a general Poseidon gate to deal with the first 4 variables
-        let mut wire_vars = [Variable::default(); 5];
-        let mut val_vec = Vec::<F>::new();
-        let mut power_val_vec = Vec::<F>::new();
-        let mut linear_coeff_vector = Vec::<F>::new();
-        let mut power_coeff_vector = Vec::<F>::new();
+        let mut wire_vars = vec![];
+        //let mut val_vec = Vec::<E>::new();
+        //let mut power_val_vec = Vec::<E>::new();
+        let mut linear_coeff_vector = Vec::<E>::new();
+        let mut power_coeff_vector = Vec::<E>::new();
         for (i, var_coeffs) in lin_comb.var_coeffs_vec.iter().take(4).enumerate() {
-            wire_vars[i] = var_coeffs.variable;
-            let value = self.witness(var_coeffs.variable)?;
-            val_vec.push(value);
-            power_val_vec.push(value.pow([5u64]));
+            wire_vars.push(var_coeffs.variable.clone());
+            //let value = self.emulated_witness(&var_coeffs.variable)?;
+            //val_vec.push(value);
+            //power_val_vec.push(value.pow([5u64]));
             linear_coeff_vector.push(var_coeffs.linear_coeff);
             power_coeff_vector.push(var_coeffs.power_coeff);
         }
 
-        let output_val = dot_product(&val_vec, &linear_coeff_vector)
-            + dot_product(&power_val_vec, &power_coeff_vector)
-            + lin_comb.constant;
-        let output_var = self.create_variable(output_val)?;
-        wire_vars[4] = output_var;
+        //let output_val = dot_product(&val_vec, &linear_coeff_vector)
+        //    + dot_product(&power_val_vec, &power_coeff_vector)
+        //    + lin_comb.constant;
+        //let output_var = self.create_emulated_variable(output_val)?;
+        //wire_vars[4] = output_var;
 
-        linear_coeff_vector.resize(4, F::zero());
-        power_coeff_vector.resize(4, F::zero());
+        linear_coeff_vector.resize(3, E::zero());
+        power_coeff_vector.resize(3, E::zero());
 
-        self.insert_gate(
+        /*self.insert_gate(
             &wire_vars,
-            Box::new(GeneralPoseidonGate::<F> {
+            Box::new(GeneralPoseidonGate::<E> {
                 linear_coeff_vector,
                 power_coeff_vector,
                 constant: lin_comb.constant,
             }),
+        )?;*/
+
+        let output_var = self.general_poseidon_emulated(
+            &wire_vars,
+            &linear_coeff_vector,
+            &power_coeff_vector,
+            lin_comb.constant,
         )?;
 
         // If we have fewer than or equal to 4 input `Variable`s we return the output `Variable`,
@@ -419,42 +488,44 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
         } else {
             let mut new_var_coeffs_vec = lin_comb.var_coeffs_vec[4..].to_vec();
             new_var_coeffs_vec.push(VariableCoefficents {
-                variable: output_var,
-                linear_coeff: F::one(),
-                power_coeff: F::zero(),
+                variable: output_var.clone(),
+                linear_coeff: E::one(),
+                power_coeff: E::zero(),
+                phantom: PhantomData,
             });
 
             self.decompose_into_general_poseidon_gates(&LinearCombination {
                 var_coeffs_vec: new_var_coeffs_vec,
-                constant: F::zero(),
+                constant: E::zero(),
             })
         }
     }
 
     fn full_round_var(
         &mut self,
-        state_vec: &[Variable],
-        matrix: &[Vec<F>],
-        round_constants: &[F],
-    ) -> Result<Vec<Variable>, CircuitError> {
-        self.check_vars_bound(state_vec)?;
+        state_vec: &[EmulatedVariable<E>],
+        matrix: &[Vec<E>],
+        round_constants: &[E],
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError> {
+        //self.check_vars_bound(state_vec)?; // TODO
 
         // We first create a vector of `LinearCombination`s out of the `Variable`s to the power 5.
         let var_coeffs_vec = state_vec
             .iter()
             .map(|var| VariableCoefficents {
-                variable: *var,
-                linear_coeff: F::zero(),
-                power_coeff: F::one(),
+                variable: var.clone(),
+                linear_coeff: E::zero(),
+                power_coeff: E::one(),
+                phantom: PhantomData,
             })
-            .collect::<Vec<VariableCoefficents<F>>>();
+            .collect::<Vec<VariableCoefficents<F, E>>>();
         let lin_comb_vec = var_coeffs_vec
             .iter()
             .map(|var_coeffs| LinearCombination {
-                var_coeffs_vec: [*var_coeffs].to_vec(),
-                constant: F::zero(),
+                var_coeffs_vec: [var_coeffs.clone()].to_vec(),
+                constant: E::zero(),
             })
-            .collect::<Vec<LinearCombination<F>>>();
+            .collect::<Vec<LinearCombination<F, E>>>();
 
         // Next we construct all the ouput `LinearCombination`s.
         let lin_comb_output_vec = matrix
@@ -463,32 +534,33 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
             .map(|(matrix_row, constant)| {
                 combine_linear_combinations(&lin_comb_vec, matrix_row, constant)
             })
-            .collect::<Vec<LinearCombination<F>>>();
+            .collect::<Vec<LinearCombination<F, E>>>();
 
         // We now convert our `LinearCombination`s back into `Variable`s.
         lin_comb_output_vec
             .iter()
             .map(|lin_comb| self.decompose_into_general_poseidon_gates(lin_comb))
-            .collect::<Result<Vec<Variable>, CircuitError>>()
+            .collect::<Result<Vec<EmulatedVariable<E>>, CircuitError>>()
     }
 
     fn partial_round_relations_transformation(
         &mut self,
-        partial_round_lin_comb: &PartialRoundLinearCombinations<F>,
-        matrix: &[Vec<F>],
-        round_constants: &[F],
-    ) -> Result<PartialRoundLinearCombinations<F>, CircuitError> {
+        partial_round_lin_comb: &PartialRoundLinearCombinations<F, E>,
+        matrix: &[Vec<E>],
+        round_constants: &[E],
+    ) -> Result<PartialRoundLinearCombinations<F, E>, CircuitError> {
         // We first create a `LinearCombination` out of `partial_round_lin_comb.variable` to the power 5,
         // so we can then combine it with the other `LinearCombination`s.
-        let mut lin_comb_vec = Vec::<LinearCombination<F>>::new();
+        let mut lin_comb_vec = Vec::<LinearCombination<F, E>>::new();
         lin_comb_vec.push(LinearCombination {
             var_coeffs_vec: [VariableCoefficents {
-                variable: partial_round_lin_comb.variable,
-                linear_coeff: F::zero(),
-                power_coeff: F::one(),
+                variable: partial_round_lin_comb.variable.clone(),
+                linear_coeff: E::zero(),
+                power_coeff: E::one(),
+                phantom: PhantomData,
             }]
             .to_vec(),
-            constant: F::zero(),
+            constant: E::zero(),
         });
         // We now append all the other `LinearCombination`s.
         lin_comb_vec.extend(partial_round_lin_comb.lin_combs.clone());
@@ -500,7 +572,7 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
             .map(|(matrix_row, constant)| {
                 combine_linear_combinations(&lin_comb_vec, matrix_row, constant)
             })
-            .collect::<Vec<LinearCombination<F>>>();
+            .collect::<Vec<LinearCombination<F, E>>>();
 
         // We need to create a `Variable` for the first output `LinearCombination`.
         let first_var = self.decompose_into_general_poseidon_gates(&lin_comb_output_vec[0])?;
@@ -512,34 +584,35 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
 
     fn composed_partial_round_var(
         &mut self,
-        state_vec: &[Variable],
-        matrix: &[Vec<F>],
-        constants: &[Vec<F>],
+        state_vec: &[EmulatedVariable<E>],
+        matrix: &[Vec<E>],
+        constants: &[Vec<E>],
         num_rounds: usize,
-    ) -> Result<Vec<Variable>, CircuitError> {
-        self.check_vars_bound(state_vec)?;
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError> {
+        //self.check_vars_bound(state_vec)?; // TODO
         if constants.len() != num_rounds {
             return Err(CircuitError::ParameterError(
                 "constants matrix, wrong size".to_string(),
             ));
         }
         // We first transform our vector of `Variable`s into a `PartialRoundLinearCombinations`.
-        let first_var = state_vec[0];
+        let first_var = &state_vec[0];
         let lin_comb_vec = state_vec
             .iter()
             .skip(1)
             .map(|var| LinearCombination {
                 var_coeffs_vec: [VariableCoefficents {
-                    variable: *var,
-                    linear_coeff: F::one(),
-                    power_coeff: F::zero(),
+                    variable: var.clone(),
+                    linear_coeff: E::zero(),
+                    power_coeff: E::one(),
+                    phantom: PhantomData,
                 }]
                 .to_vec(),
-                constant: F::zero(),
+                constant: E::zero(),
             })
-            .collect::<Vec<LinearCombination<F>>>();
+            .collect::<Vec<LinearCombination<F, E>>>();
         let mut part_round_lin_combs = PartialRoundLinearCombinations {
-            variable: first_var,
+            variable: first_var.clone(),
             lin_combs: lin_comb_vec,
         };
         // Perform the appropriate number of partial rounds.
@@ -551,7 +624,7 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
             )?;
         }
         // Convert the `PartialRoundLinearCombinations`s back into `Variables`.
-        let mut output_vars = Vec::<Variable>::new();
+        let mut output_vars = Vec::<EmulatedVariable<E>>::new();
         output_vars.push(part_round_lin_combs.variable);
         for lin_comb in part_round_lin_combs.lin_combs.iter() {
             output_vars.push(self.decompose_into_general_poseidon_gates(lin_comb)?);
@@ -559,32 +632,53 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
         Ok(output_vars)
     }
 
-    fn power_of_five(&mut self, var: Variable) -> Result<Variable, CircuitError> {
-        self.check_var_bound(var)?;
-        let value = self.witness(var)?;
-        let output = value.pow([5u64]);
-        let out_var = self.create_variable(output)?;
-        let wire_vars = &[var, 0, 0, 0, out_var];
-        self.insert_gate(wire_vars, Box::new(PowerFiveGate))?;
-        Ok(out_var)
+    /// Power‐of‑five via emulated arithmetic
+    fn power_of_five(
+        &mut self,
+        var: EmulatedVariable<E>,
+    ) -> Result<EmulatedVariable<E>, CircuitError> {
+        let v2 = self.emulated_mul(&var, &var)?;
+        let v4 = self.emulated_mul(&v2, &v2)?;
+        self.emulated_mul(&v4, &var)
     }
 
-    fn poseidon_perm(&mut self, inputs: &[Variable]) -> Result<Vec<Variable>, CircuitError> {
+    fn poseidon_perm(
+        &mut self,
+        inputs: &[EmulatedVariable<E>],
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError> {
         let t = inputs.len();
         let (constants, matrix, n_rounds_p) = F::params(t)
             .map_err(|_| CircuitError::InternalError("Couldn't get Poseidon params".to_string()))?;
         let n_rounds_f = 8;
 
+        let constants: Vec<Vec<E>> = constants
+            .iter()
+            .map(|c| {
+                c.iter()
+                    .map(|x| E::from_be_bytes_mod_order(&F::into_bigint(*x).to_bytes_be()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<_>();
+
+        let matrix = matrix
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|x| E::from_be_bytes_mod_order(&F::into_bigint(*x).to_bytes_be()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
         let mut state_vec_var = inputs.to_vec();
 
         for loop_val in state_vec_var.iter_mut().enumerate() {
-            let (j, element): (usize, &mut usize) = loop_val;
-            *element = self.add_constant(*element, &constants[0][j])?;
+            let (j, element): (usize, &mut EmulatedVariable<E>) = loop_val;
+            *element = self.emulated_add_constant(element, constants[0][j])?;
         }
 
         // For n in the range 1..(n_rounds_f/2 + 1) we perform a full round using constants[n].
         for constant in constants.iter().skip(1).take(n_rounds_f / 2) {
-            state_vec_var = self.full_round_var(&state_vec_var, &matrix, constant)?;
+            state_vec_var = self.full_round_var(&state_vec_var, matrix.as_slice(), constant)?;
         }
 
         // For n in the range (n_rounds_f/2 + 1)..(n_rounds_f/2 + n_rounds_p + 1) we perform a partial round using constants[n].
@@ -610,13 +704,13 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
             state_vec_var = tmp;
         }
 
-        let zero_vec = vec![F::zero(); t];
+        let zero_vec = vec![E::zero(); t];
         state_vec_var = self.full_round_var(&state_vec_var, &matrix, &zero_vec)?;
 
         Ok(state_vec_var)
     }
 
-    fn poseidon_hash(&mut self, inputs: &[Variable]) -> Result<Variable, CircuitError> {
+    /*fn poseidon_hash(&mut self, inputs: &[EmulatedVariable<E>]) -> Result<EmulatedVariable<E>, CircuitError> {
         let t = inputs.len() + 1;
         let mut state_vec_var = vec![usize::zero(); t];
         state_vec_var[1..].clone_from_slice(inputs);
@@ -625,16 +719,16 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
         Ok(state_vec_var[0])
     }
 
-    fn tree_hash(&mut self, inputs: &[Variable; 2]) -> Result<Variable, CircuitError> {
-        let check_one = self.is_zero(inputs[0])?;
+    fn tree_hash(&mut self, inputs: &[EmulatedVariable<E>; 2]) -> Result<EmulatedVariable<E>, CircuitError> {
+        let check_one = self.emulated_enforce_in_range(inputs[0])?;
         let check_two = self.is_zero(inputs[1])?;
         let and = self.logic_and(check_one, check_two)?;
         let hash = self.poseidon_hash(inputs)?;
         self.conditional_select(and, hash, self.zero())
-    }
+    }*/
 }
 
-/// Hash an arbitrary‑length slice of field elements with Poseidon.
+/*/// Hash an arbitrary‑length slice of field elements with Poseidon.
 /// Returns `out_len` digest field elements.
 ///
 /// * `input`     – message as field elements
@@ -643,12 +737,13 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
 /// Follows the sponge rules in the Poseidon paper (§2.1, §4.2).
 pub fn poseidon_hash_varlen<F>(
     circuit: &mut PlonkCircuit<F>,
-    input: &[Variable],
+    input: &[EmulatedVariable<E>],
     out_len: usize,
-) -> Result<Vec<Variable>, CircuitError>
+) -> Result<Vec<EmulatedVariable<E>>, CircuitError>
 where
     F: PoseidonParams,
 {
+
     //const CRHF_RATE: usize = 4;
 
     // ---------- 1. fresh zero state ----------
@@ -657,10 +752,10 @@ where
     // ---------- 2. inject domain‑separation tag ----------
     // Variable‑length hash, 1 output  ⇒  tag = 2^64
     let tag = circuit.create_variable(F::from(1u128 << 64))?;
-    state.0[CRHF_RATE] = tag; // write into *first* capacity word
+    state.0[CRHF_RATE] = tag;          // write into *first* capacity word
 
     // ---------- 3. build padded message ----------
-    let mut buf: Vec<Variable> = Vec::with_capacity(input.len() + CRHF_RATE);
+    let mut buf: Vec<EmulatedVariable<E>> = Vec::with_capacity(input.len() + CRHF_RATE);
     buf.extend_from_slice(input);
 
     // 10* padding: a single '1' then zeros so that |buf| ≡ 0 (mod RATE)
@@ -675,7 +770,7 @@ where
 
     // ---------- 5. squeeze requested number of elements ----------
     circuit.squeeze(&state, out_len)
-}
+}*/
 
 #[cfg(test)]
 mod tests {

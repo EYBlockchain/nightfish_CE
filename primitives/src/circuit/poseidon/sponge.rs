@@ -1,3 +1,5 @@
+use ark_std::println;
+
 use crate::poseidon::{sponge::CRHF_RATE, PoseidonParams, STATE_SIZE};
 use ark_std::{string::ToString, vec::Vec};
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
@@ -29,6 +31,7 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
         input_vars: &[Variable],
     ) -> Result<PoseidonStateVar, CircuitError> {
         let mut output_vars = state_vars.0;
+        println!("absorbing {} input variables", input_vars.len());
         for chunk in input_vars.chunks(CRHF_RATE) {
             // To be consistent with `Poseidon::hash()`, we need start adding elements in position `STATE_SIZE - CRHF_RATE`.
             for (output_var, input_var) in output_vars
@@ -38,6 +41,10 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
             {
                 *output_var = self.add(*output_var, *input_var)?;
             }
+            println!(
+                "calling poseidon_perm with {} state variables",
+                output_vars.len()
+            );
             output_vars = self.poseidon_perm(&output_vars)?.try_into().map_err(|_| {
                 CircuitError::ParameterError(
                     "Failed to convert Poseidon state to array".to_string(),

@@ -90,7 +90,7 @@ where
 /// Whenever we require it to be the canonical representation of λ
 /// (for example, when taking modulo |F|) is when we use
 /// `enforce_valid_emulated_var`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EmulatedVariable<E: PrimeField>(pub(crate) Vec<Variable>, pub PhantomData<E>);
 
 impl<E: PrimeField> EmulatedVariable<E> {
