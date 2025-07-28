@@ -119,7 +119,16 @@ where
     /// Proving key for Plookup, None if not support lookup.
     pub(crate) plookup_pk: Option<PlookupProvingKey<PCS>>,
 }
-
+impl<PCS: PolynomialCommitmentScheme> ProvingKey<PCS> {
+    /// compute hash of the proving key
+    pub fn hash(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        self.serialize_compressed(&mut bytes).unwrap();
+        let mut hasher = Keccak256::new();
+        hasher.update(&bytes);
+        hasher.finalize().to_vec()
+    }
+}
 /// Preprocessed prover parameters used to compute Plookup proofs for a certain
 /// circuit.
 #[derive(Debug, Clone, Eq, PartialEq, CanonicalSerialize, CanonicalDeserialize)]
