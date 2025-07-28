@@ -2,7 +2,7 @@
 
 use ark_bn254::{Bn254, Fq as Fq254, Fr as Fr254};
 use ark_poly::DenseMultilinearExtension;
-
+use ark_std::time::Instant;
 use ark_std::{
     cfg_chunks, cfg_into_iter, format, rand::SeedableRng, string::ToString, sync::Arc, vec,
     vec::Vec, One, Zero,
@@ -122,6 +122,9 @@ pub trait RecursiveProver {
         input_vks: &[VerifyingKey<Kzg>; 2],
         kzg_srs: &UnivariateUniversalParams<Bn254>,
     ) -> Result<GrumpkinOut, PlonkError> {
+        ark_std::println!("intermediate structure: base_grumpkin_circuit");
+        // record how long it takes to run this function
+        let start  = Instant::now();
         let mut circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(12);
         let bn254info = initial_bn254_info(outputs, specific_pi, kzg_srs);
         // We make a dummy VK at this level because it won't be used in the circuit here.
@@ -161,7 +164,11 @@ pub trait RecursiveProver {
             circuit.check_circuit_satisfiability(&pi)?;
             ark_std::println!("base grumpkin circuit size: {}", circuit.num_gates());
         }
-
+        let elapsed = start.elapsed();
+        ark_std::println!(
+            "base_grumpkin_circuit took: {} seconds",
+            elapsed.as_secs_f64()
+        );
         Ok((circuit, circuit_output))
     }
     /// This function takes in [`GrumpkinOut`] types, proves the circuits and then produces another circuit proving their correct accumulation.
@@ -171,6 +178,8 @@ pub trait RecursiveProver {
         input_vks: &[VerifyingKey<Kzg>; 4],
         extra_base_info: &[Fr254],
     ) -> Result<Bn254Out, PlonkError> {
+        ark_std::println!("intermediate structure: base_bn254_circuit");
+        let start  = Instant::now();
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
@@ -266,7 +275,11 @@ pub trait RecursiveProver {
             circuit.check_circuit_satisfiability(&pi)?;
             ark_std::println!("base bn254 circuit size: {}", circuit.num_gates());
         }
-
+        let elapsed = start.elapsed();
+        ark_std::println!(
+            "base_bn254_circuit took: {} seconds",
+            elapsed.as_secs_f64()
+        );
         Ok((circuit, bn254_circuit_out))
     }
     /// This function takes in [`Bn254Out`] types, proves the circuits and then produces another circuit proving their correct accumulation.
@@ -275,7 +288,8 @@ pub trait RecursiveProver {
         base_bn254_pk: &ProvingKey<Kzg>,
         base_grumpkin_pk: &MLEProvingKey<Zmorph>,
     ) -> Result<GrumpkinOut, PlonkError> {
-        ark_std::println!("JJ: am merging grumpkin circuit");
+        ark_std::println!("intermediate structure: merge_grumpkin_circuit");
+        let start  = Instant::now();
         let (circuits, bn254_circuit_outs_vec): (
             Vec<PlonkCircuit<Fr254>>,
             Vec<Bn254CircuitOutput>,
@@ -331,6 +345,11 @@ pub trait RecursiveProver {
             circuit.check_circuit_satisfiability(&pi)?;
             ark_std::println!("merge grumpkin circuit size: {}", circuit.num_gates());
         }
+        let elapsed = start.elapsed();
+        ark_std::println!(
+            "merge grumpkin circuit took: {} seconds",
+            elapsed.as_secs_f64()
+        );
 
         Ok((circuit, grumpkin_circuit_out))
     }
@@ -340,6 +359,8 @@ pub trait RecursiveProver {
         merge_grumpkin_pk: &MLEProvingKey<Zmorph>,
         bn254_pk: &ProvingKey<Kzg>,
     ) -> Result<Bn254Out, PlonkError> {
+        ark_std::println!("intermediate structure: merge_bn254_circuit");
+        let start  = Instant::now();
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
@@ -391,7 +412,11 @@ pub trait RecursiveProver {
             circuit.check_circuit_satisfiability(&pi)?;
             ark_std::println!("merge bn254 size: {}", circuit.num_gates());
         }
-
+        let elapsed = start.elapsed();
+        ark_std::println!(
+            "merge_bn254_circuit took: {} seconds",
+            elapsed.as_secs_f64()
+        );
         Ok((circuit, bn254_circuit_out))
     }
     /// The decider circuit that fully verifies the Grumpkin accumulator along with the final grumpkin proof.
@@ -401,6 +426,8 @@ pub trait RecursiveProver {
         merge_grumpkin_pk: &MLEProvingKey<Zmorph>,
         merge_bn254_pk: &ProvingKey<Kzg>,
     ) -> Result<DeciderOut, PlonkError> {
+        ark_std::println!("intermediate structure: decider_circuit");
+        let start  = Instant::now();
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
@@ -439,8 +466,6 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
-        ark_std::println!("JJ: pi_out: {:?}", pi_out);
-
         // #[cfg(test)]
         // {
         ark_std::println!(
@@ -468,6 +493,11 @@ pub trait RecursiveProver {
             ..
         } = grumpkin_info;
 
+        let elapsed = start.elapsed();
+        ark_std::println!(
+            "decider_circuit took: {} seconds",
+            elapsed.as_secs_f64()
+        );
         Ok(DeciderOut::new(circuit, pi_out, forwarded_accumulators))
     }
 
