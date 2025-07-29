@@ -114,7 +114,9 @@ pub trait RecursiveProver {
     /// Stores the merge Grumpkin proving key.
     fn store_merge_grumpkin_pk(pk: MLEProvingKey<Zmorph>) -> Option<()>;
     /// Stores the merge Bn254 proving key.
-    fn store_merge_bn254_pk(pk: ProvingKey<Kzg>) -> Option<()>;
+    fn store_merge_bn254_pk_4(pk: ProvingKey<Kzg>) -> Option<()>;
+    /// Stores the merge Bn254 proving key.
+    fn store_merge_bn254_pk_16(pk: ProvingKey<Kzg>) -> Option<()>;
     /// Stores the decider proving key.
     fn store_decider_pk(pk: JFProvingKey<Bn254>) -> Option<()>;
     /// This function takes in the input proofs and outputs [`GrumpkinCircuitOutput`] to be taken in by the next function.
