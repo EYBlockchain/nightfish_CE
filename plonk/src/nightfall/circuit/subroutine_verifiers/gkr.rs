@@ -877,7 +877,7 @@ pub(crate) mod tests {
             for (circuit_eval, eval) in circuit_gkr_evals.iter().zip(gkr_evals.iter()) {
                 assert_eq!(circuit.emulated_witness(circuit_eval).unwrap(), *eval);
             }
-            ark_std::println!("constraints: {}", circuit.num_gates());
+            // ark_std::println!("constraints: {}", circuit.num_gates());
         }
     }
 }

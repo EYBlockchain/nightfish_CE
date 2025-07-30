@@ -1054,9 +1054,9 @@ mod tests {
                 assert_eq!(circuit.point_witness(&res_var)?, res_point);
 
                 // uncomment the following code to dump the circuit comparison to screen
-                ark_std::println!("number of basis: {}", dim);
-                ark_std::println!("#variables: {}", circuit.num_vars(),);
-                ark_std::println!("#constraints: {}\n", circuit.num_gates(),);
+                // ark_std::println!("number of basis: {}", dim);
+                // ark_std::println!("#variables: {}", circuit.num_vars(),);
+                // ark_std::println!("#constraints: {}\n", circuit.num_gates(),);
 
                 // wrong witness should fail
                 *circuit.witness_mut(2) = F::rand(&mut rng);
@@ -1147,9 +1147,9 @@ mod tests {
                 assert_eq!(circuit.point_witness(&res_var)?, res_point);
                 circuit.check_circuit_satisfiability(&[]).unwrap();
                 // uncomment the following code to dump the circuit comparison to screen
-                ark_std::println!("number of basis: {}", dim);
-                ark_std::println!("#variables: {}", circuit.num_vars(),);
-                ark_std::println!("#constraints: {}\n", circuit.num_gates(),);
+                // ark_std::println!("number of basis: {}", dim);
+                // ark_std::println!("#variables: {}", circuit.num_vars(),);
+                // ark_std::println!("#constraints: {}\n", circuit.num_gates(),);
 
                 // wrong witness should fail
                 *circuit.witness_mut(2) = F::rand(&mut rng);

@@ -1222,12 +1222,12 @@ mod tests {
                 }
             })
             .collect::<Vec<MembershipProof<Fr254>>>();
-        ark_std::println!("got to here");
+        // ark_std::println!("got to here");
         // we can use the same leaves again for the purpose of testing.
         let incremented_sibling_paths = timber
             .stateless_increment_sibling_paths(&leaves_2, &sibling_paths, 8)
             .unwrap();
-        ark_std::println!("got to here 2");
+        // ark_std::println!("got to here 2");
         // now update the tree and see if we get the same answer
         for chunk in leaves_2.chunks(8) {
             let subtree = Tree::<Fr254>::build_from_values(3, chunk);
@@ -1582,14 +1582,14 @@ mod tests {
             imt.insert_leaves(&start_values).unwrap();
 
             imt.insert_subtree(&subtree_values).unwrap();
-            ark_std::println!("start_lenght: {}", start_leaves);
-            ark_std::println!("subtree leaves: {}", subtree_leaves);
+            // ark_std::println!("start_lenght: {}", start_leaves);
+            // ark_std::println!("subtree leaves: {}", subtree_leaves);
             for (i, (value, calc_entry_hash)) in all_values
                 .iter()
                 .zip(start_leaf_values.iter().chain(subtree_leaf_values.iter()))
                 .enumerate()
             {
-                ark_std::println!("i: {}", i);
+                // ark_std::println!("i: {}", i);
                 if !value.is_zero() || i.is_zero() {
                     let entry = imt.leaves_db.get_nullifier(Some(*value), None).unwrap();
                     let hash = poseidon

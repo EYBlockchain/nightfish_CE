@@ -253,25 +253,25 @@ mod test {
         let g_comm_te: Point<Fq> = g_comm.into();
 
         circuit.check_circuit_satisfiability(&[]).unwrap();
-        ark_std::println!("Circuit size before finalize: {}", circuit.num_gates());
+        // ark_std::println!("Circuit size before finalize: {}", circuit.num_gates());
         circuit.finalize_for_arithmetization().unwrap();
-        ark_std::println!("IPA Verification Circuit Finalised");
+        // ark_std::println!("IPA Verification Circuit Finalised");
         let srs_size = circuit.srs_size().unwrap();
-        ark_std::println!("IPA Circuit size: {}", srs_size);
+        // ark_std::println!("IPA Circuit size: {}", srs_size);
 
         let srs = <PlonkKzgSnark<BW6_761> as UniversalSNARK<UnivariateKzgPCS<BW6_761>>>::universal_setup_for_testing(
             srs_size, &mut rng,
         )
         .unwrap();
-        ark_std::println!("KZG SRS Generated");
+        // ark_std::println!("KZG SRS Generated");
         let (pk, vk) = PlonkKzgSnark::<BW6_761>::preprocess(&srs, &circuit).unwrap();
-        ark_std::println!("KZG Proof Generated");
+        // ark_std::println!("KZG Proof Generated");
         let now = ark_std::time::Instant::now();
         let proof = PlonkKzgSnark::<BW6_761>::prove::<_, _, StandardTranscript>(
             &mut rng, &circuit, &pk, None,
         )
         .unwrap();
-        ark_std::println!("KZG Proof time: {:?}", now.elapsed());
+        // ark_std::println!("KZG Proof time: {:?}", now.elapsed());
         PlonkKzgSnark::verify::<StandardTranscript>(
             &vk,
             &[g_comm_te.get_x(), g_comm_te.get_y()],
@@ -279,7 +279,7 @@ mod test {
             None,
         )
         .unwrap();
-        ark_std::println!("KZG Proof Verified");
+        // ark_std::println!("KZG Proof Verified");
 
         Ok(())
     }

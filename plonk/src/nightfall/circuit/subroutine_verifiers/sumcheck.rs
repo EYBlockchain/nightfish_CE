@@ -726,7 +726,7 @@ mod test {
                 &mut transcript,
             )?;
             assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
-            ark_std::println!("number of constraint: {}", circuit.num_gates());
+            // ark_std::println!("number of constraint: {}", circuit.num_gates());
         }
         Ok(())
     }
@@ -770,10 +770,10 @@ mod test {
                 circuit.verify_emulated_proof::<P>(&sum_check_proof_var, &mut transcript)?;
             assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
             assert_eq!(circuit.emulated_witness(&result_var)?, evaluation);
-            ark_std::println!(
-                "number of constraint emulated proof verify: {}",
-                circuit.num_gates()
-            );
+            // ark_std::println!(
+            //     "number of constraint emulated proof verify: {}",
+            //     circuit.num_gates()
+            // );
         }
         Ok(())
     }

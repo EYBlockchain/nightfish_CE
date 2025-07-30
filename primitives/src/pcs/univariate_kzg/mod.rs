@@ -448,7 +448,7 @@ impl UnivariateKzgPCS<Bn254> {
         let (powers_of_g, h) =
             parse_ptau_file::<Fq, Bn254ConfigOne, Bn254ConfigTwo>(ptau_file, max_degree, 2)
                 .map_err(|e| {
-                    ark_std::println!("Error parsing PTAU file: {:?}", e);
+                    // ark_std::println!("Error parsing PTAU file: {:?}", e);
                     PCSError::InvalidSRS
                 })?;
 
@@ -611,11 +611,11 @@ mod tests {
 
         for degree in degrees {
             let num_points = rng.gen_range(5..30); // should allow more points than degree
-            ark_std::println!(
-                "Multi-opening: poly deg: {}, num of points: {}",
-                degree,
-                num_points
-            );
+            // ark_std::println!(
+            //     "Multi-opening: poly deg: {}, num of points: {}",
+            //     degree,
+            //     num_points
+            // );
 
             // NOTE: THIS IS IMPORTANT FOR USER OF `multi_open()`!
             // since we will pad your polynomial degree to the next_power_of_two, you will

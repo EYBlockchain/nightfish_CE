@@ -958,7 +958,7 @@ where
     }
 
     fn hash(&self) -> E::ScalarField {
-        ark_std::println!("Hashing verifying key...");
+        // ark_std::println!("Hashing verifying key...");
         let mut hasher = Keccak256::new();
 
         let mut bytes = Vec::new();
@@ -991,10 +991,10 @@ where
 
         hasher.update(&bytes);
         let buf = hasher.finalize();
-        ark_std::println!(
-            "VK Hashing done:{}",
-            E::ScalarField::from_be_bytes_mod_order(&buf)
-        );
+        // ark_std::println!(
+        //     "VK Hashing done:{}",
+        //     E::ScalarField::from_be_bytes_mod_order(&buf)
+        // );
         E::ScalarField::from_be_bytes_mod_order(&buf)
     }
 }

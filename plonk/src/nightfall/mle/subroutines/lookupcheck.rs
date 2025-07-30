@@ -214,19 +214,19 @@ mod tests {
                 let mut num_sum = Fr::zero();
                 let mut other_sum = Fr::zero();
                 for i in 0..(1 << num_vars) {
-                    ark_std::println!(
-                        "i: {}, table: {}, lookup: {}, m_poly: {}",
-                        i,
-                        logup_table.table[i],
-                        lookup_wire[i],
-                        m_poly[i]
-                    );
+                    // ark_std::println!(
+                    //     "i: {}, table: {}, lookup: {}, m_poly: {}",
+                    //     i,
+                    //     logup_table.table[i],
+                    //     lookup_wire[i],
+                    //     m_poly[i]
+                    // );
                     num_sum += (m_poly[i] / (alpha - logup_table.table[i]))
                         - (Fr::one() / (alpha - lookup_wire[i]));
 
                     other_sum += zeta
                         * (m_poly[i] * (alpha - lookup_wire[i]) - (alpha - logup_table.table[i]));
-                    ark_std::println!("num_sum: {}, other sum : {}", num_sum, other_sum);
+                    // ark_std::println!("num_sum: {}, other sum : {}", num_sum, other_sum);
                 }
             }
             let prepped_items = LookupCheck::<BnConfig>::reduce_to_gkr(

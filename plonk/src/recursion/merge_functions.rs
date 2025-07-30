@@ -1618,7 +1618,6 @@ pub fn decider_circuit(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
     let specific_pi = specific_pi_fn(&impl_spec_pi, circuit)?;
 
-    ark_std::println!("Specific pi vars size: {}", specific_pi.len());
 
     verify_zeromorph_circuit(
         circuit,
@@ -1635,23 +1634,23 @@ pub fn decider_circuit(
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
-    ark_std::println!("specific_pi witeness : field_pi_out: {:?}", field_pi_out);
-    ark_std::println!("pi0: {}", field_pi_out[0]);
-    ark_std::println!("pi1: {}", field_pi_out[1]);
-    ark_std::println!("pi2: {}", field_pi_out[2]);
-    ark_std::println!("pi3: {}", field_pi_out[3]);
-    ark_std::println!("pi4: {}", field_pi_out[4]);
-    ark_std::println!("pi5: {}", field_pi_out[5]);
-    ark_std::println!("pi6: {}", field_pi_out[6]);
-    ark_std::println!("pi7: {}", field_pi_out[7]);
+    // ark_std::println!("specific_pi witeness : field_pi_out: {:?}", field_pi_out);
+    // ark_std::println!("pi0: {}", field_pi_out[0]);
+    // ark_std::println!("pi1: {}", field_pi_out[1]);
+    // ark_std::println!("pi2: {}", field_pi_out[2]);
+    // ark_std::println!("pi3: {}", field_pi_out[3]);
+    // ark_std::println!("pi4: {}", field_pi_out[4]);
+    // ark_std::println!("pi5: {}", field_pi_out[5]);
+    // ark_std::println!("pi6: {}", field_pi_out[6]);
+    // ark_std::println!("pi7: {}", field_pi_out[7]);
     let field_pi = field_pi_out
         .iter()
         .flat_map(|f| f.into_bigint().to_bytes_be())
         .collect::<Vec<u8>>();
-    ark_std::println!("field_pi Vec<u8>: {:?}", field_pi);
+    // ark_std::println!("field_pi Vec<u8>: {:?}", field_pi);
 
-    ark_std::println!("JJ grumpkin_info
-        .forwarded_accumulators, this is the output accumulators which has 2  automic instance: {:?}", grumpkin_info.forwarded_accumulators);
+    // ark_std::println!("JJ grumpkin_info
+    //     .forwarded_accumulators, this is the output accumulators which has 2  automic instance: {:?}", grumpkin_info.forwarded_accumulators);
 
     let acc_elems = grumpkin_info
         .forwarded_accumulators
@@ -1668,7 +1667,7 @@ pub fn decider_circuit(
         })
         .collect::<Vec<u8>>();
 
-    ark_std::println!("acc_elems Vec<u8>: {:?}", acc_elems);
+    // ark_std::println!("acc_elems Vec<u8>: {:?}", acc_elems);
 
     let mut hasher = Keccak256::new();
     hasher.update([field_pi, acc_elems].concat());
@@ -1676,11 +1675,11 @@ pub fn decider_circuit(
 
     // Generate challenge from state bytes using little-endian order
     let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
-    ark_std::println!(
-        "Decider circuit pi hash is keccak256(specific_pi || forwarded_accumulators) ",
-    );
-    ark_std::println!("Decider circuit pi hash: {}", pi_hash);
-    ark_std::println!("Decider circuit pi hash: {:?}", pi_hash);
+    // ark_std::println!(
+    //     "Decider circuit pi hash is keccak256(specific_pi || forwarded_accumulators) ",
+    // );
+    // ark_std::println!("Decider circuit pi hash: {}", pi_hash);
+    // ark_std::println!("Decider circuit pi hash: {:?}", pi_hash);
 
     circuit.create_public_variable(pi_hash)?;
     Ok(field_pi_out)

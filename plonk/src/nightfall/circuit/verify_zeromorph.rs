@@ -290,7 +290,7 @@ mod tests {
         .unwrap();
 
         circuit.check_circuit_satisfiability(&[]).unwrap();
-        ark_std::println!(" constraint count: {}", circuit.num_gates());
+        // ark_std::println!(" constraint count: {}", circuit.num_gates());
 
         Ok(())
     }

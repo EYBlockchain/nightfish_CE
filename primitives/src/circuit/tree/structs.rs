@@ -592,7 +592,7 @@ mod tests {
         }
 
         circuit.check_circuit_satisfiability(&[]).unwrap();
-        ark_std::println!("circuit num constraints: {}", circuit.num_gates() / 4);
+        // ark_std::println!("circuit num constraints: {}", circuit.num_gates() / 4);
     }
 
     #[test]

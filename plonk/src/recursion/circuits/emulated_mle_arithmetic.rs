@@ -723,7 +723,7 @@ mod tests {
 
             verifier_circuit.check_circuit_satisfiability(&[]).unwrap();
 
-            ark_std::println!("verifier circuit size: {}", verifier_circuit.num_gates());
+            // ark_std::println!("verifier circuit size: {}", verifier_circuit.num_gates());
 
             assert!(Zmorph::verify(
                 &vk.pcs_verifier_params,

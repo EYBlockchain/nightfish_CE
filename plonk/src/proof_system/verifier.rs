@@ -66,7 +66,7 @@ where
     pub(crate) fn new(domain_size: usize) -> Result<Self, PlonkError> {
         let domain = Radix2EvaluationDomain::<E::ScalarField>::new(domain_size)
             .ok_or(PlonkError::DomainCreationError)?;
-        ark_std::println!("jj check domain:{:?}", domain);
+        // ark_std::println!("jj check domain:{:?}", domain);
         Ok(Self { domain })
     }
 
@@ -124,13 +124,13 @@ where
             batch_proof,
             extra_transcript_init_msg,
         )?;
-        ark_std::println!("challenges tau: {}", challenges.tau);
-        ark_std::println!("challenges beta: {}", challenges.beta);
-        ark_std::println!("challenges gamma: {}", challenges.gamma);
-        ark_std::println!("challenges alpha: {}", challenges.alpha);
-        ark_std::println!("challenges zeta: {}", challenges.zeta);
-        ark_std::println!("challenges v: {}", challenges.v);
-        ark_std::println!("challenges u: {}", challenges.u);
+        // ark_std::println!("challenges tau: {}", challenges.tau);
+        // ark_std::println!("challenges beta: {}", challenges.beta);
+        // ark_std::println!("challenges gamma: {}", challenges.gamma);
+        // ark_std::println!("challenges alpha: {}", challenges.alpha);
+        // ark_std::println!("challenges zeta: {}", challenges.zeta);
+        // ark_std::println!("challenges v: {}", challenges.v);
+        // ark_std::println!("challenges u: {}", challenges.u);
 
         // pre-compute alpha related values
         let alpha_2 = challenges.alpha.square();
@@ -139,12 +139,12 @@ where
         let alpha_5 = alpha_2 * alpha_3;
         let alpha_6 = alpha_4 * alpha_2;
         let alpha_7 = alpha_3 * alpha_4;
-        ark_std::println!("alpha_2:{}", alpha_2);
-        ark_std::println!("alpha_3:{}", alpha_3);
-        ark_std::println!("alpha_4:{}", alpha_4);
-        ark_std::println!("alpha_5:{}", alpha_5);
-        ark_std::println!("alpha_6:{}", alpha_6);
-        ark_std::println!("alpha_7:{}", alpha_7);
+        // ark_std::println!("alpha_2:{}", alpha_2);
+        // ark_std::println!("alpha_3:{}", alpha_3);
+        // ark_std::println!("alpha_4:{}", alpha_4);
+        // ark_std::println!("alpha_5:{}", alpha_5);
+        // ark_std::println!("alpha_6:{}", alpha_6);
+        // ark_std::println!("alpha_7:{}", alpha_7);
 
         let alpha_powers = vec![alpha_2, alpha_3, alpha_4, alpha_5, alpha_6];
         let mut alpha_bases = vec![E::ScalarField::one()];
@@ -162,12 +162,12 @@ where
         }
 
         let vanish_eval = self.evaluate_vanishing_poly(&challenges.zeta);
-        ark_std::println!("vanish_eval: {}", vanish_eval);
+        // ark_std::println!("vanish_eval: {}", vanish_eval);
 
         let (lagrange_1_eval, lagrange_n_eval) =
             self.evaluate_lagrange_1_and_n(&challenges.zeta, &vanish_eval);
-        ark_std::println!("lagrange_1_eval: {}", lagrange_1_eval);
-        ark_std::println!("lagrange_n_eval: {}", lagrange_n_eval);
+        // ark_std::println!("lagrange_1_eval: {}", lagrange_1_eval);
+        // ark_std::println!("lagrange_n_eval: {}", lagrange_n_eval);
         // compute the constant term of the linearization polynomial
         let lin_poly_constant = self.compute_lin_poly_constant_term(
             &challenges,
@@ -180,7 +180,7 @@ where
             &alpha_powers,
             &alpha_bases,
         )?;
-        ark_std::println!("lin_poly_constant: {}", lin_poly_constant);
+        // ark_std::println!("lin_poly_constant: {}", lin_poly_constant);
 
         // build the (aggregated) polynomial commitment/evaluation instance
         let (comm_scalars_and_bases, buffer_v_and_uv_basis) = self.aggregate_poly_commitments(
@@ -193,37 +193,37 @@ where
             &alpha_powers,
             &alpha_bases,
         )?;
-        ark_std::println!(
-            "buffer_v_and_uv_basis.lenth: {}",
-            buffer_v_and_uv_basis.len()
-        );
-        ark_std::println!("buffer_v_and_uv_basis[0]: {}", buffer_v_and_uv_basis[0]);
-        ark_std::println!("buffer_v_and_uv_basis[1]: {}", buffer_v_and_uv_basis[1]);
-        ark_std::println!("buffer_v_and_uv_basis[2]: {}", buffer_v_and_uv_basis[2]);
-        ark_std::println!("buffer_v_and_uv_basis[3]: {}", buffer_v_and_uv_basis[3]);
-        ark_std::println!("buffer_v_and_uv_basis[4]: {}", buffer_v_and_uv_basis[4]);
-        ark_std::println!("buffer_v_and_uv_basis[5]: {}", buffer_v_and_uv_basis[5]);
-        ark_std::println!("buffer_v_and_uv_basis[6]: {}", buffer_v_and_uv_basis[6]);
-        ark_std::println!("buffer_v_and_uv_basis[7]: {}", buffer_v_and_uv_basis[7]);
-        ark_std::println!("buffer_v_and_uv_basis[8]: {}", buffer_v_and_uv_basis[8]);
-        ark_std::println!("buffer_v_and_uv_basis[9]: {}", buffer_v_and_uv_basis[9]);
-        ark_std::println!("buffer_v_and_uv_basis[10]: {}", buffer_v_and_uv_basis[10]);
-        ark_std::println!("buffer_v_and_uv_basis[11]: {}", buffer_v_and_uv_basis[11]);
-        ark_std::println!("buffer_v_and_uv_basis[12]: {}", buffer_v_and_uv_basis[12]);
-        ark_std::println!("buffer_v_and_uv_basis[13]: {}", buffer_v_and_uv_basis[13]);
-        ark_std::println!("buffer_v_and_uv_basis[14]: {}", buffer_v_and_uv_basis[14]);
-        ark_std::println!("buffer_v_and_uv_basis[15]: {}", buffer_v_and_uv_basis[15]);
-        ark_std::println!("buffer_v_and_uv_basis[16]: {}", buffer_v_and_uv_basis[16]);
-        ark_std::println!("buffer_v_and_uv_basis[17]: {}", buffer_v_and_uv_basis[17]);
-        ark_std::println!("buffer_v_and_uv_basis[18]: {}", buffer_v_and_uv_basis[18]);
-        ark_std::println!("buffer_v_and_uv_basis[19]: {}", buffer_v_and_uv_basis[19]);
-        ark_std::println!("buffer_v_and_uv_basis[20]: {}", buffer_v_and_uv_basis[20]);
-        ark_std::println!("buffer_v_and_uv_basis[21]: {}", buffer_v_and_uv_basis[21]);
-        ark_std::println!("buffer_v_and_uv_basis[22]: {}", buffer_v_and_uv_basis[22]);
-        ark_std::println!("buffer_v_and_uv_basis[23]: {}", buffer_v_and_uv_basis[23]);
-        ark_std::println!("buffer_v_and_uv_basis[24]: {}", buffer_v_and_uv_basis[24]);
-        ark_std::println!("buffer_v_and_uv_basis[25]: {}", buffer_v_and_uv_basis[25]);
-        ark_std::println!("buffer_v_and_uv_basis[26]: {}", buffer_v_and_uv_basis[26]);
+        // ark_std::println!(
+        //     "buffer_v_and_uv_basis.lenth: {}",
+        //     buffer_v_and_uv_basis.len()
+        // );
+        // ark_std::println!("buffer_v_and_uv_basis[0]: {}", buffer_v_and_uv_basis[0]);
+        // ark_std::println!("buffer_v_and_uv_basis[1]: {}", buffer_v_and_uv_basis[1]);
+        // ark_std::println!("buffer_v_and_uv_basis[2]: {}", buffer_v_and_uv_basis[2]);
+        // ark_std::println!("buffer_v_and_uv_basis[3]: {}", buffer_v_and_uv_basis[3]);
+        // ark_std::println!("buffer_v_and_uv_basis[4]: {}", buffer_v_and_uv_basis[4]);
+        // ark_std::println!("buffer_v_and_uv_basis[5]: {}", buffer_v_and_uv_basis[5]);
+        // ark_std::println!("buffer_v_and_uv_basis[6]: {}", buffer_v_and_uv_basis[6]);
+        // ark_std::println!("buffer_v_and_uv_basis[7]: {}", buffer_v_and_uv_basis[7]);
+        // ark_std::println!("buffer_v_and_uv_basis[8]: {}", buffer_v_and_uv_basis[8]);
+        // ark_std::println!("buffer_v_and_uv_basis[9]: {}", buffer_v_and_uv_basis[9]);
+        // ark_std::println!("buffer_v_and_uv_basis[10]: {}", buffer_v_and_uv_basis[10]);
+        // ark_std::println!("buffer_v_and_uv_basis[11]: {}", buffer_v_and_uv_basis[11]);
+        // ark_std::println!("buffer_v_and_uv_basis[12]: {}", buffer_v_and_uv_basis[12]);
+        // ark_std::println!("buffer_v_and_uv_basis[13]: {}", buffer_v_and_uv_basis[13]);
+        // ark_std::println!("buffer_v_and_uv_basis[14]: {}", buffer_v_and_uv_basis[14]);
+        // ark_std::println!("buffer_v_and_uv_basis[15]: {}", buffer_v_and_uv_basis[15]);
+        // ark_std::println!("buffer_v_and_uv_basis[16]: {}", buffer_v_and_uv_basis[16]);
+        // ark_std::println!("buffer_v_and_uv_basis[17]: {}", buffer_v_and_uv_basis[17]);
+        // ark_std::println!("buffer_v_and_uv_basis[18]: {}", buffer_v_and_uv_basis[18]);
+        // ark_std::println!("buffer_v_and_uv_basis[19]: {}", buffer_v_and_uv_basis[19]);
+        // ark_std::println!("buffer_v_and_uv_basis[20]: {}", buffer_v_and_uv_basis[20]);
+        // ark_std::println!("buffer_v_and_uv_basis[21]: {}", buffer_v_and_uv_basis[21]);
+        // ark_std::println!("buffer_v_and_uv_basis[22]: {}", buffer_v_and_uv_basis[22]);
+        // ark_std::println!("buffer_v_and_uv_basis[23]: {}", buffer_v_and_uv_basis[23]);
+        // ark_std::println!("buffer_v_and_uv_basis[24]: {}", buffer_v_and_uv_basis[24]);
+        // ark_std::println!("buffer_v_and_uv_basis[25]: {}", buffer_v_and_uv_basis[25]);
+        // ark_std::println!("buffer_v_and_uv_basis[26]: {}", buffer_v_and_uv_basis[26]);
 
         let eval: <E as Pairing>::ScalarField = Self::aggregate_evaluations(
             &lin_poly_constant,
@@ -231,29 +231,29 @@ where
             &batch_proof.plookup_proofs_vec,
             &buffer_v_and_uv_basis,
         )?;
-        ark_std::println!("eval after aggregate_evaluations: {}", eval);
-        ark_std::println!(
-            "combined_eval: {:0x}",
-            num_bigint::BigUint::from_bytes_le(&eval.into_bigint().to_bytes_le())
-        );
-        ark_std::println!("self.domain.group_gen: {}", self.domain.group_gen);
-        ark_std::println!(
-            "challenges.zeta * self.domain.group_gen: {}",
-            challenges.zeta * self.domain.group_gen
-        );
+        // ark_std::println!("eval after aggregate_evaluations: {}", eval);
+        // ark_std::println!(
+        //     "combined_eval: {:0x}",
+        //     num_bigint::BigUint::from_bytes_le(&eval.into_bigint().to_bytes_le())
+        // );
+        // ark_std::println!("self.domain.group_gen: {}", self.domain.group_gen);
+        // ark_std::println!(
+        //     "challenges.zeta * self.domain.group_gen: {}",
+        //     challenges.zeta * self.domain.group_gen
+        // );
         //  ark_std::println!(
         //     "comm_scalars_and_bases.len(): {}",
         //     comm_scalars_and_bases.len()
         // );
-        let mut i = 1;
-        for (base, scalar) in &comm_scalars_and_bases.base_scalar_map {
-            ark_std::println!(
-                "the {} element in comm_scalars_and_bases: Scalar: {}, : Base{}", i,
-                scalar,
-                base
-            );
-            i = i + 1;
-        }
+        // let mut i = 1;
+        // for (base, scalar) in &comm_scalars_and_bases.base_scalar_map {
+        //     ark_std::println!(
+        //         "the {} element in comm_scalars_and_bases: Scalar: {}, : Base{}", i,
+        //         scalar,
+        //         base
+        //     );
+        //     i = i + 1;
+        // }
 
         Ok(PcsInfo {
             u: challenges.u,
@@ -310,19 +310,19 @@ where
         // Add (A, [x]2) to the product pairing list
         let acc_point = inner.into_affine();
 
-        ark_std::println!(
-            "A acc_point: {}, {}",
-            acc_point.x, acc_point.y
-        );
+        // ark_std::println!(
+        //     "A acc_point: {}, {}",
+        //     acc_point.x, acc_point.y
+        // );
 
-        ark_std::println!(
-            "acc x: {:0x}",
-            num_bigint::BigUint::from_bytes_le(&acc_point.x.into_bigint().to_bytes_le())
-        );
-        ark_std::println!(
-            "acc y: {:0x}",
-            num_bigint::BigUint::from_bytes_le(&acc_point.y.into_bigint().to_bytes_le())
-        );
+        // ark_std::println!(
+        //     "acc x: {:0x}",
+        //     num_bigint::BigUint::from_bytes_le(&acc_point.x.into_bigint().to_bytes_le())
+        // );
+        // ark_std::println!(
+        //     "acc y: {:0x}",
+        //     num_bigint::BigUint::from_bytes_le(&acc_point.y.into_bigint().to_bytes_le())
+        // );
         let mut g1_elems: Vec<<E as Pairing>::G1Affine> = vec![inner.into()];
         let mut g2_elems = vec![open_key.beta_h];
 
@@ -331,18 +331,18 @@ where
         let mut r_base = E::ScalarField::one();
         let mut sum_evals = E::ScalarField::zero();
 
-        ark_std::println!("Checking B acc_point");
+        // ark_std::println!("Checking B acc_point");
         for pcs_info in pcs_infos.iter() {
             inners.merge(r_base, &pcs_info.comm_scalars_and_bases);
-            ark_std::println!(
-                "scalar: {}, base: {}",
-               r_base * pcs_info.eval_point, pcs_info.opening_proof
-            );
+            // ark_std::println!(
+            //     "scalar: {}, base: {}",
+            //    r_base * pcs_info.eval_point, pcs_info.opening_proof
+            // );
             inners.push(r_base * pcs_info.eval_point, pcs_info.opening_proof);
-            ark_std::println!(
-                "scalar: {}, base: {}",
-               r_base * pcs_info.u * pcs_info.next_eval_point, pcs_info.shifted_opening_proof
-            );
+            // ark_std::println!(
+            //     "scalar: {}, base: {}",
+            //    r_base * pcs_info.u * pcs_info.next_eval_point, pcs_info.shifted_opening_proof
+            // );
             inners.push(
                 r_base * pcs_info.u * pcs_info.next_eval_point,
                 pcs_info.shifted_opening_proof,
@@ -350,36 +350,36 @@ where
             sum_evals += r_base * pcs_info.eval;
             r_base *= r;
         }
-        ark_std::println!(
-                "scalar: {}, base: {}",
-               -sum_evals, open_key.g
-            );
-            ark_std::println!(
-                "open_key.g: {}",
-               open_key.g
-            );
+        // ark_std::println!(
+        //         "scalar: {}, base: {}",
+        //        -sum_evals, open_key.g
+        //     );
+        //     ark_std::println!(
+            //     "open_key.g: {}",
+            //    open_key.g
+            // );
         inners.push(-sum_evals, open_key.g);
         let inner = inners.multi_scalar_mul();
         // Add (-B, [1]2) to the product pairing list
         let acc_point = -inner.into_affine();
 
-        ark_std::println!(
-            "B acc_point: {}, {}",
-            acc_point.x, acc_point.y
-        );
+        // ark_std::println!(
+        //     "B acc_point: {}, {}",
+        //     acc_point.x, acc_point.y
+        // );
 
 
-        ark_std::println!(
-            "acc x: {:0x}",
-            num_bigint::BigUint::from_bytes_le(&acc_point.x.into_bigint().to_bytes_le())
-        );
-        ark_std::println!(
-            "acc y: {:0x}",
-            num_bigint::BigUint::from_bytes_le(&acc_point.y.into_bigint().to_bytes_le())
-        );
+        // ark_std::println!(
+        //     "acc x: {:0x}",
+        //     num_bigint::BigUint::from_bytes_le(&acc_point.x.into_bigint().to_bytes_le())
+        // );
+        // ark_std::println!(
+        //     "acc y: {:0x}",
+        //     num_bigint::BigUint::from_bytes_le(&acc_point.y.into_bigint().to_bytes_le())
+        // );
 
-        ark_std::println!("open h: {}", open_key.h);
-        ark_std::println!("open beta h: {}", open_key.beta_h);
+        // ark_std::println!("open h: {}", open_key.h);
+        // ark_std::println!("open beta h: {}", open_key.beta_h);
         g1_elems.push(-inner.into_affine());
         g2_elems.push(open_key.h);
         // Check e(A, [x]2) ?= e(B, [1]2)
@@ -413,32 +413,32 @@ where
         }
         // ark_std::println!("transcript: {:?}", transcript);
         for (&vk, &pi) in verify_keys.iter().zip(public_inputs.iter()) {
-            ark_std::println!("putting vk: {:?}", vk);
+            // ark_std::println!("putting vk: {:?}", vk);
             transcript.append_visitor(vk)?;
             for pub_input in pi.iter() {
-                ark_std::println!("putting pub_input: {:?}", pub_input);
+                // ark_std::println!("putting pub_input: {:?}", pub_input);
                 transcript.push_message(b"public_input", pub_input)?;
             }
         }
 
         for wires_poly_comms in batch_proof.wires_poly_comms_vec.iter() {
-            ark_std::println!("putting wires_poly_comms: {:?}", wires_poly_comms);
+            // ark_std::println!("putting wires_poly_comms: {:?}", wires_poly_comms);
             transcript.append_curve_points(b"wire_poly_comms", wires_poly_comms)?;
         }
 
         let tau = transcript.squeeze_scalar_challenge::<P>(b"tau")?;
-        ark_std::println!("tau: {}", tau);
+        // ark_std::println!("tau: {}", tau);
         for plookup_proof in batch_proof.plookup_proofs_vec.iter() {
             if let Some(proof_lkup) = plookup_proof.as_ref() {
-                ark_std::println!("putting h_poly_comms: {:?}", proof_lkup.h_poly_comms);
+                // ark_std::println!("putting h_poly_comms: {:?}", proof_lkup.h_poly_comms);
                 transcript.append_curve_points(b"h_poly_comms", &proof_lkup.h_poly_comms)?;
             }
         }
 
         let beta = transcript.squeeze_scalar_challenge::<P>(b"beta")?;
-        ark_std::println!("beta: {}", beta);
+        // ark_std::println!("beta: {}", beta);
         let gamma = transcript.squeeze_scalar_challenge::<P>(b"gamma")?;
-        ark_std::println!("gamma: {}", gamma);
+        // ark_std::println!("gamma: {}", gamma);
 
         for prod_perm_poly_comm in batch_proof.prod_perm_poly_comms_vec.iter() {
             transcript.append_curve_point(b"perm_poly_comms", prod_perm_poly_comm)?;
@@ -451,10 +451,10 @@ where
         }
 
         let alpha = transcript.squeeze_scalar_challenge::<P>(b"alpha")?;
-        ark_std::println!("alpha: {}", alpha);
+        // ark_std::println!("alpha: {}", alpha);
         transcript.append_curve_points(b"quot_poly_comms", &batch_proof.split_quot_poly_comms)?;
         let zeta = transcript.squeeze_scalar_challenge::<P>(b"zeta")?;
-        ark_std::println!("zeta: {}", zeta);
+        // ark_std::println!("zeta: {}", zeta);
 
         for poly_evals in batch_proof.poly_evals_vec.iter() {
             // ark_std::println!("putting poly_evals: {}", poly_evals.wires_evals[0]);
@@ -470,7 +470,7 @@ where
             // ark_std::println!("{}", poly_evals.wire_sigma_evals[3]);
             // ark_std::println!("{}", poly_evals.wire_sigma_evals[4]);
             // ark_std::println!("poly_evals.perm_next_eval{}", poly_evals.perm_next_eval);
-            ark_std::println!("poly_evals: {:?}", poly_evals);
+            // ark_std::println!("poly_evals: {:?}", poly_evals);
             transcript.append_visitor(poly_evals)?;
         }
         for plookup_proof in batch_proof.plookup_proofs_vec.iter() {
@@ -489,18 +489,18 @@ where
                 // ark_std::println!("putting proof_lkup.q_lookup_next_eval: {}", proof_lkup.poly_evals.q_lookup_next_eval);
                 // ark_std::println!("putting proof_lkup.w_3_next_eval: {}", proof_lkup.poly_evals.w_3_next_eval);
                 // ark_std::println!("putting proof_lkup.w_4_next_eval: {}", proof_lkup.poly_evals.w_4_next_eval);
-                ark_std::println!("proof_lkup.poly_evals: {:?}", proof_lkup.poly_evals);
+                // ark_std::println!("proof_lkup.poly_evals: {:?}", proof_lkup.poly_evals);
 
                 transcript.append_visitor(&proof_lkup.poly_evals)?;
             }
         }
 
         let v = transcript.squeeze_scalar_challenge::<P>(b"v")?;
-        ark_std::println!("v: {}", v);
+        // ark_std::println!("v: {}", v);
         transcript.append_curve_point(b"open_proof", &batch_proof.opening_proof)?;
         transcript.append_curve_point(b"shifted_open_proof", &batch_proof.shifted_opening_proof)?;
         let u = transcript.squeeze_scalar_challenge::<P>(b"u")?;
-        ark_std::println!("u: {}", u);
+        // ark_std::println!("u: {}", u);
 
         Ok(Challenges {
             tau,
@@ -568,14 +568,14 @@ where
         {
             let mut tmp = self.evaluate_pi_poly(pi, &challenges.zeta, vanish_eval, vk.is_merged)?
                 - alpha_powers[0] * lagrange_1_eval;
-            ark_std::println!("tmp: {}", tmp);
+            // ark_std::println!("tmp: {}", tmp);
             let num_wire_types = GATE_WIDTH
                 + 1
                 + match plookup_proof.is_some() {
                     true => 1,
                     false => 0,
                 };
-            ark_std::println!("num_wire_types: {}", num_wire_types);
+            // ark_std::println!("num_wire_types: {}", num_wire_types);
             let first_w_evals = &poly_evals.wires_evals[..num_wire_types - 1];
             // ark_std::println!("first_w_evals: {}", first_w_evals);
             let last_w_eval = &poly_evals.wires_evals[num_wire_types - 1];
@@ -588,12 +588,12 @@ where
                     acc * (challenges.gamma + w_eval + challenges.beta * sigma_eval)
                 },
             );
-            ark_std::println!("tmp after adding acc {}", tmp);
+            // ark_std::println!("tmp after adding acc {}", tmp);
 
             if let Some(proof_lk) = plookup_proof {
                 let gamma_mul_beta_plus_one =
                     challenges.gamma * (E::ScalarField::one() + challenges.beta);
-                ark_std::println!("gamma_mul_beta_plus_one {}", gamma_mul_beta_plus_one);
+                // ark_std::println!("gamma_mul_beta_plus_one {}", gamma_mul_beta_plus_one);
                 let evals = &proof_lk.poly_evals;
 
                 let plookup_constant = *lagrange_n_eval
@@ -606,13 +606,13 @@ where
                             + evals.h_1_eval
                             + challenges.beta * evals.h_1_next_eval)
                         * (gamma_mul_beta_plus_one + challenges.beta * evals.h_2_next_eval);
-                ark_std::println!("plookup_constant {}", plookup_constant);
+                // ark_std::println!("plookup_constant {}", plookup_constant);
                 tmp += alpha_powers[1] * plookup_constant;
-                ark_std::println!("tmp  after plookup_constant {}", tmp);
+                // ark_std::println!("tmp  after plookup_constant {}", tmp);
             }
-            ark_std::println!("result return before: {}", result);
+            // ark_std::println!("result return before: {}", result);
             result += current_alpha_bases * tmp;
-            ark_std::println!("result return: {}", result);
+            // ark_std::println!("result return: {}", result);
         }
         Ok(result)
     }
@@ -665,9 +665,9 @@ where
         for (i, vk) in vks.iter().enumerate() {
             // Add poly commitments to be evaluated at point `zeta`.
             // Add wire witness polynomial commitments.
-            ark_std::println!(
-                "Dealing with batch_proof.wires_poly_comms_vec"
-            );
+            // ark_std::println!(
+            //     "Dealing with batch_proof.wires_poly_comms_vec"
+            // );
             for &poly_comm in batch_proof.wires_poly_comms_vec[i].iter() {
                 buffer_v_and_uv_basis.push(v_base);
                 Self::add_poly_comm(&mut scalars_and_bases, &mut v_base, poly_comm, challenges.v);
@@ -675,9 +675,9 @@ where
             
             // Add wire sigma polynomial commitments. The last sigma commitment is excluded.
             let num_wire_types = batch_proof.wires_poly_comms_vec[i].len();
-            ark_std::println!(
-                "Dealing with vk.sigma_comms"
-            );
+            // ark_std::println!(
+            //     "Dealing with vk.sigma_comms"
+            // );
             for &poly_comm in vk.sigma_comms.iter().take(num_wire_types - 1) {
                 buffer_v_and_uv_basis.push(v_base);
                 Self::add_poly_comm(&mut scalars_and_bases, &mut v_base, poly_comm, challenges.v);
@@ -687,9 +687,9 @@ where
 
             // Add poly commitments to be evaluated at point `zeta * g`.
             buffer_v_and_uv_basis.push(uv_base);
-            ark_std::println!(
-                "Dealing with batch_proof.prod_perm_poly_comms_vec"
-            );
+            // ark_std::println!(
+            //     "Dealing with batch_proof.prod_perm_poly_comms_vec"
+            // );
             Self::add_poly_comm(
                 &mut scalars_and_bases,
                 &mut uv_base,
@@ -701,9 +701,9 @@ where
             if let Some(proof_lkup) = batch_proof.plookup_proofs_vec[i].as_ref() {
                 // add commitments to be evaluated at point `zeta`
                 let plookup_comms = Self::plookup_open_poly_comms(proof_lkup, vk)?;
-                ark_std::println!(
-                "Dealing with plookup_comms"
-            );
+            //     ark_std::println!(
+            //     "Dealing with plookup_comms"
+            // );
                 for &comm in plookup_comms.iter() {
                     buffer_v_and_uv_basis.push(v_base);
                     Self::add_poly_comm(&mut scalars_and_bases, &mut v_base, comm, challenges.v);
@@ -715,16 +715,16 @@ where
                     vk,
                     &batch_proof.wires_poly_comms_vec[i],
                 )?;
-                ark_std::println!(
-                    "Dealing with plookup_shifted_comms"
-                );
+                // ark_std::println!(
+                //     "Dealing with plookup_shifted_comms"
+                // );
                 for &comm in plookup_shifted_comms.iter() {
                     buffer_v_and_uv_basis.push(uv_base);
                     Self::add_poly_comm(&mut scalars_and_bases, &mut uv_base, comm, challenges.v);
                 }
             }
         }
-        ark_std::println!("buffer_v_and_uv_basis: {:?}", buffer_v_and_uv_basis);
+        // ark_std::println!("buffer_v_and_uv_basis: {:?}", buffer_v_and_uv_basis);
 
         Ok((scalars_and_bases, buffer_v_and_uv_basis))
     }
@@ -776,14 +776,14 @@ where
                 .fold(challenges.alpha, |acc, (w_eval, k)| {
                     acc * (challenges.beta * k * challenges.zeta + challenges.gamma + w_eval)
                 });
-            ark_std::println!("coeff scalar before *= current_alpha_bases: {}", coeff);
-            ark_std::println!("current_alpha_bases: {}", current_alpha_bases);
+            // ark_std::println!("coeff scalar before *= current_alpha_bases: {}", coeff);
+            // ark_std::println!("current_alpha_bases: {}", current_alpha_bases);
             coeff *= current_alpha_bases;
 
             // Add permutation product polynomial commitment.
             scalars_and_bases.push(coeff, batch_proof.prod_perm_poly_comms_vec[i]);
-            ark_std::println!("coeff scalar scalars[0]: {}", coeff);
-            ark_std::println!("batch_proof.prod_perm_poly_comms_vec[{}] base: {}", i,batch_proof.prod_perm_poly_comms_vec[i]);
+            // ark_std::println!("coeff scalar scalars[0]: {}", coeff);
+            // ark_std::println!("batch_proof.prod_perm_poly_comms_vec[{}] base: {}", i,batch_proof.prod_perm_poly_comms_vec[i]);
             // Compute coefficient for the last wire sigma polynomial commitment.
             let num_wire_types = batch_proof.wires_poly_comms_vec[i].len();
             let sigma_evals = &batch_proof.poly_evals_vec[i].wire_sigma_evals;
@@ -806,8 +806,8 @@ where
                 -coeff,
                 *vk.sigma_comms.last().ok_or(PlonkError::IndexError)?,
             );
-            ark_std::println!("scalar -coeff scalars[1]: {}", -coeff);
-            ark_std::println!("base: {}", *vk.sigma_comms.last().ok_or(PlonkError::IndexError)?);
+            // ark_std::println!("scalar -coeff scalars[1]: {}", -coeff);
+            // ark_std::println!("base: {}", *vk.sigma_comms.last().ok_or(PlonkError::IndexError)?);
 
             // Add selector polynomial commitments.
             // Compute coefficients for selector polynomial commitments.
@@ -836,19 +836,19 @@ where
             q_scalars[15] = w_evals[2] * w_evals[2] * w_evals[3] * w_evals[3];
             q_scalars[16] =
                 w_evals[0] * w_evals[0] * w_evals[1] + w_evals[0] * w_evals[1] * w_evals[1];
-            ark_std::println!("Add selector polynomial commitments.");
-            for comm in vk.selector_comms.iter() {
-                ark_std::println!("selector comm: {}", comm);
-            }
-            let mut indexaa =2;
+            // ark_std::println!("Add selector polynomial commitments.");
+            // for comm in vk.selector_comms.iter() {
+            //     ark_std::println!("selector comm: {}", comm);
+            // }
+            // let mut indexaa =2;
             for (&s, poly) in q_scalars.iter().zip(vk.selector_comms.iter()) {
-                ark_std::println!("indexaa: {}", indexaa);
-                ark_std::println!("scalar: {}", s * current_alpha_bases);
-                ark_std::println!("base: {}", *poly);
+                // ark_std::println!("indexaa: {}", indexaa);
+                // ark_std::println!("scalar: {}", s * current_alpha_bases);
+                // ark_std::println!("base: {}", *poly);
                 scalars_and_bases.push(s * current_alpha_bases, *poly);
-                indexaa=indexaa+1;
+                // indexaa=indexaa+1;
             }
-            ark_std::println!("Add selector polynomial commitments done.");
+            // ark_std::println!("Add selector polynomial commitments done.");
 
             
 
@@ -903,8 +903,8 @@ where
                 coeff = current_alpha_bases * coeff;
 
                 scalars_and_bases.push(coeff, lookup_proof.prod_lookup_poly_comm);
-                ark_std::println!("coefficient for prod_lookup_poly(X) scalar coeff: {}", coeff);
-                ark_std::println!("coefficient for prod_lookup_poly(X) base lookup_proof.prod_lookup_poly_comm: {}", lookup_proof.prod_lookup_poly_comm);
+                // ark_std::println!("coefficient for prod_lookup_poly(X) scalar coeff: {}", coeff);
+                // ark_std::println!("coefficient for prod_lookup_poly(X) base lookup_proof.prod_lookup_poly_comm: {}", lookup_proof.prod_lookup_poly_comm);
 
                 // coefficient for h2(X):
                 // coeff_lin_poly = alpha_base * alpha^6 * (w^{n-1} - x)
@@ -919,8 +919,8 @@ where
                         + challenges.beta * lookup_evals.h_1_next_eval);
 
                 scalars_and_bases.push(coeff, lookup_proof.h_poly_comms[1]);
-                ark_std::println!("scalars[20]: {}", coeff);
-                ark_std::println!("bases[20]: {}", lookup_proof.h_poly_comms[1]);
+                // ark_std::println!("scalars[20]: {}", coeff);
+                // ark_std::println!("bases[20]: {}", lookup_proof.h_poly_comms[1]);
             }
         }
 
@@ -935,18 +935,18 @@ where
                 .first()
                 .ok_or(PlonkError::IndexError)?,
         );
-        ark_std::println!("scalars[21]: {}", coeff);
-        ark_std::println!("bases[21]: {}", *batch_proof
-                .split_quot_poly_comms
-                .first()
-                .ok_or(PlonkError::IndexError)?);
+        // ark_std::println!("scalars[21]: {}", coeff);
+        // ark_std::println!("bases[21]: {}", *batch_proof
+                // .split_quot_poly_comms
+                // .first()
+                // .ok_or(PlonkError::IndexError)?);
         let mut vecindex =22;
-        ark_std::println!("Add splitted quotient commitments");
+        // ark_std::println!("Add splitted quotient commitments");
         for poly in batch_proof.split_quot_poly_comms.iter().skip(1) {
             coeff *= zeta_to_n_plus_2;
             scalars_and_bases.push(coeff, *poly);
-            ark_std::println!("scalars[{}]: {}", vecindex, coeff);
-            ark_std::println!("bases[{}]: {}", vecindex, poly);
+            // ark_std::println!("scalars[{}]: {}", vecindex, coeff);
+            // "bases[{}]: {}", vecindex, poly);
             vecindex = vecindex + 1;
         }
 
@@ -965,7 +965,7 @@ where
         assert_eq!(poly_evals_vec.len(), plookup_proofs_vec.len());
 
         let mut result: E::ScalarField = lin_poly_constant.neg();
-        ark_std::println!("lin_poly_constant.neg(): {}", result);
+        // ark_std::println!("lin_poly_constant.neg(): {}", result);
         let mut v_and_uv_basis = buffer_v_and_uv_basis.iter();
 
         for (poly_evals, plookup_proof) in poly_evals_vec.iter().zip(plookup_proofs_vec.iter()) {
@@ -986,9 +986,9 @@ where
                     wire_eval,
                 );
             }
-            ark_std::println!("result after poly_evals_vec: {}", result);
+            // ark_std::println!("result after poly_evals_vec: {}", result);
             for &sigma_eval in poly_evals.wire_sigma_evals.iter() {
-                ark_std::println!("sigma_eval: {}", sigma_eval);
+                // ark_std::println!("sigma_eval: {}", sigma_eval);
                 Self::add_pcs_eval(
                     &mut result,
                     v_and_uv_basis
@@ -997,7 +997,7 @@ where
                     sigma_eval,
                 );
             }
-            ark_std::println!("result after wire_sigma_evals: {}", result);
+            // ark_std::println!("result after wire_sigma_evals: {}", result);
             // evaluations at point `zeta * g`
             Self::add_pcs_eval(
                 &mut result,
@@ -1006,7 +1006,7 @@ where
                     .ok_or(PlonkError::IteratorOutOfRange)?,
                 poly_evals.perm_next_eval,
             );
-            ark_std::println!("result after perm_next_eval: {}", result);
+            // ark_std::println!("result after perm_next_eval: {}", result);
 
             // add Plookup related polynomial evaluations
             if let Some(proof_lk) = plookup_proof {
@@ -1021,7 +1021,7 @@ where
                         eval,
                     );
                 }
-                ark_std::println!("result after evals_vec: {}", result);
+                // ark_std::println!("result after evals_vec: {}", result);
                 // evaluations at point `zeta * g`
                 for &next_eval in evals.next_evals_vec().iter() {
                     Self::add_pcs_eval(
@@ -1032,14 +1032,14 @@ where
                         next_eval,
                     );
                 }
-                ark_std::println!("result after next_evals_vec: {}", result);
+                // ark_std::println!("result after next_evals_vec: {}", result);
             }
         }
         // ensure all the buffer has been consumed
         if v_and_uv_basis.next().is_some() {
             return Err(PlonkError::IteratorOutOfRange);
         }
-        ark_std::println!("result return: {}", result);
+        // ark_std::println!("result return: {}", result);
         Ok(result)
     }
 }
@@ -1095,15 +1095,15 @@ where
         let lagrange_1_eval = *vanish_eval / divisor;
         let divisor =
             E::ScalarField::from(self.domain.size() as u32) * (*zeta - self.domain.group_gen_inv);
-        ark_std::println!("self.domain.size():{}", self.domain.size());
-        ark_std::println!("zeta:{}", zeta);
+        // ark_std::println!("self.domain.size():{}", self.domain.size());
+        // ark_std::println!("zeta:{}", zeta);
         // jj: later change this when i test real proof
-        ark_std::println!("self.domain.group_gen_inv:{}", self.domain.group_gen_inv);
-        ark_std::println!("divisor:{}", divisor);
-        ark_std::println!("vanish_eval:{}", *vanish_eval);
-        ark_std::println!("self.domain.group_gen_inv:{}", self.domain.group_gen_inv);
+        // ark_std::println!("self.domain.group_gen_inv:{}", self.domain.group_gen_inv);
+        // ark_std::println!("divisor:{}", divisor);
+        // ark_std::println!("vanish_eval:{}", *vanish_eval);
+        // ark_std::println!("self.domain.group_gen_inv:{}", self.domain.group_gen_inv);
         let lagrange_n_eval = *vanish_eval * self.domain.group_gen_inv / divisor;
-        ark_std::println!("lagrange_n_eval:{}", lagrange_n_eval);
+        // ark_std::println!("lagrange_n_eval:{}", lagrange_n_eval);
         (lagrange_1_eval, lagrange_n_eval)
     }
 
@@ -1133,15 +1133,15 @@ where
         wires_poly_comms: &[Commitment<E>],
     ) -> Result<Vec<Commitment<E>>, PlonkError> {
 
-        ark_std::println!("44 proof.prod_lookup_poly_comm:{}", proof.prod_lookup_poly_comm);
-        ark_std::println!("45 vk.plookup_vk.as_ref().unwrap().range_table_comm:{}", vk.plookup_vk.as_ref().unwrap().range_table_comm);
-        ark_std::println!("46 vk.plookup_vk.as_ref().unwrap().key_table_comm:{}", vk.plookup_vk.as_ref().unwrap().key_table_comm);
-        ark_std::println!("47 proof.h_poly_comms[0]:{}", proof.h_poly_comms[0]);
-        ark_std::println!("48 proof.h_poly_comms[1]:{}", proof.h_poly_comms[1]);
-        ark_std::println!("49 vk.q_lookup_comm():{}", vk.q_lookup_comm()?);
-        ark_std::println!("50 wires_poly_comms[3]:{}", wires_poly_comms[3]);
-        ark_std::println!("51 wires_poly_comms[4]:{}", wires_poly_comms[4]);
-        ark_std::println!("52 vk.plookup_vk.as_ref().unwrap().table_dom_sep_comm:{}", vk.plookup_vk.as_ref().unwrap().table_dom_sep_comm);
+        // ark_std::println!("44 proof.prod_lookup_poly_comm:{}", proof.prod_lookup_poly_comm);
+        // ark_std::println!("45 vk.plookup_vk.as_ref().unwrap().range_table_comm:{}", vk.plookup_vk.as_ref().unwrap().range_table_comm);
+        // ark_std::println!("46 vk.plookup_vk.as_ref().unwrap().key_table_comm:{}", vk.plookup_vk.as_ref().unwrap().key_table_comm);
+        // ark_std::println!("47 proof.h_poly_comms[0]:{}", proof.h_poly_comms[0]);
+        // ark_std::println!("48 proof.h_poly_comms[1]:{}", proof.h_poly_comms[1]);
+        // ark_std::println!("49 vk.q_lookup_comm():{}", vk.q_lookup_comm()?);
+        // ark_std::println!("50 wires_poly_comms[3]:{}", wires_poly_comms[3]);
+        // ark_std::println!("51 wires_poly_comms[4]:{}", wires_poly_comms[4]);
+        // ark_std::println!("52 vk.plookup_vk.as_ref().unwrap().table_dom_sep_comm:{}", vk.plookup_vk.as_ref().unwrap().table_dom_sep_comm);
         Ok(vec![
             proof.prod_lookup_poly_comm,
             vk.plookup_vk.as_ref().unwrap().range_table_comm,
@@ -1194,26 +1194,26 @@ where
             .ok_or(PlonkError::DivisionError)?
             * (*vanish_eval);
         // jj: change this to real proof's later
-        ark_std::println!(
-            "E::ScalarField::from(self.domain.size() as u32)
-            .inverse():{}",
-            E::ScalarField::from(self.domain.size() as u32)
-                .inverse()
-                .ok_or(PlonkError::DivisionError)?
-        );
-        ark_std::println!("vanish_eval:{}", vanish_eval);
-        ark_std::println!("vanish_eval_div_n:{}", vanish_eval_div_n);
+        // ark_std::println!(
+        //     "E::ScalarField::from(self.domain.size() as u32)
+        //     .inverse():{}",
+        //     E::ScalarField::from(self.domain.size() as u32)
+        //         .inverse()
+        //         .ok_or(PlonkError::DivisionError)?
+        // );
+        // ark_std::println!("vanish_eval:{}", vanish_eval);
+        // ark_std::println!("vanish_eval_div_n:{}", vanish_eval_div_n);
         let mut result = E::ScalarField::zero();
         for (i, val) in pub_input.iter().take(len).enumerate() {
-            ark_std::println!("self.domain.element(i):{}", self.domain.element(i));
-            ark_std::println!("z:{}", z);
+            // ark_std::println!("self.domain.element(i):{}", self.domain.element(i));
+            // ark_std::println!("z:{}", z);
             let lagrange_i =
                 vanish_eval_div_n * self.domain.element(i) / (*z - self.domain.element(i));
             result += lagrange_i * val;
         }
-        ark_std::println!("result:{}", result);
+        // ark_std::println!("result:{}", result);
         if circuit_is_merged {
-            ark_std::println!("if circuit_is_merged");
+            // ark_std::println!("if circuit_is_merged");
             let n = self.domain.size();
             for (i, val) in pub_input.iter().skip(len).enumerate() {
                 let lagrange_n_minus_i = vanish_eval_div_n * self.domain.element(n - i - 1)

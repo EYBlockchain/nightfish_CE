@@ -329,7 +329,7 @@ pub(crate) mod tests {
             let mut g = GeneralDensePolynomial::<G1Projective, Fr>::rand(degree, &mut rng);
 
             let points: Vec<Fr> = (0..num_points).map(|_| Fr::rand(&mut rng)).collect();
-            ark_std::println!("degree: {}, num_points: {}", degree, num_points);
+            // ark_std::println!("degree: {}, num_points: {}", degree, num_points);
 
             // First, test general points
             assert_eq!(

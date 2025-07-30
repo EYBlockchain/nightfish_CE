@@ -126,9 +126,9 @@ pub trait RecursiveProver {
         input_vks: &[VerifyingKey<Kzg>; 2],
         kzg_srs: &UnivariateUniversalParams<Bn254>,
     ) -> Result<GrumpkinOut, PlonkError> {
-        ark_std::println!("intermediate structure: base_grumpkin_circuit");
+        // ark_std::println!("intermediate structure: base_grumpkin_circuit");
         // record how long it takes to run this function
-        let start  = Instant::now();
+        // let start  = Instant::now();
         let mut circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(12);
         let bn254info = initial_bn254_info(outputs, specific_pi, kzg_srs);
         // We make a dummy VK at this level because it won't be used in the circuit here.
@@ -152,27 +152,27 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
-        #[cfg(test)]
-        {
-            ark_std::println!(
-                "base grumpkin circuit size pre-finalize: {}",
-                circuit.num_gates()
-            );
-        }
+        // #[cfg(test)]
+        // {
+        //     ark_std::println!(
+        //         "base grumpkin circuit size pre-finalize: {}",
+        //         circuit.num_gates()
+        //     );
+        // }
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
-        #[cfg(test)]
-        {
-            let pi = circuit.public_input()?;
-            circuit.check_circuit_satisfiability(&pi)?;
-            ark_std::println!("base grumpkin circuit size: {}", circuit.num_gates());
-        }
-        let elapsed = start.elapsed();
-        ark_std::println!(
-            "base_grumpkin_circuit took: {} seconds",
-            elapsed.as_secs_f64()
-        );
+        // #[cfg(test)]
+        // {
+        //     let pi = circuit.public_input()?;
+        //     circuit.check_circuit_satisfiability(&pi)?;
+        //     ark_std::println!("base grumpkin circuit size: {}", circuit.num_gates());
+        // }
+        // let elapsed = start.elapsed();
+        // ark_std::println!(
+        //     "base_grumpkin_circuit took: {} seconds",
+        //     elapsed.as_secs_f64()
+        // );
         Ok((circuit, circuit_output))
     }
     /// This function takes in [`GrumpkinOut`] types, proves the circuits and then produces another circuit proving their correct accumulation.
@@ -182,8 +182,8 @@ pub trait RecursiveProver {
         input_vks: &[VerifyingKey<Kzg>; 4],
         extra_base_info: &[Fr254],
     ) -> Result<Bn254Out, PlonkError> {
-        ark_std::println!("intermediate structure: base_bn254_circuit");
-        let start  = Instant::now();
+        // ark_std::println!("intermediate structure: base_bn254_circuit");
+        // let start  = Instant::now();
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
@@ -262,28 +262,28 @@ pub trait RecursiveProver {
         bn254_circuit_out.specific_pi =
             [extra_checks_pi_field, bn254_circuit_out.specific_pi].concat();
 
-        #[cfg(test)]
-        {
-            ark_std::println!(
-                "base bn254 circuit size pre-finalize: {}",
-                circuit.num_gates()
-            );
-        }
+        // #[cfg(test)]
+        // {
+        //     ark_std::println!(
+        //         "base bn254 circuit size pre-finalize: {}",
+        //         circuit.num_gates()
+        //     );
+        // }
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
         // Run the following code only when testing
-        #[cfg(test)]
-        {
-            let pi = circuit.public_input()?;
-            circuit.check_circuit_satisfiability(&pi)?;
-            ark_std::println!("base bn254 circuit size: {}", circuit.num_gates());
-        }
-        let elapsed = start.elapsed();
-        ark_std::println!(
-            "base_bn254_circuit took: {} seconds",
-            elapsed.as_secs_f64()
-        );
+        // #[cfg(test)]
+        // {
+        //     let pi = circuit.public_input()?;
+        //     circuit.check_circuit_satisfiability(&pi)?;
+        //     ark_std::println!("base bn254 circuit size: {}", circuit.num_gates());
+        // }
+        // let elapsed = start.elapsed();
+        // ark_std::println!(
+        //     "base_bn254_circuit took: {} seconds",
+        //     elapsed.as_secs_f64()
+        // );
         Ok((circuit, bn254_circuit_out))
     }
     /// This function takes in [`Bn254Out`] types, proves the circuits and then produces another circuit proving their correct accumulation.
@@ -292,8 +292,8 @@ pub trait RecursiveProver {
         base_bn254_pk: &ProvingKey<Kzg>,
         base_grumpkin_pk: &MLEProvingKey<Zmorph>,
     ) -> Result<GrumpkinOut, PlonkError> {
-        ark_std::println!("intermediate structure: merge_grumpkin_circuit");
-        let start  = Instant::now();
+        // ark_std::println!("intermediate structure: merge_grumpkin_circuit");
+        // let start  = Instant::now();
         let (circuits, bn254_circuit_outs_vec): (
             Vec<PlonkCircuit<Fr254>>,
             Vec<Bn254CircuitOutput>,
@@ -324,9 +324,9 @@ pub trait RecursiveProver {
 
         let mut circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(12);
 
-        ark_std::println!(
-            "JJ: am about to call prove_bn254_accumulation"
-        );
+        // ark_std::println!(
+        //     "JJ: am about to call prove_bn254_accumulation"
+        // );
 
         let grumpkin_circuit_out = prove_bn254_accumulation::<false>(
             &bn254info,
@@ -336,28 +336,28 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
-        #[cfg(test)]
-        {
-            ark_std::println!(
-                "merge grumpkin circuit size pre-finalize: {}",
-                circuit.num_gates()
-            );
-        }
+        // #[cfg(test)]
+        // {
+        //     ark_std::println!(
+        //         "merge grumpkin circuit size pre-finalize: {}",
+        //         circuit.num_gates()
+        //     );
+        // }
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
         // Run the following code only when testing
-        #[cfg(test)]
-        {
-            let pi = circuit.public_input()?;
-            circuit.check_circuit_satisfiability(&pi)?;
-            ark_std::println!("merge grumpkin circuit size: {}", circuit.num_gates());
-        }
-        let elapsed = start.elapsed();
-        ark_std::println!(
-            "merge grumpkin circuit took: {} seconds",
-            elapsed.as_secs_f64()
-        );
+        // #[cfg(test)]
+        // {
+        //     let pi = circuit.public_input()?;
+        //     circuit.check_circuit_satisfiability(&pi)?;
+        //     ark_std::println!("merge grumpkin circuit size: {}", circuit.num_gates());
+        // }
+        // let elapsed = start.elapsed();
+        // ark_std::println!(
+        //     "merge grumpkin circuit took: {} seconds",
+        //     elapsed.as_secs_f64()
+        // );
 
         Ok((circuit, grumpkin_circuit_out))
     }
@@ -367,8 +367,8 @@ pub trait RecursiveProver {
         merge_grumpkin_pk: &MLEProvingKey<Zmorph>,
         bn254_pk: &ProvingKey<Kzg>,
     ) -> Result<Bn254Out, PlonkError> {
-        ark_std::println!("intermediate structure: merge_bn254_circuit");
-        let start  = Instant::now();
+        // ark_std::println!("intermediate structure: merge_bn254_circuit");
+        // let start  = Instant::now();
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
@@ -420,11 +420,11 @@ pub trait RecursiveProver {
             circuit.check_circuit_satisfiability(&pi)?;
             ark_std::println!("merge bn254 size: {}", circuit.num_gates());
         }
-        let elapsed = start.elapsed();
-        ark_std::println!(
-            "merge_bn254_circuit took: {} seconds",
-            elapsed.as_secs_f64()
-        );
+        // let elapsed = start.elapsed();
+        // ark_std::println!(
+        //     "merge_bn254_circuit took: {} seconds",
+        //     elapsed.as_secs_f64()
+        // );
         Ok((circuit, bn254_circuit_out))
     }
     /// The decider circuit that fully verifies the Grumpkin accumulator along with the final grumpkin proof.
@@ -434,8 +434,8 @@ pub trait RecursiveProver {
         merge_grumpkin_pk: &MLEProvingKey<Zmorph>,
         merge_bn254_pk: &ProvingKey<Kzg>,
     ) -> Result<DeciderOut, PlonkError> {
-        ark_std::println!("intermediate structure: decider_circuit");
-        let start  = Instant::now();
+        // ark_std::println!("intermediate structure: decider_circuit");
+        // let start  = Instant::now();
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
@@ -476,17 +476,17 @@ pub trait RecursiveProver {
 
         // #[cfg(test)]
         // {
-        ark_std::println!(
-            "decider circuit circuit size pre-finalize: {}",
-            circuit.num_gates()
-        );
+        // ark_std::println!(
+        //     "decider circuit circuit size pre-finalize: {}",
+        //     circuit.num_gates()
+        // );
         // }
 
         circuit.finalize_for_arithmetization()?;
-        ark_std::println!(
-            "decider circuit circuit size after finalize: {}",
-            circuit.num_gates()
-        );
+        // ark_std::println!(
+        //     "decider circuit circuit size after finalize: {}",
+        //     circuit.num_gates()
+        // );
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -501,11 +501,11 @@ pub trait RecursiveProver {
             ..
         } = grumpkin_info;
 
-        let elapsed = start.elapsed();
-        ark_std::println!(
-            "decider_circuit took: {} seconds",
-            elapsed.as_secs_f64()
-        );
+        // let elapsed = start.elapsed();
+        // ark_std::println!(
+        //     "decider_circuit took: {} seconds",
+        //     elapsed.as_secs_f64()
+        // );
         Ok(DeciderOut::new(circuit, pi_out, forwarded_accumulators))
     }
 
@@ -773,7 +773,7 @@ pub trait RecursiveProver {
         extra_decider_info: &[Fr254],
         extra_base_info: &[Vec<Fr254>],
     ) -> Result<RecursiveProof, PlonkError> {
-        ark_std::println!("JJ: am provingg recursive proof");
+        // ark_std::println!("JJ: am provingg recursive proof");
         // First check that we have the same number of outputs and pi's and that they are also non-zero in length
         if outputs_and_circuit_type.len() != specific_pi.len() {
             return Err(PlonkError::InvalidParameters(format!(
@@ -1028,22 +1028,22 @@ pub trait RecursiveProver {
             &decider_pk,
             None,
         )?;
-        ark_std::println!("Recursive proof: {:?}", proof);
+        // ark_std::println!("Recursive proof: {:?}", proof);
         // get the public inputs
-        let public_inputs = circuit.public_input().unwrap();
-        ark_std::println!("Public Inputs of this Recursive proof: {:?}", public_inputs);
-        ark_std::println!("specific_pi as return: {:?}", specific_pi);
-        ark_std::println!("accumulators as return: {:?}", accumulators);
+        // let public_inputs = circuit.public_input().unwrap();
+        // ark_std::println!("Public Inputs of this Recursive proof: {:?}", public_inputs);
+        // ark_std::println!("specific_pi as return: {:?}", specific_pi);
+        // ark_std::println!("accumulators as return: {:?}", accumulators);
         //verify this proof
-        ark_std::println!("JJ: Verifying recursive proof with decider vk");
-        PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
-            &decider_pk.vk,
-            &public_inputs,
-            &proof,
-            None,
-        )
-        .unwrap();
-        ark_std::println!("JJ: Verifying recursive proof with decider vk is done");
+        // ark_std::println!("JJ: Verifying recursive proof with decider vk");
+        // PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
+        //     &decider_pk.vk,
+        //     &public_inputs,
+        //     &proof,
+        //     None,
+        // )
+        // .unwrap();
+        // ark_std::println!("JJ: Verifying recursive proof with decider vk is done");
 
         Ok(RecursiveProof {
             proof,
