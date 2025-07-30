@@ -92,6 +92,7 @@ pub trait RecursiveProver {
     fn decider_circuit_checks(
         specific_pis: &[Vec<Variable>],
         circuit: &mut PlonkCircuit<Fr254>,
+        lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>;
     /// Retrieve the list of acceptable verification key hashes
     fn get_vk_hash_list() -> Vec<Fr254>;
@@ -1249,6 +1250,7 @@ mod tests {
             fn decider_circuit_checks(
                 _specific_pis: &[Vec<Variable>],
                 _circuit: &mut PlonkCircuit<Fr254>,
+                _lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
             ) -> Result<Vec<Variable>, CircuitError> {
                 Ok(vec![])
             }
