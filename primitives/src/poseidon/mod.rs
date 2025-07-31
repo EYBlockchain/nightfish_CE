@@ -141,7 +141,7 @@ pub struct PoseidonPerm<F> {
 }
 
 impl<F: PoseidonParams> PoseidonPerm<F> {
-    #[cfg(test)]
+    //#[cfg(test)]
     /// Retrieves the appropriate Poseidon parameters for the given field `F`.
     pub fn perm() -> Result<Self, PoseidonError> {
         let (constants, matrix, num_part_rounds) = F::params(STATE_SIZE)?;

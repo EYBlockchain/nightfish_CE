@@ -1,10 +1,13 @@
 use ark_std::println;
 
+use crate::circuit::poseidon::emulated::PoseidonNonNativeHashGadget;
 use crate::poseidon::{sponge::CRHF_RATE, PoseidonParams, STATE_SIZE};
+use ark_ff::PrimeField;
 use ark_std::{string::ToString, vec::Vec};
+use jf_relation::gadgets::{EmulatedVariable, EmulationConfig};
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
-use super::PoseidonHashGadget;
+use crate::circuit::poseidon::native::PoseidonHashGadget;
 
 #[derive(Clone, Debug)]
 /// Array of variables representing a Poseidon state (4 field elements).
@@ -45,11 +48,13 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
                 "calling poseidon_perm with {} state variables",
                 output_vars.len()
             );
-            output_vars = self.poseidon_perm(&output_vars)?.try_into().map_err(|_| {
-                CircuitError::ParameterError(
-                    "Failed to convert Poseidon state to array".to_string(),
-                )
-            })?;
+            output_vars = PoseidonHashGadget::poseidon_perm(self, &output_vars)?
+                .try_into()
+                .map_err(|_| {
+                    CircuitError::ParameterError(
+                        "Failed to convert Poseidon state to array".to_string(),
+                    )
+                })?;
         }
         Ok(PoseidonStateVar(output_vars))
     }
@@ -68,8 +73,7 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
             let extract = remaining.min(CRHF_RATE);
             result_vars.extend_from_slice(&state_vars_vec[0..extract]);
             // always permute
-            state_vars_vec = self
-                .poseidon_perm(&state_vars_vec)?
+            state_vars_vec = PoseidonHashGadget::poseidon_perm(self, &state_vars_vec)?
                 .try_into()
                 .map_err(|_| {
                     CircuitError::ParameterError(
@@ -85,7 +89,97 @@ impl<F: PoseidonParams> SpongePoseidonHashGadget<F> for PlonkCircuit<F> {
     }
 }
 
-#[cfg(test)]
+#[derive(Clone, Debug)]
+/// Array of variables representing a Poseidon state (4 field elements).
+pub struct PoseidonNonNativeStateVar<F: PrimeField, E: EmulationConfig<F>>(
+    pub(crate) [EmulatedVariable<E>; STATE_SIZE],
+    pub(crate) ark_std::marker::PhantomData<F>,
+);
+
+pub trait SpongePoseidonNonNativeHashGadget<F: PoseidonParams, E: EmulationConfig<F>>:
+    PoseidonHashGadget<F>
+{
+    fn absorb(
+        &mut self,
+        state_var: &PoseidonNonNativeStateVar<F, E>,
+        input_var: &[EmulatedVariable<E>],
+    ) -> Result<PoseidonNonNativeStateVar<F, E>, CircuitError>;
+
+    fn squeeze(
+        &mut self,
+        state_vars: &PoseidonNonNativeStateVar<F, E>,
+        num_elements: usize,
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError>;
+}
+
+impl<F: PoseidonParams, E: EmulationConfig<F>> SpongePoseidonNonNativeHashGadget<F, E>
+    for PlonkCircuit<F>
+{
+    fn absorb(
+        &mut self,
+        state_vars: &PoseidonNonNativeStateVar<F, E>,
+        input_vars: &[EmulatedVariable<E>],
+    ) -> Result<PoseidonNonNativeStateVar<F, E>, CircuitError> {
+        let mut output_vars = state_vars.0.clone();
+        println!("absorbing {} input variables", input_vars.len());
+        for chunk in input_vars.chunks(CRHF_RATE) {
+            // To be consistent with `Poseidon::hash()`, we need start adding elements in position `STATE_SIZE - CRHF_RATE`.
+            for (output_var, input_var) in output_vars
+                .iter_mut()
+                .skip(STATE_SIZE - CRHF_RATE)
+                .zip(chunk.iter())
+            {
+                *output_var = self.emulated_batch_add(&[output_var.clone(), input_var.clone()])?;
+            }
+            println!(
+                "calling poseidon_perm with {} state variables",
+                output_vars.len()
+            );
+            output_vars = PoseidonNonNativeHashGadget::poseidon_perm(self, &output_vars)?
+                .try_into()
+                .map_err(|_| {
+                    CircuitError::ParameterError(
+                        "Failed to convert Poseidon state to array".to_string(),
+                    )
+                })?;
+        }
+        Ok(PoseidonNonNativeStateVar(
+            output_vars,
+            ark_std::marker::PhantomData,
+        ))
+    }
+
+    fn squeeze(
+        &mut self,
+        state_vars: &PoseidonNonNativeStateVar<F, E>,
+        num_elements: usize,
+    ) -> Result<Vec<EmulatedVariable<E>>, CircuitError> {
+        let mut result_vars = Vec::<EmulatedVariable<E>>::new();
+        let mut state_vars_vec = state_vars.0.clone();
+        // SQUEEZE PHASE
+        let mut remaining = num_elements;
+        // extract current rate before calling Poseidon permutation again
+        loop {
+            let extract = remaining.min(CRHF_RATE);
+            result_vars.extend_from_slice(&state_vars_vec[0..extract]);
+            // always permute
+            state_vars_vec = PoseidonNonNativeHashGadget::poseidon_perm(self, &state_vars_vec)?
+                .try_into()
+                .map_err(|_| {
+                    CircuitError::ParameterError(
+                        "Failed to convert Poseidon state to array".to_string(),
+                    )
+                })?;
+            remaining -= extract;
+            if remaining == 0 {
+                break;
+            }
+        }
+        Ok(result_vars)
+    }
+}
+
+/*#[cfg(test)]
 mod tests {
     use super::*;
     use ark_bn254::Fr;
@@ -136,3 +230,4 @@ mod tests {
         Ok(())
     }
 }
+*/

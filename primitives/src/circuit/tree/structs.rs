@@ -5,7 +5,7 @@ use ark_std::{string::ToString, vec, vec::Vec};
 use jf_relation::{errors::CircuitError, BoolVar, Circuit, PlonkCircuit, Variable};
 
 use crate::{
-    circuit::poseidon::PoseidonHashGadget,
+    circuit::poseidon::native::PoseidonHashGadget,
     poseidon::constants::PoseidonParams,
     trees::{
         imt::{IMTCircuitInsertionInfo, LeafDBEntry},

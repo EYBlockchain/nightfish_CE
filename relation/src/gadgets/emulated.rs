@@ -1434,11 +1434,17 @@ mod tests {
         F: PrimeField,
     {
         // used to fail before adding the previous carry in the carry calculation (fixed in https://github.com/EYBlockchain/nightfish_CE/pull/39)
-        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
+        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(16);
         let x = BigUint::from(2u32).pow(253);
+
         let var_x = circuit.create_emulated_variable(E::from(x)).unwrap();
+        let sz = circuit.num_gates();
         circuit.emulated_add(&var_x, &var_x).unwrap();
         assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+        ark_std::println!(
+            "emulated_add gate with carry calculation → {} constraints",
+            circuit.num_gates() - sz
+        );
 
         let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
         let var_x = circuit.create_public_emulated_variable(E::one()).unwrap();
@@ -1563,7 +1569,7 @@ mod tests {
         let x : Fq377= MontFp!("218393408942992446968589193493746660101651787560689350338764189588519393175121782177906966561079408675464506489966");
         let y : Fq377 = MontFp!("122268283598675559488486339158635529096981886914877139579534153582033676785385790730042363341236035746924960903179");
 
-        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(16);
         let var_x = circuit.create_emulated_variable(x).unwrap();
         let _ = circuit.emulated_mul_constant(&var_x, y).unwrap();
         assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
@@ -1580,7 +1586,12 @@ mod tests {
         let expected = x * y;
         let var_x = circuit.create_public_emulated_variable(x).unwrap();
         let var_y = circuit.create_emulated_variable(y).unwrap();
+        let sz = circuit.num_gates();
         let var_z = circuit.emulated_mul(&var_x, &var_y).unwrap();
+        ark_std::println!(
+            "emulated_mul_constant gate → {} constraints",
+            circuit.num_gates() - sz
+        );
         assert_eq!(circuit.emulated_witness(&var_x).unwrap(), x);
         assert_eq!(circuit.emulated_witness(&var_y).unwrap(), y);
         assert_eq!(circuit.emulated_witness(&var_z).unwrap(), expected);
