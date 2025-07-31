@@ -80,6 +80,21 @@ impl<F: PrimeField> VirtualPolynomial<F> {
         polys: Vec<Arc<DenseMultilinearExtension<F>>>,
         products: Vec<(F, Vec<usize>)>,
     ) -> Self {
+        for poly in polys.iter() {
+            if poly.num_vars != num_vars {
+                panic!("All polynomials must have the num_var variables");
+            }
+        }
+        for (_, product) in products.iter() {
+            if product.len() > max_degree {
+                panic!("Product contains a term with degree greater than max_degree");
+            }
+            for poly_index in product.iter() {
+                if *poly_index >= polys.len() {
+                    panic!("Product contains an index that is out of bounds of the polys vector");
+                }
+            }
+        }
         let mut poly_mapping = HashMap::new();
         for (i, poly) in polys.iter().enumerate() {
             poly_mapping.insert(Arc::as_ptr(poly), i);

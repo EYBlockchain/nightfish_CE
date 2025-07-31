@@ -472,6 +472,11 @@ where
                 "Cannot prove a degree 0 polynomial".to_string(),
             ));
         }
+        if poly.num_vars() == 0 {
+            return Err(PlonkError::InvalidParameters(
+                "Cannot prove an polynomial with no variables".to_string(),
+            ));
+        }
         let mut prover_state = ProverState::<P>::new(poly)?;
         let eval = prover_state.eval;
 
