@@ -488,10 +488,21 @@ pub trait RecursiveProver {
             ));
         }
 
-        if outputs.len().next_power_of_two() != outputs.len() {
+        if (outputs.len().next_power_of_two() != outputs.len())
+            || (outputs.len().ilog2() % 2 != 0)
+            || outputs.len() < 64
+        {
             return Err(PlonkError::InvalidParameters(
-                "Outputs length is not a power of two".to_string(),
+                "Outputs length is not a power of four greater than or equal to 64".to_string(),
             ));
+        }
+
+        if 4 * extra_base_info.len() != outputs.len() {
+            return Err(PlonkError::InvalidParameters(format!(
+                "The number of outputs: {} does not equal 4 times the number of extra base info: {}",
+                extra_base_info.len(),
+                outputs.len()
+            )));
         }
 
         let (outputs, vks): (Vec<Bn254Output>, Vec<VerifyingKey<Kzg>>) =
@@ -688,11 +699,20 @@ pub trait RecursiveProver {
         }
 
         if (outputs_and_circuit_type.len().next_power_of_two() != outputs_and_circuit_type.len())
-            && (outputs_and_circuit_type.len().ilog2() % 2 != 0)
+            || (outputs_and_circuit_type.len().ilog2() % 2 != 0)
+            || outputs_and_circuit_type.len() < 64
         {
             return Err(PlonkError::InvalidParameters(
-                "Outputs length is not a power of four".to_string(),
+                "Outputs length is not a power of four greater than or equal to 64".to_string(),
             ));
+        }
+
+        if 4 * extra_base_info.len() != outputs_and_circuit_type.len() {
+            return Err(PlonkError::InvalidParameters(format!(
+                "The number of outputs: {} does not equal 4 times the number of extra base info: {}",
+                extra_base_info.len(),
+                outputs_and_circuit_type.len()
+            )));
         }
 
         let (outputs, circuit_indices): (Vec<Bn254Output>, Vec<VerifyingKey<Kzg>>) =
