@@ -567,7 +567,10 @@ pub trait RecursiveProver {
 
         // We know the outputs is non-zero so we can safely unwrap here
         let base_grumpkin_circuit_128 = &base_grumpkin_out_128[0].0;
-
+ark_std::println!(
+            "JJ: base_grumpkin_circuit_128 size: {}",
+            base_grumpkin_circuit_128.num_gates()
+        );
         let (base_grumpkin_pk_128, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, base_grumpkin_circuit_128)?;
 
         // Produce and store the base Bn254 proving key
@@ -606,7 +609,10 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
         let base_bn254_circuit_64 = &base_bn254_out_64[0].0;
-
+ark_std::println!(
+            "JJ: base_bn254_circuit_64 size: {}",
+            base_bn254_circuit_64.num_gates()
+        );
         let (base_bn254_pk_64, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, base_bn254_circuit_64)?;
 
         // Produce the Grumpkin merge proving key
@@ -628,7 +634,10 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
         let merge_grumpkin_circuit_32 = &merge_grumpkin_out_32[0].0;
-
+ark_std::println!(
+            "JJ: merge_grumpkin_circuit_32 size: {}",
+            merge_grumpkin_circuit_32.num_gates()
+        );
         let (merge_grumpkin_pk_32, _) =
             MLEPlonk::<Zmorph>::preprocess(ipa_srs, merge_grumpkin_circuit_32)?;
 
@@ -650,7 +659,10 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
         let merge_bn254_circuit_16 = &merge_bn254_out_16[0].0;
-
+ark_std::println!(
+            "JJ: merge_bn254_circuit_16 size: {}",
+            merge_bn254_circuit_16.num_gates()
+        );
         let (merge_bn254_pk_16, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, merge_bn254_circuit_16)?;
 
         // Now we need to run merge grumpkin one more time
@@ -674,7 +686,10 @@ pub trait RecursiveProver {
 
 
         let merge_grumpkin_circuit_8 = &merge_grumpkin_out_8[0].0;
-
+ark_std::println!(
+            "JJ: merge_grumpkin_circuit_8 size: {}",
+            merge_grumpkin_circuit_8.num_gates()
+        );
         let (merge_grumpkin_pk_8, _) =
             MLEPlonk::<Zmorph>::preprocess(ipa_srs, merge_grumpkin_circuit_8)?;
 
@@ -697,6 +712,10 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
         let merge_bn254_circuit_4 = &merge_bn254_out_4[0].0;
+        ark_std::println!(
+            "JJ: merge_bn254_circuit_4 size: {}",
+            merge_bn254_circuit_4.num_gates()
+        );
 
         let (merge_bn254_pk_4, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, merge_bn254_circuit_4)?;
 
