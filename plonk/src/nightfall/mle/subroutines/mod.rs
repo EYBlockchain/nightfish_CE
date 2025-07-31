@@ -252,12 +252,14 @@ impl<F: Field> Oracle<F> for PolyOracle<F> {
                 let i_point = F::from(i as u64 + 2);
                 let denom = (*point - i_point).inverse();
                 if let Some(val) = denom {
-                    *weight * val
+                    Ok(*weight * val)
                 } else {
-                    F::one()
+                    Err(PolynomialError::ParameterError(
+                        "Denominator in PolyOracle evaluation is zero".to_string(),
+                    ))
                 }
             })
-            .collect::<Vec<F>>();
+            .collect::<Result<Vec<F>, PolynomialError>>()?;
 
         let divisor = products
             .iter()
