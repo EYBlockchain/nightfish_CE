@@ -45,8 +45,8 @@ where
         scalars: &[EmulatedVariable<P::ScalarField>],
     ) -> Result<PointVariable, CircuitError>;
 
-    /// Compute the multi-scalar-multiplications where each scalar has at most
-    /// `scalar_bit_length` bits.
+    /// Compute the multi-scalar-multiplications where each scalar has at most `scalar_bit_length` bits.
+    /// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
     fn msm_with_var_scalar_length(
         &mut self,
         bases: &[PointVariable],
@@ -124,6 +124,8 @@ where
 // Used for double checking the correctness; also as a fall-back solution
 // to Pippenger.
 //
+// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
+//
 // Some typical result on BW6-761 curve is shown below (i.e. the circuit
 // simulates BLS12-377 curve operations). More results are available in the test
 // function.
@@ -193,6 +195,8 @@ where
 // A variant of Pippenger MSM.
 //
 // Note, it is assumed that none of the bases is the neutral element.
+//
+// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
 //
 // Some typical result on BW6-761 curve is shown below (i.e. the circuit
 // simulates BLS12-377 curve operations). More results are available in the test
@@ -530,6 +534,7 @@ where
 }
 
 // Again, it is assumed that none of the bases is the neutral element.
+// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
 fn msm_pippenger_fixed<F, P>(
     circuit: &mut PlonkCircuit<F>,
     bases: &[SWAffine<P>],
@@ -798,7 +803,8 @@ where
 
 #[inline]
 /// Decompose a `scalar_bit_length`-bit scalar `s` into many c-bit scalar
-/// variables `{s0, ..., s_m}` such that `s = \sum_{j=0..m} 2^{cj} * s_j`
+/// variables `{s0, ..., s_m}` such that `s = \sum_{j=0..m} 2^{cj} * s_j`.
+/// Note the `s_j`s are not contrained here. That needs to be done elsewhere.
 pub fn decompose_scalar_var_signed_emulated<P, F>(
     circuit: &mut PlonkCircuit<F>,
     scalar_var: Variable,
