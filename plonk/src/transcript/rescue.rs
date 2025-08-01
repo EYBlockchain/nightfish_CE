@@ -320,15 +320,15 @@ mod tests {
         let rng = &mut jf_utils::test_rng();
 
         let fq_elem = Fq254::rand(rng);
-        ark_std::println!("fq elem: {}", fq_elem);
+        // ark_std::println!("fq elem: {}", fq_elem);
         let mut writer = Vec::new();
         fq_elem.serialize_compressed(&mut writer).unwrap();
 
         let field_elems = bytes_to_field_elements::<_, Fr254>(writer.as_slice());
 
-        for elem in field_elems {
-            ark_std::println!("field elem: {}", elem);
-        }
+        // for elem in field_elems {
+        //     ark_std::println!("field elem: {}", elem);
+        // }
     }
 
     #[test]

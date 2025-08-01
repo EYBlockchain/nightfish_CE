@@ -190,7 +190,7 @@ mod tests {
             let now = ark_std::time::Instant::now();
             let poseidon_native = Poseidon::<FqEd254>::new();
             let result_native = poseidon_native.hash(&[rand_native]).unwrap();
-            ark_std::println!("Time taken for native poseidon: {:?}", now.elapsed());
+            // ark_std::println!("Time taken for native poseidon: {:?}", now.elapsed());
             let big_int = ark_ff::PrimeField::into_bigint(rand_native);
             let bytes = to_bytes![&big_int].unwrap();
 

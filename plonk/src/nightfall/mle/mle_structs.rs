@@ -78,7 +78,7 @@ pub struct GateInfo<F: PrimeField> {
     pub products: Vec<(F, Vec<usize>)>,
 }
 /// Proving Key used for MLE Plonk proofs.
-#[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
+#[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize, )]
 pub struct MLEProvingKey<PCS: PolynomialCommitmentScheme> {
     /// The mle's used for selector oracles.
     pub selector_oracles: Vec<Arc<DenseMultilinearExtension<PCS::Evaluation>>>,
@@ -90,6 +90,17 @@ pub struct MLEProvingKey<PCS: PolynomialCommitmentScheme> {
     pub lookup_proving_key: Option<MLELookupProvingKey<PCS>>,
     /// The PCS prover parameters.
     pub pcs_prover_params: <PCS::SRS as StructuredReferenceString>::ProverParam,
+}
+
+impl<PCS: PolynomialCommitmentScheme> MLEProvingKey<PCS> {
+    /// compute hash of the proving key
+    pub fn hash(&self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        self.serialize_compressed(&mut bytes).unwrap();
+        let mut hasher = Keccak256::new();
+        hasher.update(&bytes);
+        hasher.finalize().to_vec()
+    }
 }
 
 /// Verifying Key used for MLE Plonk proofs.

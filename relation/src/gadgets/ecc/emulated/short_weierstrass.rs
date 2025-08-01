@@ -370,11 +370,11 @@ mod tests {
         E: EmulationConfig<F>,
         F: PrimeField,
     {
-        ark_std::println!("gates before emulated add: {}", circuit.num_gates());
+        // ark_std::println!("gates before emulated add: {}", circuit.num_gates());
         let pre_gate = circuit.num_gates();
         let result = circuit.emulated_sw_ecc_add(p0, p1, a)?;
-        ark_std::println!("gates after emulated add: {}", circuit.num_gates());
-        ark_std::println!("num gates added: {}", circuit.num_gates() - pre_gate);
+        // ark_std::println!("gates after emulated add: {}", circuit.num_gates());
+        // ark_std::println!("num gates added: {}", circuit.num_gates() - pre_gate);
         assert_eq!(circuit.emulated_sw_point_witness(&result)?, *expected);
         Ok(result)
     }
