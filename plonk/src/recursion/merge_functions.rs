@@ -102,7 +102,7 @@ pub struct Bn254RecursiveInfo {
     /// The four old Bn254 accumulators.
     pub old_accumulators: [AtomicInstance<Kzg>; 4],
     /// The two Grumpkin accumulators that will be forwarded by this proof.
-    pub forwarded_acumulators: [PCSWitness<ZeromorphPCS>; 2],
+    pub forwarded_accumulators: [PCSWitness<ZeromorphPCS>; 2],
     /// The implementation specific public inputs.
     pub specific_pi: [Vec<Fr254>; 2],
     /// The prepped challenges for the MLE arithmetic in the Grumpkin proofs.
@@ -117,7 +117,7 @@ impl Bn254RecursiveInfo {
         bn254_outputs: [Bn254Output; 2],
         grumpkin_outputs: [GrumpkinOutput; 4],
         old_accumulators: [AtomicInstance<Kzg>; 4],
-        forwarded_acumulators: [PCSWitness<ZeromorphPCS>; 2],
+        forwarded_accumulators: [PCSWitness<ZeromorphPCS>; 2],
         specific_pi: [Vec<Fr254>; 2],
         challenges: [MLEProofChallenges<Fq254>; 4],
         split_acc_info: [SplitAccumulationInfo; 2],
@@ -126,7 +126,7 @@ impl Bn254RecursiveInfo {
             bn254_outputs,
             grumpkin_outputs,
             old_accumulators,
-            forwarded_acumulators,
+            forwarded_accumulators,
             specific_pi,
             challenges,
             split_acc_info,
@@ -239,7 +239,7 @@ pub struct GrumpkinRecursiveInfo {
     /// The four old Grumpkin accumulators.
     pub old_accumulators: [PCSWitness<ZeromorphPCS>; 4],
     /// The two Bn254 accumulators that will be forwarded by this proof.
-    pub forwarded_acumulators: [AtomicInstance<Kzg>; 2],
+    pub forwarded_accumulators: [AtomicInstance<Kzg>; 2],
     /// The eight old Bn254 accumulators (2 for each `bn254_output`) for transcript verification
     pub transcript_accumulators: [AtomicInstance<Kzg>; 8],
     /// The implementation specific public inputs.
@@ -252,7 +252,7 @@ impl GrumpkinRecursiveInfo {
         grumpkin_outputs: [GrumpkinOutput; 2],
         bn254_outputs: [Bn254Output; 4],
         old_accumulators: [PCSWitness<ZeromorphPCS>; 4],
-        forwarded_acumulators: [AtomicInstance<Kzg>; 2],
+        forwarded_accumulators: [AtomicInstance<Kzg>; 2],
         transcript_accumulators: [AtomicInstance<Kzg>; 8],
         specific_pi: [Vec<Fr254>; 2],
     ) -> Self {
@@ -260,7 +260,7 @@ impl GrumpkinRecursiveInfo {
             grumpkin_outputs,
             bn254_outputs,
             old_accumulators,
-            forwarded_acumulators,
+            forwarded_accumulators,
             transcript_accumulators,
             specific_pi,
         }
@@ -579,7 +579,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
         let forwarded_accs: Vec<Vec<Variable>> = bn254info
-            .forwarded_acumulators
+            .forwarded_accumulators
             .iter()
             .map(|acc| {
                 let comm_x = circuit.create_variable(fq_to_fr::<Fr254, SWGrumpkin>(&acc.comm.x))?;
@@ -684,7 +684,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .try_for_each(|var| circuit.set_variable_public(*var))?;
         scalars_and_acc_evals
             .iter()
-            .zip(bn254info.forwarded_acumulators.iter())
+            .zip(bn254info.forwarded_accumulators.iter())
             .try_for_each(|((_, acc_eval), forwarded_acc)| {
                 let _ = circuit
                     .create_public_variable(fq_to_fr::<Fr254, SWGrumpkin>(&forwarded_acc.comm.x))?;
@@ -736,7 +736,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok(GrumpkinCircuitOutput::new(
             bn254info.bn254_outputs.clone(),
             specific_pi_out,
-            bn254info.forwarded_acumulators.clone(),
+            bn254info.forwarded_accumulators.clone(),
             output_accumulator,
             bn254info.old_accumulators.clone(),
         ))
@@ -849,7 +849,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok(GrumpkinCircuitOutput::new(
             bn254info.bn254_outputs.clone(),
             specific_pi,
-            bn254info.forwarded_acumulators.clone(),
+            bn254info.forwarded_accumulators.clone(),
             output_accumulator,
             bn254info.old_accumulators.clone(),
         ))
@@ -1077,7 +1077,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             grumpkin_info.bn254_outputs.chunks_exact(2),
             grumpkin_info.grumpkin_outputs.iter(),
             impl_specific_pi.iter(),
-            grumpkin_info.forwarded_acumulators.iter(),
+            grumpkin_info.forwarded_accumulators.iter(),
             grumpkin_info.old_accumulators.chunks_exact(2),
             recursion_scalars.iter()
         )
@@ -1334,7 +1334,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         })?;
     Ok(Bn254CircuitOutput::new(
         specific_pi_field,
-        grumpkin_info.forwarded_acumulators.clone(),
+        grumpkin_info.forwarded_accumulators.clone(),
         split_acc_info.new_accumulator.clone(),
         challenges,
         split_acc_info,
@@ -1382,7 +1382,7 @@ pub fn decider_circuit(
         grumpkin_info.bn254_outputs.chunks_exact(2),
         grumpkin_info.grumpkin_outputs.iter(),
         impl_specific_pi.iter(),
-        grumpkin_info.forwarded_acumulators.iter(),
+        grumpkin_info.forwarded_accumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
         recursion_scalars.iter()
     )
@@ -1618,6 +1618,7 @@ pub fn decider_circuit(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
     let specific_pi = specific_pi_fn(&impl_spec_pi, circuit)?;
 
+
     verify_zeromorph_circuit(
         circuit,
         &pk_grumpkin.verifying_key.pcs_verifier_params,
@@ -1632,13 +1633,27 @@ pub fn decider_circuit(
         .iter()
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
+
+    // ark_std::println!("specific_pi witeness : field_pi_out: {:?}", field_pi_out);
+    // ark_std::println!("pi0: {}", field_pi_out[0]);
+    // ark_std::println!("pi1: {}", field_pi_out[1]);
+    // ark_std::println!("pi2: {}", field_pi_out[2]);
+    // ark_std::println!("pi3: {}", field_pi_out[3]);
+    // ark_std::println!("pi4: {}", field_pi_out[4]);
+    // ark_std::println!("pi5: {}", field_pi_out[5]);
+    // ark_std::println!("pi6: {}", field_pi_out[6]);
+    // ark_std::println!("pi7: {}", field_pi_out[7]);
     let field_pi = field_pi_out
         .iter()
         .flat_map(|f| f.into_bigint().to_bytes_be())
         .collect::<Vec<u8>>();
+    // ark_std::println!("field_pi Vec<u8>: {:?}", field_pi);
+
+    // ark_std::println!("JJ grumpkin_info
+    //     .forwarded_accumulators, this is the output accumulators which has 2  automic instance: {:?}", grumpkin_info.forwarded_accumulators);
 
     let acc_elems = grumpkin_info
-        .forwarded_acumulators
+        .forwarded_accumulators
         .iter()
         .flat_map(|acc| {
             let point = Point::<Fq254>::from(acc.comm);
@@ -1652,12 +1667,19 @@ pub fn decider_circuit(
         })
         .collect::<Vec<u8>>();
 
+    // ark_std::println!("acc_elems Vec<u8>: {:?}", acc_elems);
+
     let mut hasher = Keccak256::new();
     hasher.update([field_pi, acc_elems].concat());
     let buf = hasher.finalize();
 
     // Generate challenge from state bytes using little-endian order
     let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
+    // ark_std::println!(
+    //     "Decider circuit pi hash is keccak256(specific_pi || forwarded_accumulators) ",
+    // );
+    // ark_std::println!("Decider circuit pi hash: {}", pi_hash);
+    // ark_std::println!("Decider circuit pi hash: {:?}", pi_hash);
 
     circuit.create_public_variable(pi_hash)?;
     Ok(field_pi_out)

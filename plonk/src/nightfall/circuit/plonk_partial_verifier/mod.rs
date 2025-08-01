@@ -488,8 +488,8 @@ mod test {
         )
         .unwrap();
 
-        for var in scalars.iter() {
-            ark_std::println!("scalar value: {}", circuit.witness(*var).unwrap());
-        }
+        // for var in scalars.iter() {
+        //     ark_std::println!("scalar value: {}", circuit.witness(*var).unwrap());
+        // }
     }
 }

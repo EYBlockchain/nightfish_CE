@@ -670,7 +670,7 @@ mod tests {
             circuit.verify_split_accumulation(&new_acc_var, &instance_vars, &emulated_proof)?;
 
             circuit.check_circuit_satisfiability(&[]).unwrap();
-            ark_std::println!("Constraints: {}", circuit.num_gates());
+            // ark_std::println!("Constraints: {}", circuit.num_gates());
         }
         Ok(())
     }
