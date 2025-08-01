@@ -518,6 +518,7 @@ pub trait RecursiveProver {
         ipa_srs: &UnivariateUniversalIpaParams<Grumpkin>,
         kzg_srs: &UnivariateUniversalParams<Bn254>,
     ) -> Result<(), PlonkError> {
+        ark_std::println!("JJ: am calling preprocess in Nightfish, plonk, src, recursion, RecursiveProver, but why?");
         // First check that we have the same number of outputs and pi's and that they are also non-zero in length
         if outputs.len() != specific_pi.len() {
             return Err(PlonkError::InvalidParameters(format!(
@@ -542,7 +543,8 @@ pub trait RecursiveProver {
         let (outputs, vks): (Vec<Bn254Output>, Vec<VerifyingKey<Kzg>>) =
             outputs.iter().map(|(o, c)| (o.clone(), c.clone())).unzip();
 
-        let base_grumpkin_out_128 = cfg_chunks!(outputs, 2)
+        // base_grumpkin_circuit(512) -> base_grumpkin_out 512, base_grumpkin_chunks 256
+        let base_grumpkin_out_512 = cfg_chunks!(outputs, 2)
             .zip(cfg_chunks!(specific_pi, 2))
             .zip(cfg_chunks!(vks, 2))
             .map(|((chunk_one, chunk_two), chunk_three)| {
@@ -566,15 +568,13 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
         // We know the outputs is non-zero so we can safely unwrap here
-        let base_grumpkin_circuit_128 = &base_grumpkin_out_128[0].0;
-ark_std::println!(
-            "JJ: base_grumpkin_circuit_128 size: {}",
-            base_grumpkin_circuit_128.num_gates()
-        );
-        let (base_grumpkin_pk_128, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, base_grumpkin_circuit_128)?;
-
+       let base_grumpkin_circuit_512 = &base_grumpkin_out_512[0].0;
+        let base_pi = base_grumpkin_circuit_512.public_input().unwrap();
+        base_grumpkin_circuit_512.check_circuit_satisfiability(&base_pi)?;
+        let (base_grumpkin_pk_512, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, base_grumpkin_circuit_512)?;
+        
         // Produce and store the base Bn254 proving key
-        let base_grumpkin_chunks_64: Vec<[GrumpkinOut; 2]> = base_grumpkin_out_128
+         let base_grumpkin_chunks_256: Vec<[GrumpkinOut; 2]> = base_grumpkin_out_512
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -601,22 +601,18 @@ ark_std::println!(
                     })
             })
             .collect::<Result<Vec<[VerifyingKey<Kzg>; 4]>, PlonkError>>()?;
-        let base_bn254_out_64 = cfg_into_iter!(base_grumpkin_chunks_64)
+        let base_bn254_out_256 = cfg_into_iter!(base_grumpkin_chunks_256)
             .zip(cfg_into_iter!(vk_chunks))
             .zip(cfg_into_iter!(extra_base_info))
             .map(|((chunk, vk_chunk), extra_info)| {
-                Self::base_bn254_circuit(chunk, &base_grumpkin_pk_128, &vk_chunk, extra_info)
+                Self::base_bn254_circuit(chunk, &base_grumpkin_pk_512, &vk_chunk, extra_info)
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
-        let base_bn254_circuit_64 = &base_bn254_out_64[0].0;
-ark_std::println!(
-            "JJ: base_bn254_circuit_64 size: {}",
-            base_bn254_circuit_64.num_gates()
-        );
-        let (base_bn254_pk_64, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, base_bn254_circuit_64)?;
+        let base_bn254_circuit_256 = &base_bn254_out_256[0].0;
+        let (base_bn254_pk_256, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, base_bn254_circuit_256)?;
 
         // Produce the Grumpkin merge proving key
-        let base_bn254_chunks_32: Vec<[Bn254Out; 2]> = base_bn254_out_64
+        let base_bn254_chunks_128: Vec<[Bn254Out; 2]> = base_bn254_out_256
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -628,21 +624,63 @@ ark_std::println!(
                 })
             })
             .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
-        let merge_grumpkin_out_32 = base_bn254_chunks_32
+        let merge_grumpkin_out_128 = base_bn254_chunks_128
             .into_iter()
-            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &base_bn254_pk_64, &base_grumpkin_pk_128))
+            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &base_bn254_pk_256, &base_grumpkin_pk_512))
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
+        let merge_grumpkin_circuit_128 = &merge_grumpkin_out_128[0].0;
+ let (merge_grumpkin_pk_128, _) =
+            MLEPlonk::<Zmorph>::preprocess(ipa_srs, merge_grumpkin_circuit_128)?;
+
+        // Produce the Bn254 merge proving key
+       let merge_grumpkin_chunks_64: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_128
+            .into_iter()
+            .chunks(2)
+            .into_iter()
+            .map(|chunk| {
+                chunk.collect::<Vec<GrumpkinOut>>().try_into().map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
+
+
+      let merge_bn254_out_64 = cfg_into_iter!(merge_grumpkin_chunks_64)
+            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_128, &base_bn254_pk_256))
+            .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
+
+    let merge_bn254_circuit_64 = &merge_bn254_out_64[0].0;
+
+        let (merge_bn254_pk_64, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, merge_bn254_circuit_64)?;
+
+         let merge_bn254_chunks_32: Vec<[Bn254Out; 2]> = merge_bn254_out_64
+            .into_iter()
+            .chunks(2)
+            .into_iter()
+            .map(|chunk| {
+                chunk.collect::<Vec<Bn254Out>>().try_into().map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
+let merge_grumpkin_out_32 = merge_bn254_chunks_32
+            .into_iter()
+            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &merge_bn254_pk_64, &merge_grumpkin_pk_128))
+            .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+
+
         let merge_grumpkin_circuit_32 = &merge_grumpkin_out_32[0].0;
-ark_std::println!(
-            "JJ: merge_grumpkin_circuit_32 size: {}",
-            merge_grumpkin_circuit_32.num_gates()
-        );
+
         let (merge_grumpkin_pk_32, _) =
             MLEPlonk::<Zmorph>::preprocess(ipa_srs, merge_grumpkin_circuit_32)?;
 
-        // Produce the Bn254 merge proving key
-        let merge_grumpkin_chunks_16: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_32
+
+         let merge_grumpkin_chunks_16: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_32
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -655,18 +693,12 @@ ark_std::println!(
             })
             .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
         let merge_bn254_out_16 = cfg_into_iter!(merge_grumpkin_chunks_16)
-            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_32, &base_bn254_pk_64))
+            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_32, &merge_bn254_pk_64))
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
-        let merge_bn254_circuit_16 = &merge_bn254_out_16[0].0;
-ark_std::println!(
-            "JJ: merge_bn254_circuit_16 size: {}",
-            merge_bn254_circuit_16.num_gates()
-        );
+          let merge_bn254_circuit_16 = &merge_bn254_out_16[0].0;
         let (merge_bn254_pk_16, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, merge_bn254_circuit_16)?;
-
-        // Now we need to run merge grumpkin one more time
-        let merge_bn254_chunks_8: Vec<[Bn254Out; 2]> = merge_bn254_out_16
+let merge_bn254_chunks_8: Vec<[Bn254Out; 2]> = merge_bn254_out_16
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -679,22 +711,16 @@ ark_std::println!(
             })
             .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
 
-         let merge_grumpkin_out_8 = merge_bn254_chunks_8
+        let merge_grumpkin_out_8 = merge_bn254_chunks_8
             .into_iter()
             .map(|chunk| Self::merge_grumpkin_circuit(chunk, &merge_bn254_pk_16, &merge_grumpkin_pk_32))
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
-
-        let merge_grumpkin_circuit_8 = &merge_grumpkin_out_8[0].0;
-ark_std::println!(
-            "JJ: merge_grumpkin_circuit_8 size: {}",
-            merge_grumpkin_circuit_8.num_gates()
-        );
+         let merge_grumpkin_circuit_8 = &merge_grumpkin_out_8[0].0;
         let (merge_grumpkin_pk_8, _) =
             MLEPlonk::<Zmorph>::preprocess(ipa_srs, merge_grumpkin_circuit_8)?;
 
-
-        let merge_grumpkin_chunks_4: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_8
+              let merge_grumpkin_chunks_4: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_8
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -707,17 +733,14 @@ ark_std::println!(
             })
             .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
 
-        let merge_bn254_out_4 = cfg_into_iter!(merge_grumpkin_chunks_4)
+         let merge_bn254_out_4 = cfg_into_iter!(merge_grumpkin_chunks_4)
             .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_8, &merge_bn254_pk_16))
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
         let merge_bn254_circuit_4 = &merge_bn254_out_4[0].0;
-        ark_std::println!(
-            "JJ: merge_bn254_circuit_4 size: {}",
-            merge_bn254_circuit_4.num_gates()
-        );
 
         let (merge_bn254_pk_4, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, merge_bn254_circuit_4)?;
+
 
         let merge_bn254_chunks_2: Vec<[Bn254Out; 2]> = merge_bn254_out_4
             .into_iter()
@@ -760,11 +783,11 @@ ark_std::println!(
 
         let (decider_pk, _) = PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, &decider_out.circuit)?;
 
-        Self::store_base_grumpkin_pk(base_grumpkin_pk_128).ok_or(PlonkError::InvalidParameters(
+        Self::store_base_grumpkin_pk(base_grumpkin_pk_512).ok_or(PlonkError::InvalidParameters(
             "Could not store base Grumpkin proving key".to_string(),
         ))?;
 
-        Self::store_base_bn254_pk(base_bn254_pk_64).ok_or(PlonkError::InvalidParameters(
+        Self::store_base_bn254_pk(base_bn254_pk_256).ok_or(PlonkError::InvalidParameters(
             "Could not store base Bn254 proving key".to_string(),
         ))?;
 
@@ -772,11 +795,11 @@ ark_std::println!(
             "Could not store merge Grumpkin proving key".to_string(),
         ))?;
 
-        Self::store_merge_bn254_pk_4(merge_bn254_pk_4).ok_or(PlonkError::InvalidParameters(
+        Self::store_merge_bn254_pk_4(merge_bn254_pk_16).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Bn254 proving key".to_string(),
         ))?;
 
-        Self::store_merge_bn254_pk_16(merge_bn254_pk_16).ok_or(PlonkError::InvalidParameters(
+        Self::store_merge_bn254_pk_16(merge_bn254_pk_64).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Bn254 proving key".to_string(),
         ))?;
 
@@ -822,14 +845,16 @@ ark_std::println!(
                 .map(|(o, c)| (o.clone(), c.clone()))
                 .unzip();
 
-        let base_grumpkin_pk_128 = Self::get_base_grumpkin_pk();
-        let base_bn254_pk_64 = Self::get_base_bn254_pk();
+        let base_grumpkin_pk_512 = Self::get_base_grumpkin_pk();
+        let base_bn254_pk_256 = Self::get_base_bn254_pk();
 
+        let merge_grumpkin_pk_128 = Self::get_merge_grumpkin_pk();
         let merge_grumpkin_pk_32 = Self::get_merge_grumpkin_pk();
         let merge_grumpkin_pk_8 = Self::get_merge_grumpkin_pk();
         let merge_grumpkin_pk_2 = Self::get_merge_grumpkin_pk();
 
-        let merge_bn254_pk_16 = Self::get_merge_bn254_pk_16();
+        let merge_bn254_pk_64 = Self::get_merge_bn254_pk_16();
+        let merge_bn254_pk_16 = Self::get_merge_bn254_pk_4();
         let merge_bn254_pk_4 = Self::get_merge_bn254_pk_4();
 
         let decider_pk = Self::get_decider_pk();
@@ -857,7 +882,7 @@ ark_std::println!(
         // Collecting Results:
 
         // The results (one per pair) are collected into a vector. Each result is a GrumpkinOut, which contains the new circuit and its output.
-        let base_grumpkin_out_128 = cfg_chunks!(outputs, 2)
+        let base_grumpkin_out_512 = cfg_chunks!(outputs, 2)
             .zip(cfg_chunks!(specific_pi, 2))
             .zip(cfg_chunks!(circuit_indices, 2))
             .map(|((chunk_one, chunk_two), chunk_three)| {
@@ -893,7 +918,7 @@ ark_std::println!(
 
         // We get a Vec<[GrumpkinOut; 2]>, i.e., a vector of arrays, each array containing exactly 2 GrumpkinOut.
         // This is the format needed for the next layer of recursion, which expects pairs of proofs/circuits as input.
-        let base_grumpkin_chunks_64: Vec<[GrumpkinOut; 2]> = base_grumpkin_out_128
+        let base_grumpkin_chunks_256: Vec<[GrumpkinOut; 2]> = base_grumpkin_out_512
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -928,15 +953,15 @@ ark_std::println!(
             })
             .collect::<Result<Vec<[VerifyingKey<Kzg>; 4]>, PlonkError>>()?;
 
-        let base_bn254_out_64 = cfg_into_iter!(base_grumpkin_chunks_64)
+       let base_bn254_out_256 = cfg_into_iter!(base_grumpkin_chunks_256)
             .zip(cfg_into_iter!(vk_chunks))
             .zip(cfg_into_iter!(extra_base_info))
             .map(|((chunk, vk_chunk), extra_info)| {
-                Self::base_bn254_circuit(chunk, &base_grumpkin_pk_128, &vk_chunk, extra_info)
+                Self::base_bn254_circuit(chunk, &base_grumpkin_pk_512, &vk_chunk, extra_info)
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
-        let base_bn254_chunks_32: Vec<[Bn254Out; 2]> = base_bn254_out_64
+        let base_bn254_chunks_128: Vec<[Bn254Out; 2]> = base_bn254_out_256
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -948,8 +973,45 @@ ark_std::println!(
                 })
             })
             .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
-        let mut merge_grumpkin_out_32 = cfg_into_iter!(base_bn254_chunks_32)
-            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &base_bn254_pk_64, &base_grumpkin_pk_128))
+        let merge_grumpkin_out_128 = base_bn254_chunks_128
+            .into_iter()
+            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &base_bn254_pk_256, &base_grumpkin_pk_512))
+            .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+
+let merge_grumpkin_chunks_64: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_128
+            .into_iter()
+            .chunks(2)
+            .into_iter()
+            .map(|chunk| {
+                chunk.collect::<Vec<GrumpkinOut>>().try_into().map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
+
+        let merge_bn254_out_64 = cfg_into_iter!(merge_grumpkin_chunks_64)
+            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_128, &base_bn254_pk_256))
+            .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
+
+        let merge_bn254_chunks_32: Vec<[Bn254Out; 2]> = merge_bn254_out_64
+            .into_iter()
+            .chunks(2)
+            .into_iter()
+            .map(|chunk| {
+                chunk.collect::<Vec<Bn254Out>>().try_into().map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })
+            })
+            .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
+
+
+        let merge_grumpkin_out_32 = merge_bn254_chunks_32
+            .into_iter()
+            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &merge_bn254_pk_64, &merge_grumpkin_pk_128))
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
         let merge_grumpkin_chunks_16: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out_32
@@ -966,7 +1028,7 @@ ark_std::println!(
             .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
 
         let merge_bn254_out_16 = cfg_into_iter!(merge_grumpkin_chunks_16)
-            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_32, &base_bn254_pk_64))
+            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk_32, &merge_bn254_pk_64))
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
         let merge_bn254_chunks_8: Vec<[Bn254Out; 2]> = merge_bn254_out_16
