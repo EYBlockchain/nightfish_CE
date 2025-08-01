@@ -514,9 +514,14 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             let (low, high) = bytes.split_at(field_bytes_length);
 
             let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
-
             let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
+
             let bits = field_bytes_length * 8;
+            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+            circuit.enforce_in_range(low_var, bits)?;
+            circuit.enforce_in_range(high_var, leftover_bits)?;
+
             let coeff = Fq254::from(2u32).pow([bits as u64]);
 
             circuit.lc_gate(
@@ -695,8 +700,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 let high_var = acc_eval[1];
 
                 let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
-
                 let bits = field_bytes_length * 8;
+                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                circuit.enforce_in_range(low_var, bits)?;
+                circuit.enforce_in_range(high_var, leftover_bits)?;
+
                 let coeff = Fq254::from(2u32).pow([bits as u64]);
                 let actual_eval = circuit.lc(
                     &[low_var, high_var, circuit.zero(), circuit.zero()],
@@ -1132,6 +1141,14 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                                     })?;
                             let low_var = circuit.create_variable(low_eval)?;
                             let high_var = circuit.create_variable(high_eval)?;
+
+                            let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                            let bits = field_bytes_length * 8;
+                            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                            circuit.enforce_in_range(low_var, bits)?;
+                            circuit.enforce_in_range(high_var, leftover_bits)?;
+
                             prepped_vec.push(low_var);
                             prepped_vec.push(high_var);
                             Result::<Vec<Variable>, CircuitError>::Ok(prepped_vec)
@@ -1163,6 +1180,14 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                             })?;
                     let low_var = circuit.create_variable(low_eval)?;
                     let high_var = circuit.create_variable(high_eval)?;
+
+                    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                    let bits = field_bytes_length * 8;
+                    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                    circuit.enforce_in_range(low_var, bits)?;
+                    circuit.enforce_in_range(high_var, leftover_bits)?;
+
                     Result::<[Variable; 2], CircuitError>::Ok([low_var, high_var])
                 })
                 .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
@@ -1436,6 +1461,14 @@ pub fn decider_circuit(
                             })?;
                     let low_var = circuit.create_variable(low_eval)?;
                     let high_var = circuit.create_variable(high_eval)?;
+
+                    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                    let bits = field_bytes_length * 8;
+                    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                    circuit.enforce_in_range(low_var, bits)?;
+                    circuit.enforce_in_range(high_var, leftover_bits)?;
+
                     prepped_vec.push(low_var);
                     prepped_vec.push(high_var);
                     Result::<Vec<Variable>, CircuitError>::Ok(prepped_vec)
@@ -1464,6 +1497,14 @@ pub fn decider_circuit(
                         })?;
                 let low_var = circuit.create_variable(low_eval)?;
                 let high_var = circuit.create_variable(high_eval)?;
+
+                let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                let bits = field_bytes_length * 8;
+                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                circuit.enforce_in_range(low_var, bits)?;
+                circuit.enforce_in_range(high_var, leftover_bits)?;
+
                 Result::<[Variable; 2], CircuitError>::Ok([low_var, high_var])
             })
             .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
@@ -1678,10 +1719,18 @@ fn convert_to_hash_form(
             )
         })?;
 
-    let coeff = Fr254::from(2u8).pow([248u64]);
+    // Find the byte length of the scalar field (minus one).
+    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+    let bits = field_bytes_length * 8;
+    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
     let low_var = circuit.create_variable(low_elem)?;
     let high_var = circuit.create_variable(high_elem)?;
+
+    circuit.enforce_in_range(low_var, bits)?;
+    circuit.enforce_in_range(high_var, leftover_bits)?;
+
+    let coeff = Fr254::from(2u32).pow([bits as u64]);
 
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],
@@ -1705,10 +1754,18 @@ fn convert_to_hash_form_fq254(
             )
         })?;
 
-    let coeff = Fq254::from(2u8).pow([248u64]);
+    // Find the byte length of the scalar field (minus one).
+    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+    let bits = field_bytes_length * 8;
+    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
     let low_var = circuit.create_variable(low_elem)?;
     let high_var = circuit.create_variable(high_elem)?;
+
+    circuit.enforce_in_range(low_var, bits)?;
+    circuit.enforce_in_range(high_var, leftover_bits)?;
+
+    let coeff = Fq254::from(2u8).pow([248u64]);
 
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],

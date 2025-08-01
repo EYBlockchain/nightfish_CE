@@ -8,8 +8,7 @@ use ark_ec::{
 use ark_ff::{Field, PrimeField};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{
-    cfg_into_iter, cfg_iter, ops::Neg, rand::Rng, string::ToString, sync::Arc, vec, vec::Vec,
-    UniformRand, Zero,
+    cfg_into_iter, cfg_iter, ops::Neg, string::ToString, sync::Arc, vec, vec::Vec, Zero,
 };
 use jf_primitives::{
     pcs::{
@@ -21,7 +20,6 @@ use jf_primitives::{
     rescue::RescueParameter,
 };
 use jf_relation::gadgets::{ecc::HasTEForm, EmulationConfig};
-use rand_chacha::rand_core::{CryptoRng, RngCore};
 
 use crate::{
     errors::PlonkError,
@@ -279,11 +277,7 @@ where
 {
     type Instance = AtomicInstance<UnivariateKzgPCS<E>>;
     type AccProof = AtomicAccProof<UnivariateKzgPCS<E>>;
-    type WithChallengesOutput = (
-        AtomicAccumulationChallengesAndScalars<E::ScalarField>,
-        Self,
-        Self::AccProof,
-    );
+    type WithChallengesOutput = (AtomicAccumulationChallengesAndScalars<E::ScalarField>, Self);
 
     fn new() -> Self {
         Self {
@@ -306,26 +300,21 @@ where
         self.instances.extend(other.instances.clone());
     }
 
-    fn prove_accumulation<R: CryptoRng + Rng + RngCore>(
+    fn prove_accumulation(
         &self,
-        rng: &mut R,
         prover_param: &UnivariateProverParam<E>,
         transcript: Option<&mut RescueTranscript<P::BaseField>>,
-    ) -> Result<(Self, Self::AccProof), PlonkError>
+    ) -> Result<Self, PlonkError>
     where
         Self: Sized,
     {
-        let (_, new_acc, acc_proof) = self.prove_accumulation_with_challenges_and_scalars::<R>(
-            rng,
-            prover_param,
-            transcript,
-        )?;
-        Ok((new_acc, acc_proof))
+        let (_, new_acc) =
+            self.prove_accumulation_with_challenges_and_scalars(prover_param, transcript)?;
+        Ok(new_acc)
     }
 
-    fn prove_accumulation_with_challenges_and_scalars<R: CryptoRng + Rng + RngCore>(
+    fn prove_accumulation_with_challenges_and_scalars(
         &self,
-        rng: &mut R,
         prover_param: &UnivariateProverParam<E>,
         transcript: Option<&mut RescueTranscript<P::BaseField>>,
     ) -> Result<Self::WithChallengesOutput, PlonkError>
@@ -341,12 +330,7 @@ where
         };
 
         let g = prover_param.powers_of_g[0];
-        let beta_g = prover_param.powers_of_g[1];
 
-        // Randomly generate an s for the accumulation proof.
-        let s = E::ScalarField::rand(rng);
-        let s_beta = (beta_g * s).into_affine();
-        let s_g = (g * s).into_affine();
         for instance in self.instances.iter() {
             transcript.append_curve_point(b"commitment", &instance.comm)?;
             transcript.push_message(b"point", &instance.point)?;
@@ -354,11 +338,8 @@ where
             transcript.append_curve_point(b"opening_proof", &instance.opening_proof.proof)?;
         }
 
-        transcript.append_curve_point(b"s_beta_g", &s_beta)?;
-        transcript.append_curve_point(b"s_g", &s_g)?;
-
         let r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
-        let r_powers = cfg_into_iter!(0..=self.instances.len())
+        let r_powers = cfg_into_iter!(0..self.instances.len())
             .map(|i| r.pow([i as u64]))
             .collect::<Vec<_>>();
 
@@ -386,7 +367,7 @@ where
             .map(|instance| instance.comm)
             .collect::<Vec<_>>();
         // Extract the proof commitments from each instance.
-        let mut proofs = cfg_iter!(self.instances)
+        let proofs = cfg_iter!(self.instances)
             .map(|instance| instance.opening_proof.proof)
             .collect::<Vec<_>>();
         // Produce the list of scalars to be used in the multi-scalar multiplication for the new instance commitment.
@@ -396,19 +377,15 @@ where
             .take(comms.len())
             .chain([minus_v_r_powers.into_bigint()])
             .chain(z_r_powers_big_ints)
-            .chain(r_powers_bigints.iter().skip(comms.len()).copied())
             .collect::<Vec<_>>();
         // Produce the list of bases to be used in the multi-scalar multiplication for the new instance commitment.
-        let mut msm_comms = comms
+        let msm_comms = comms
             .iter()
             .copied()
             .chain([g])
             .chain(proofs.iter().copied())
             .collect::<Vec<_>>();
-        msm_comms.push(s_beta);
         // Produce the list of bases to be used in the multi-scalar multiplication for the new proof.
-
-        proofs.push(s_g);
 
         let out_comm = Projective::<P>::msm_bigint(&msm_comms, &scalars_comms).into_affine();
         let out_proof = Projective::<P>::msm_bigint(&proofs, &r_powers_bigints).into_affine();
@@ -421,10 +398,6 @@ where
             UnivariateKzgProof::<E> { proof: out_proof },
         );
 
-        let acc_proof = AtomicAccProof {
-            s_beta_g: s_beta,
-            s_g,
-        };
         Ok((
             AtomicAccumulationChallengesAndScalars {
                 r,
@@ -433,7 +406,6 @@ where
                 minus_v_r_powers,
             },
             new_acc,
-            acc_proof,
         ))
     }
 
@@ -441,7 +413,6 @@ where
         &self,
         old_accs: &[Self::AccProof],
         new_acc: &Self::AccProof,
-        proof: &Self::AccProof,
         verifier_param: &UnivariateVerifierParam<E>,
         transcript: Option<&mut RescueTranscript<P::BaseField>>,
     ) -> Result<(), PlonkError>
@@ -457,8 +428,6 @@ where
         };
 
         // Add items to the transcript in the same order as the prover.
-        let s_beta = proof.s_beta_g;
-        let s_g = proof.s_g;
         for instance in self.instances.iter() {
             transcript.append_curve_point(b"commitment", &instance.comm)?;
             transcript.push_message(b"point", &instance.point)?;
@@ -471,11 +440,8 @@ where
             transcript.append_curve_point(b"opening_proof", &old_acc.s_g)?;
         }
 
-        transcript.append_curve_point(b"s_beta_g", &s_beta)?;
-        transcript.append_curve_point(b"s_g", &s_g)?;
-
         let r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
-        let r_powers = cfg_into_iter!(0..=self.instances.len() + old_accs.len())
+        let r_powers = cfg_into_iter!(0..self.instances.len() + old_accs.len())
             .map(|i| r.pow([i as u64]))
             .collect::<Vec<_>>();
 
@@ -518,24 +484,21 @@ where
             .take(comms.len())
             .chain([minus_v_r_powers_bigints])
             .chain(z_r_powers_big_ints.iter().copied())
-            .chain(r_powers_bigints.iter().skip(comms.len()).copied())
             .collect::<Vec<_>>();
         // Produce the list of bases to be used in the multi-scalar multiplication for the new instance commitment.
-        let mut msm_comms = comms
+        let msm_comms = comms
             .iter()
             .copied()
             .chain(vec![verifier_param.g])
             .chain(proofs.iter().copied())
             .chain(acc_comms.iter().copied())
             .collect::<Vec<_>>();
-        msm_comms.push(s_beta);
         // Produce the list of bases to be used in the multi-scalar multiplication for the new proof.
-        let mut msm_proofs = proofs
+        let msm_proofs = proofs
             .iter()
             .copied()
             .chain(acc_proofs.iter().copied())
             .collect::<Vec<_>>();
-        msm_proofs.push(s_g);
 
         let out_comm = Projective::<P>::msm_bigint(&msm_comms, &scalars_comms).into_affine();
         let out_proof = Projective::<P>::msm_bigint(&msm_proofs, &r_powers_bigints).into_affine();
@@ -737,8 +700,7 @@ mod tests {
         }
         let mut transcript =
             <RescueTranscript<P::BaseField> as Transcript>::new_transcript(b"test");
-        let (accumulation, _witness) =
-            kzg_atomic_accumulator.prove_accumulation(rng, &ck, Some(&mut transcript))?;
+        let accumulation = kzg_atomic_accumulator.prove_accumulation(&ck, Some(&mut transcript))?;
 
         let pairing_inputs_l: Vec<E::G1Prepared> = vec![
             accumulation.instances[0].comm.into(),
