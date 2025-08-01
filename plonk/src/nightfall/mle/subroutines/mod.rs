@@ -252,12 +252,14 @@ impl<F: Field> Oracle<F> for PolyOracle<F> {
                 let i_point = F::from(i as u64 + 2);
                 let denom = (*point - i_point).inverse();
                 if let Some(val) = denom {
-                    *weight * val
+                    Ok(*weight * val)
                 } else {
-                    F::one()
+                    Err(PolynomialError::ParameterError(
+                        "Denominator in PolyOracle evaluation is zero".to_string(),
+                    ))
                 }
             })
-            .collect::<Vec<F>>();
+            .collect::<Result<Vec<F>, PolynomialError>>()?;
 
         let divisor = products
             .iter()
@@ -468,6 +470,11 @@ where
         if poly.max_degree() == 0 {
             return Err(PlonkError::InvalidParameters(
                 "Cannot prove a degree 0 polynomial".to_string(),
+            ));
+        }
+        if poly.num_vars() == 0 {
+            return Err(PlonkError::InvalidParameters(
+                "Cannot prove an polynomial with no variables".to_string(),
             ));
         }
         let mut prover_state = ProverState::<P>::new(poly)?;
