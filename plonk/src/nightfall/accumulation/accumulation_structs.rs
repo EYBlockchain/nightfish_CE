@@ -2,12 +2,11 @@
 use ark_ec::AffineRepr;
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
-use ark_std::{rand::Rng, vec::Vec};
+use ark_std::vec::Vec;
 use jf_primitives::{
     pcs::{Accumulation, PolynomialCommitmentScheme, StructuredReferenceString},
     rescue::RescueParameter,
 };
-use rand_chacha::rand_core::{CryptoRng, RngCore};
 
 use crate::{
     errors::PlonkError,
@@ -290,20 +289,18 @@ pub trait AtomicAccumulator<PCS: Accumulation>: Accumulator {
     );
 
     /// Creates a new proof, also has an optional transcript input.
-    fn prove_accumulation<R: CryptoRng + Rng + RngCore>(
+    fn prove_accumulation(
         &self,
-        rng: &mut R,
         prover_param: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         transcript: Option<&mut RescueTranscript<<PCS::Commitment as AffineRepr>::BaseField>>,
-    ) -> Result<(Self, Self::AccProof), PlonkError>
+    ) -> Result<Self, PlonkError>
     where
         <PCS::Commitment as AffineRepr>::BaseField: PrimeField + RescueParameter,
         Self: Sized;
 
     /// Creates a new proof, also has an optional transcript input.
-    fn prove_accumulation_with_challenges_and_scalars<R: CryptoRng + Rng + RngCore>(
+    fn prove_accumulation_with_challenges_and_scalars(
         &self,
-        rng: &mut R,
         prover_param: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         transcript: Option<&mut RescueTranscript<<PCS::Commitment as AffineRepr>::BaseField>>,
     ) -> Result<Self::WithChallengesOutput, PlonkError>
@@ -316,7 +313,6 @@ pub trait AtomicAccumulator<PCS: Accumulation>: Accumulator {
         &self,
         old_accs: &[Self::AccProof],
         new_acc: &Self::AccProof,
-        proof: &Self::AccProof,
         verifier_param: &<PCS::SRS as StructuredReferenceString>::VerifierParam,
         transcript: Option<&mut RescueTranscript<<PCS::Commitment as AffineRepr>::BaseField>>,
     ) -> Result<(), PlonkError>
