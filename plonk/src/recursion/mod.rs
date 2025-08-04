@@ -772,6 +772,7 @@ pub trait RecursiveProver {
             h: decider_pk.vk.open_key.h,
             beta_h: decider_pk.vk.open_key.beta_h,
         };
+        // === Base Grumpkin Layer ===
         let base_grumpkin_out = cfg_chunks!(outputs, 2)
             .zip(cfg_chunks!(specific_pi, 2))
             .zip(cfg_chunks!(circuit_indices, 2))
@@ -795,6 +796,7 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
+        // === Base BN254 Layer ===
         let base_grumpkin_chunks: Vec<[GrumpkinOut; 2]> = base_grumpkin_out
             .into_iter()
             .chunks(2)
@@ -831,6 +833,11 @@ pub trait RecursiveProver {
                 Self::base_bn254_circuit(chunk, &base_grumpkin_pk, &vk_chunk, extra_info)
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
+
+        // === Recursive Aggregation ===
+        let mut current_bn254_out = base_bn254_out;
+        let mut current_grumpkin_pk = base_grumpkin_pk;
+        let mut current_bn254_pk = base_bn254_pk;
 
         let base_bn254_chunks: Vec<[Bn254Out; 2]> = base_bn254_out
             .into_iter()
