@@ -835,96 +835,74 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
 
         // === Recursive Aggregation ===
+
         let mut current_bn254_out = base_bn254_out;
         let mut current_grumpkin_pk = base_grumpkin_pk;
         let mut current_bn254_pk = base_bn254_pk;
+        let intermediate_rounds = ((outputs.len().ilog2() - 4) / 2).try_into().map_err(|_| {
+            PlonkError::InvalidParameters(
+                "Could not convert intermediate rounds to usize".to_string(),
+            )
+        })?;
 
-        let base_bn254_chunks: Vec<[Bn254Out; 2]> = base_bn254_out
-            .into_iter()
-            .chunks(2)
-            .into_iter()
-            .map(|chunk| {
-                chunk.collect::<Vec<Bn254Out>>().try_into().map_err(|_| {
-                    PlonkError::InvalidParameters(
-                        "Could not convert to fixed length array".to_string(),
-                    )
-                })
-            })
-            .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
-        let mut merge_grumpkin_out = cfg_into_iter!(base_bn254_chunks)
-            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &base_bn254_pk, &base_grumpkin_pk))
-            .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
-
-        let merge_grumpkin_chunks: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out
-            .into_iter()
-            .chunks(2)
-            .into_iter()
-            .map(|chunk| {
-                chunk.collect::<Vec<GrumpkinOut>>().try_into().map_err(|_| {
-                    PlonkError::InvalidParameters(
-                        "Could not convert to fixed length array".to_string(),
-                    )
-                })
-            })
-            .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
-
-        let merge_bn254_out = cfg_into_iter!(merge_grumpkin_chunks)
-            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk, &base_bn254_pk))
-            .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
-
-        let merge_bn254_chunks: Vec<[Bn254Out; 2]> = merge_bn254_out
-            .into_iter()
-            .chunks(2)
-            .into_iter()
-            .map(|chunk| {
-                chunk.collect::<Vec<Bn254Out>>().try_into().map_err(|_| {
-                    PlonkError::InvalidParameters(
-                        "Could not convert to fixed length array".to_string(),
-                    )
-                })
-            })
-            .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
-        merge_grumpkin_out = cfg_into_iter!(merge_bn254_chunks)
-            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &merge_bn254_pk, &merge_grumpkin_pk))
-            .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
-
-        while merge_grumpkin_out.len() > 2 {
-            let merge_grumpkin_chunks: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out
+        for merge_bn254_pk in merge_bn254_pks.iter().take(intermediate_rounds) {
+            let bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
                 .into_iter()
                 .chunks(2)
                 .into_iter()
                 .map(|chunk| {
-                    chunk.collect::<Vec<GrumpkinOut>>().try_into().map_err(|_| {
-                        PlonkError::InvalidParameters(
-                            "Could not convert to fixed length array".to_string(),
-                        )
+                    chunk.collect::<Vec<_>>().try_into().map_err(|_| {
+                        PlonkError::InvalidParameters("Could not convert Bn254 chunk".to_string())
                     })
                 })
-                .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
-            let merge_bn254_out = cfg_into_iter!(merge_grumpkin_chunks)
-                .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk, &merge_bn254_pk))
-                .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
+                .collect::<Result<_, _>>()?;
 
-            let merge_bn254_chunks: Vec<[Bn254Out; 2]> = merge_bn254_out
+            let grumpkin_out = cfg_into_iter!(bn254_chunks)
+                .map(|chunk| {
+                    Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let grumpkin_chunks: Vec<[GrumpkinOut; 2]> = grumpkin_out
                 .into_iter()
                 .chunks(2)
                 .into_iter()
                 .map(|chunk| {
-                    chunk.collect::<Vec<Bn254Out>>().try_into().map_err(|_| {
+                    chunk.collect::<Vec<_>>().try_into().map_err(|_| {
                         PlonkError::InvalidParameters(
-                            "Could not convert to fixed length array".to_string(),
+                            "Could not convert Grumpkin chunk".to_string(),
                         )
                     })
                 })
-                .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
-            merge_grumpkin_out = cfg_into_iter!(merge_bn254_chunks)
+                .collect::<Result<_, _>>()?;
+            current_grumpkin_pk = Self::get_merge_grumpkin_pk();
+
+            current_bn254_out = cfg_into_iter!(grumpkin_chunks)
                 .map(|chunk| {
-                    Self::merge_grumpkin_circuit(chunk, &merge_bn254_pk, &merge_grumpkin_pk)
+                    Self::merge_bn254_circuit(chunk, &current_grumpkin_pk, &current_bn254_pk)
                 })
-                .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+                .collect::<Result<Vec<_>, _>>()?;
+            current_bn254_pk = merge_bn254_pk.clone();
         }
 
-        let decider_input: [GrumpkinOut; 2] = merge_grumpkin_out.try_into().map_err(|_| {
+        let final_bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
+            .into_iter()
+            .chunks(2)
+            .into_iter()
+            .map(|chunk| {
+                chunk.collect::<Vec<_>>().try_into().map_err(|_| {
+                    PlonkError::InvalidParameters("Final Bn254 chunk error".to_string())
+                })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let decider_input = cfg_into_iter!(final_bn254_chunks)
+            .map(|chunk| {
+                Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+            })
+            .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+
+        let decider_input_exact: [GrumpkinOut; 2] = decider_input.try_into().map_err(|_| {
             PlonkError::InvalidParameters("Could not create final decider input".to_string())
         })?;
 
@@ -933,10 +911,10 @@ pub trait RecursiveProver {
             specific_pi,
             accumulators,
         } = Self::decider_circuit(
-            decider_input,
+            decider_input_exact,
             extra_decider_info,
             &merge_grumpkin_pk,
-            &merge_bn254_pk,
+            &current_bn254_pk,
         )?;
 
         let seed = ark_std::time::SystemTime::now()
