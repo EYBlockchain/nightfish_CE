@@ -101,8 +101,8 @@ pub trait RecursiveProver {
     fn get_base_bn254_pk() -> ProvingKey<Kzg>;
     /// Retrieves the merge Grumpkin proving key.
     fn get_merge_grumpkin_pk() -> MLEProvingKey<Zmorph>;
-    /// Retrieves the merge Bn254 proving key.
-    fn get_merge_bn254_pk() -> ProvingKey<Kzg>;
+    /// Retrieves the merge Bn254 proving keys.
+    fn get_merge_bn254_pks() -> Vec<ProvingKey<Kzg>>;
     /// Retrieves the final proving key.
     fn get_decider_pk() -> JFProvingKey<Bn254>;
     /// Stores the base Grumpkin proving key.
@@ -112,7 +112,7 @@ pub trait RecursiveProver {
     /// Stores the merge Grumpkin proving key.
     fn store_merge_grumpkin_pk(pk: MLEProvingKey<Zmorph>) -> Option<()>;
     /// Stores the merge Bn254 proving key.
-    fn store_merge_bn254_pk(pk: ProvingKey<Kzg>) -> Option<()>;
+    fn store_merge_bn254_pks(pks: Vec<ProvingKey<Kzg>>) -> Option<()>;
     /// Stores the decider proving key.
     fn store_decider_pk(pk: JFProvingKey<Bn254>) -> Option<()>;
     /// This function takes in the input proofs and outputs [`GrumpkinCircuitOutput`] to be taken in by the next function.
@@ -508,6 +508,7 @@ pub trait RecursiveProver {
         let (outputs, vks): (Vec<Bn254Output>, Vec<VerifyingKey<Kzg>>) =
             outputs.iter().map(|(o, c)| (o.clone(), c.clone())).unzip();
 
+        // === Base Layer ===
         let base_grumpkin_out = cfg_chunks!(outputs, 2)
             .zip(cfg_chunks!(specific_pi, 2))
             .zip(cfg_chunks!(vks, 2))
@@ -533,8 +534,10 @@ pub trait RecursiveProver {
 
         // We know the outputs is non-zero so we can safely unwrap here
         let base_grumpkin_circuit = &base_grumpkin_out[0].0;
-
         let (base_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, base_grumpkin_circuit)?;
+        Self::store_base_grumpkin_pk(base_grumpkin_pk.clone()).ok_or(
+            PlonkError::InvalidParameters("Could not store base Grumpkin proving key".to_string()),
+        )?;
 
         // Produce and store the base Bn254 proving key
         let base_grumpkin_chunks: Vec<[GrumpkinOut; 2]> = base_grumpkin_out
@@ -572,55 +575,97 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
         let base_bn254_circuit = &base_bn254_out[0].0;
-
         let (base_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, base_bn254_circuit)?;
+        Self::store_base_bn254_pk(base_bn254_pk.clone()).ok_or(PlonkError::InvalidParameters(
+            "Could not store base Bn254 proving key".to_string(),
+        ))?;
 
-        // Produce the Grumpkin merge proving key
-        let base_bn254_chunks: Vec<[Bn254Out; 2]> = base_bn254_out
-            .into_iter()
-            .chunks(2)
-            .into_iter()
-            .map(|chunk| {
-                chunk.collect::<Vec<Bn254Out>>().try_into().map_err(|_| {
-                    PlonkError::InvalidParameters(
-                        "Could not convert to fixed length array".to_string(),
-                    )
+        // Rollup structure:
+        // base_grumpkin_circuit   ← always present
+        // base_bn254_circuit      ← always present
+        // [...]                     ← variable intermediate merge layers
+        // merge_grumpkin_circuit  ← always present (final merge before decider)
+        // decider_circuit         ← always present
+
+        // For 64 transactions:
+        // base_grumpkin
+        // base_bn254
+        // [merge_grumpkin]
+        // [merge_bn254]
+        // merge_grumpkin ← fixed
+        // decider
+        // → Only 1 pair of merge_{grumpkin, bn254} before the fixed final merge_grumpkin.
+
+        // For 256 transactions:
+        // base_grumpkin
+        // base_bn254
+        // [merge_grumpkin]
+        // [merge_bn254]
+        // [merge_grumpkin]
+        // [merge_bn254]
+        // merge_grumpkin ← fixed
+        // decider
+        // → 2 pairs of intermediate merge layers, followed by the final fixed merge_grumpkin.
+
+        // === Generalized Merge ===
+        let mut current_bn254_out = base_bn254_out;
+        let mut current_bn254_pk = base_bn254_pk;
+        let mut current_grumpkin_pk = base_grumpkin_pk;
+        let mut merge_bn254_pks = vec![];
+        let intermediate_group = (outputs.len().ilog2() - 4) / 2;
+
+        for _ in 0..intermediate_group {
+            // 1. Merge Bn254 → Grumpkin
+            let bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
+                .into_iter()
+                .chunks(2)
+                .into_iter()
+                .map(|c| {
+                    c.collect::<Vec<_>>().try_into().map_err(|_| {
+                        PlonkError::InvalidParameters(
+                            "Could not convert Bn254Out chunk to array".to_string(),
+                        )
+                    })
                 })
-            })
-            .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
-        let merge_grumpkin_out = base_bn254_chunks
-            .into_iter()
-            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &base_bn254_pk, &base_grumpkin_pk))
-            .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+                .collect::<Result<_, _>>()?;
 
-        let merge_grumpkin_circuit = &merge_grumpkin_out[0].0;
-
-        let (merge_grumpkin_pk, _) =
-            MLEPlonk::<Zmorph>::preprocess(ipa_srs, merge_grumpkin_circuit)?;
-
-        // Produce the Bn254 merge proving key
-        let merge_grumpkin_chunks: Vec<[GrumpkinOut; 2]> = merge_grumpkin_out
-            .into_iter()
-            .chunks(2)
-            .into_iter()
-            .map(|chunk| {
-                chunk.collect::<Vec<GrumpkinOut>>().try_into().map_err(|_| {
-                    PlonkError::InvalidParameters(
-                        "Could not convert to fixed length array".to_string(),
-                    )
+            let grumpkin_out = cfg_into_iter!(bn254_chunks)
+                .map(|chunk| {
+                    Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
                 })
-            })
-            .collect::<Result<Vec<[GrumpkinOut; 2]>, PlonkError>>()?;
-        let merge_bn254_out = cfg_into_iter!(merge_grumpkin_chunks)
-            .map(|chunk| Self::merge_bn254_circuit(chunk, &merge_grumpkin_pk, &base_bn254_pk))
-            .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
+                .collect::<Result<Vec<_>, _>>()?;
 
-        let merge_bn254_circuit = &merge_bn254_out[0].0;
+            let grumpkin_circuit = &grumpkin_out[0].0;
+            let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, grumpkin_circuit)?;
+            current_grumpkin_pk = new_grumpkin_pk;
 
-        let (merge_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, merge_bn254_circuit)?;
+            // 2. Merge Grumpkin → Bn254
+            let grumpkin_chunks: Vec<[GrumpkinOut; 2]> = grumpkin_out
+                .into_iter()
+                .chunks(2)
+                .into_iter()
+                .map(|c| {
+                    c.collect::<Vec<_>>().try_into().map_err(|_| {
+                        PlonkError::InvalidParameters(
+                            "Could not convert GrumpkinOut chunk to array".to_string(),
+                        )
+                    })
+                })
+                .collect::<Result<_, _>>()?;
 
+            current_bn254_out = cfg_into_iter!(grumpkin_chunks)
+                .map(|chunk| {
+                    Self::merge_bn254_circuit(chunk, &current_grumpkin_pk, &current_bn254_pk)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let bn254_circuit = &current_bn254_out[0].0;
+            let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, bn254_circuit)?;
+            merge_bn254_pks.push(new_bn254_pk.clone());
+            current_bn254_pk = new_bn254_pk;
+        }
         // Now we need to run merge grumpkin one more time
-        let merge_bn254_chunks: Vec<[Bn254Out; 2]> = merge_bn254_out
+        let merge_bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
             .into_iter()
             .chunks(2)
             .into_iter()
@@ -632,8 +677,11 @@ pub trait RecursiveProver {
                 })
             })
             .collect::<Result<Vec<[Bn254Out; 2]>, PlonkError>>()?;
+
         let decider_input = cfg_into_iter!(merge_bn254_chunks)
-            .map(|chunk| Self::merge_grumpkin_circuit(chunk, &merge_bn254_pk, &merge_grumpkin_pk))
+            .map(|chunk| {
+                Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+            })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
         // Check the length is exactly 2
@@ -649,26 +697,18 @@ pub trait RecursiveProver {
         let decider_out = Self::decider_circuit(
             decider_input_exact,
             extra_decider_info,
-            &merge_grumpkin_pk,
-            &merge_bn254_pk,
+            &current_grumpkin_pk,
+            &current_bn254_pk,
         )?;
 
         let (decider_pk, _) = PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, &decider_out.circuit)?;
 
-        Self::store_base_grumpkin_pk(base_grumpkin_pk).ok_or(PlonkError::InvalidParameters(
-            "Could not store base Grumpkin proving key".to_string(),
-        ))?;
-
-        Self::store_base_bn254_pk(base_bn254_pk).ok_or(PlonkError::InvalidParameters(
-            "Could not store base Bn254 proving key".to_string(),
-        ))?;
-
-        Self::store_merge_grumpkin_pk(merge_grumpkin_pk).ok_or(PlonkError::InvalidParameters(
+        Self::store_merge_grumpkin_pk(current_grumpkin_pk).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Grumpkin proving key".to_string(),
         ))?;
 
-        Self::store_merge_bn254_pk(merge_bn254_pk).ok_or(PlonkError::InvalidParameters(
-            "Could not store merge Bn254 proving key".to_string(),
+        Self::store_merge_bn254_pks(merge_bn254_pks).ok_or(PlonkError::InvalidParameters(
+            "Could not store merge Bn254 proving keys".to_string(),
         ))?;
 
         Self::store_decider_pk(decider_pk).ok_or(PlonkError::InvalidParameters(
@@ -724,7 +764,7 @@ pub trait RecursiveProver {
         let base_grumpkin_pk = Self::get_base_grumpkin_pk();
         let base_bn254_pk = Self::get_base_bn254_pk();
         let merge_grumpkin_pk = Self::get_merge_grumpkin_pk();
-        let merge_bn254_pk = Self::get_merge_bn254_pk();
+        let merge_bn254_pks = Self::get_merge_bn254_pks();
         let decider_pk = Self::get_decider_pk();
 
         let kzg_srs = UnivariateUniversalParams::<Bn254> {
@@ -1306,14 +1346,19 @@ mod tests {
                     .clone()
             }
 
-            fn get_merge_bn254_pk() -> ProvingKey<Kzg> {
-                get_key_store()
-                    .read()
-                    .unwrap()
-                    .get("bn254 merge")
-                    .unwrap()
-                    .get_fft_pk()
-                    .clone()
+            fn get_merge_bn254_pks() -> Vec<ProvingKey<Kzg>> {
+                let store = get_key_store().read().unwrap();
+                let mut pks = Vec::new();
+
+                for i in 0.. {
+                    let key_name = format!("bn254 merge {}", i);
+                    match store.get(&key_name) {
+                        Some(Key::FFT(pk)) => pks.push(pk.clone()),
+                        _ => break, // stop when key doesn't exist or isn't FFT
+                    }
+                }
+
+                pks
             }
 
             fn get_decider_pk() -> JFProvingKey<Bn254> {
@@ -1342,11 +1387,13 @@ mod tests {
                 Some(())
             }
 
-            fn store_merge_bn254_pk(pk: ProvingKey<Kzg>) -> Option<()> {
-                get_key_store()
-                    .write()
-                    .unwrap()
-                    .insert("bn254 merge".to_string(), Key::FFT(pk));
+            fn store_merge_bn254_pks(pks: Vec<ProvingKey<Kzg>>) -> Option<()> {
+                for (i, pk) in pks.into_iter().enumerate() {
+                    get_key_store()
+                        .write()
+                        .unwrap()
+                        .insert(format!("bn254 merge {}", i), Key::FFT(pk.clone()));
+                }
                 Some(())
             }
 
