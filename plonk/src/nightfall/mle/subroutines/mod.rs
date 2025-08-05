@@ -144,6 +144,12 @@ where
             .fold(DensePolynomial::zero, |acc, poly| acc + poly)
             .reduce(DensePolynomial::zero, |a, b| a + b);
 
+        transcript
+            .push_message(b"r_0_eval", &r_poly[0])
+            .map_err(|_| {
+                PolynomialError::ParameterError("Could not append to transcript".to_string())
+            })?;
+
         let r_prime_poly = r_prime_poly::<P::ScalarField>(&r_poly);
 
         let oracle = PolyOracle::<P::ScalarField>::from_poly_and_info(
@@ -324,6 +330,11 @@ where
     where
         O: Oracle<P::ScalarField, Point = P::ScalarField> + TranscriptVisitor,
     {
+        transcript
+            .push_message(b"r_0_eval", &r_0_eval)
+            .map_err(|_| {
+                PolynomialError::ParameterError("Could not append oracle to transcript".to_string())
+            })?;
         transcript.append_visitor(oracle).map_err(|_| {
             PolynomialError::ParameterError("Could not append oracle to transcript".to_string())
         })?;
