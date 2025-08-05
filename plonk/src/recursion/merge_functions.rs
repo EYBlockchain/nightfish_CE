@@ -1377,7 +1377,10 @@ pub fn decider_circuit(
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-    ark_std::println!("grumpkin_info.forwarded_acumulators: {:?}", grumpkin_info.forwarded_acumulators);
+    ark_std::println!(
+        "grumpkin_info.forwarded_acumulators: {:?}",
+        grumpkin_info.forwarded_acumulators
+    );
     let mut bn254_acc_vars = vec![];
 
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
@@ -1448,18 +1451,9 @@ pub fn decider_circuit(
                 .flatten()
                 .collect::<Vec<Variable>>();
 
-            ark_std::println!(
-                "bn254_accumulator.comm: {}",
-                bn254_accumulator.comm
-            );
-            ark_std::println!(
-                "bn254_accumulator.value: {}",
-                bn254_accumulator.value
-            );
-            ark_std::println!(
-                "bn254_accumulator.point: {}",
-                bn254_accumulator.point
-            );
+            ark_std::println!("bn254_accumulator.comm: {}", bn254_accumulator.comm);
+            ark_std::println!("bn254_accumulator.value: {}", bn254_accumulator.value);
+            ark_std::println!("bn254_accumulator.point: {}", bn254_accumulator.point);
             ark_std::println!(
                 "bn254_accumulator.opening_proof.proof: {}",
                 bn254_accumulator.opening_proof.proof
@@ -1665,24 +1659,38 @@ pub fn decider_circuit(
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
-    let (_, sha_hash) = circuit
-        .full_shifted_sha256_hash(&[specific_pi.clone(), bn254_acc_vars.clone()].concat(), &mut lookup_vars)?;
-    // print everything to compute the hash 
+    let (_, sha_hash) = circuit.full_shifted_sha256_hash(
+        &[specific_pi.clone(), bn254_acc_vars.clone()].concat(),
+        &mut lookup_vars,
+    )?;
+    // print everything to compute the hash
     for elem in specific_pi.clone().iter() {
         ark_std::println!("Specific PI element: {:?}", circuit.witness(*elem)?);
     }
     for elem in specific_pi.clone().iter() {
-        ark_std::println!("Specific PI element without debug: {}", circuit.witness(*elem)?);
+        ark_std::println!(
+            "Specific PI element without debug: {}",
+            circuit.witness(*elem)?
+        );
     }
     for elem in bn254_acc_vars.clone().iter() {
         ark_std::println!("BN254 accumulator variable: {:?}", circuit.witness(*elem)?);
-    }   
+    }
     for elem in bn254_acc_vars.clone().iter() {
-        ark_std::println!("BN254 accumulator variable without debug: {:?}", circuit.witness(*elem)?);
-    }   
+        ark_std::println!(
+            "BN254 accumulator variable without debug: {:?}",
+            circuit.witness(*elem)?
+        );
+    }
     circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
-    ark_std::println!("SHA256 hash in decider circuit: {:?}", circuit.witness(sha_hash)?);
-    ark_std::println!("SHA256 hash in decider circuit without debug: {}", circuit.witness(sha_hash)?);
+    ark_std::println!(
+        "SHA256 hash in decider circuit: {:?}",
+        circuit.witness(sha_hash)?
+    );
+    ark_std::println!(
+        "SHA256 hash in decider circuit without debug: {}",
+        circuit.witness(sha_hash)?
+    );
 
     circuit.set_variable_public(sha_hash)?;
     Ok(field_pi_out)
