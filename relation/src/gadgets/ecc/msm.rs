@@ -38,8 +38,8 @@ where
         scalars: &[Variable],
     ) -> Result<PointVariable, CircuitError>;
 
-    /// Compute the multi-scalar-multiplications where each scalar has at most
-    /// `scalar_bit_length` bits.
+    /// Compute the multi-scalar-multiplications where each scalar has at most `scalar_bit_length` bits.
+    /// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
     fn msm_with_var_scalar_length(
         &mut self,
         bases: &[PointVariable],
@@ -154,6 +154,8 @@ where
 // Used for double checking the correctness; also as a fall-back solution
 // to Pippenger.
 //
+// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
+//
 // Some typical result on BW6-761 curve is shown below (i.e. the circuit
 // simulates BLS12-377 curve operations). More results are available in the test
 // function.
@@ -226,6 +228,8 @@ where
 // A variant of Pippenger MSM.
 //
 // Note, it is assumed that none of the bases is the neutral element.
+//
+// The `scalar_bit_length`-bit range checks on `scalars` are performed in the circuit.
 //
 // Some typical result on BW6-761 curve is shown below (i.e. the circuit
 // simulates BLS12-377 curve operations). More results are available in the test

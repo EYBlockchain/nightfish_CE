@@ -11,6 +11,7 @@ use crate::{
 };
 
 use ark_ff::PrimeField;
+use ark_std::Zero;
 
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::gadgets::{ecc::HasTEForm, EmulationConfig};
@@ -60,8 +61,11 @@ where
         let mut deferred_check = <VPSumCheck<P> as SumCheck<P>>::verify(proof, transcript)?;
         let eq_a_r_eval = eq_eval(&deferred_check.point, &r)?;
 
-        deferred_check.eval /= eq_a_r_eval;
+        if eq_a_r_eval == P::ScalarField::zero() {
+            return Err(PlonkError::DivisionError);
+        }
 
+        deferred_check.eval /= eq_a_r_eval;
         Ok(deferred_check)
     }
 }
