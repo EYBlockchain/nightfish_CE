@@ -43,6 +43,8 @@ ark-bn254 = "0.4.0"
 ark-crypto-primitives = { version = "0.4.0", default-features = false, features = [
     "sponge",
 ] }
+proptest = "1.0"
+rand = { version = "0.8.5", features = ["getrandom"] }
 
 
 [dev-dependencies]

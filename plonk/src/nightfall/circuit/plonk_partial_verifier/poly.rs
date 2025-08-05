@@ -323,6 +323,60 @@ where
     circuit.sum(&prod_to_sum)
 }
 
+/// Evaluate public input polynomial at point `z` using batch additions.
+///
+/// We compute L_{i,H}(z) = Z_H(z) * (g^i / n) / (z - g^i) for i in 0..l,
+/// then form the dot-product \sum_i L_{i,H}(z) * pub_input[i] via a single batch add of all products.
+pub fn evaluate_pi_poly_circuit_emulated<E, F>(
+    circuit: &mut PlonkCircuit<F>,
+    domain_size: usize,
+    pub_inputs_var: &[EmulatedVariable<E::ScalarField>],
+    zeta_var: &EmulatedVariable<E::ScalarField>,
+    vanish_eval_var: &EmulatedVariable<E::ScalarField>,
+) -> Result<EmulatedVariable<E::ScalarField>, CircuitError>
+where
+    E: HasTEForm<BaseField = F>,
+    F: PrimeField + EmulationConfig<E::ScalarField> + RescueParameter,
+    E::ScalarField: PrimeField + EmulationConfig<F> + RescueParameter,
+{
+    // Witness the inputs
+    let vanish_eval = circuit.emulated_witness(vanish_eval_var)?;
+    let zeta_eval = circuit.emulated_witness(zeta_var)?;
+
+    // Prepare domain powers and v_i = g^i / n
+    let domain = Radix2EvaluationDomain::<E::ScalarField>::new(domain_size).unwrap();
+    let n = E::ScalarField::from(domain_size as u64);
+    let mut lagrange_vars = Vec::with_capacity(pub_inputs_var.len());
+
+    // Compute each L_i and enforce (zeta - g^i)*L_i = Z_H(zeta)*v_i
+    for (i, _pub_var) in pub_inputs_var.iter().enumerate() {
+        let g_i = domain.element(i);
+        let v_i = g_i / n;
+        // clear-text L_i
+        let l_i = vanish_eval * v_i / (zeta_eval - g_i);
+        let l_var = circuit.create_emulated_variable(l_i)?;
+
+        // constraint: (zeta - g_i) * l_var == vanish_eval * v_i
+        let g_const = circuit.create_constant_emulated_variable(g_i)?;
+        let diff = circuit.emulated_sub(&zeta_var, &g_const)?;
+        let lhs = circuit.emulated_mul(&diff, &l_var)?;
+        let rhs = circuit.emulated_mul_constant(&vanish_eval_var, v_i)?;
+        let is_eq = circuit.is_emulated_var_equal(&lhs, &rhs)?.0;
+        circuit.enforce_true(is_eq)?;
+
+        lagrange_vars.push(l_var);
+    }
+
+    // Build all products l_i * pub_input[i]
+    let mut products = Vec::with_capacity(pub_inputs_var.len());
+    for (l_var, p_var) in lagrange_vars.iter().zip(pub_inputs_var.iter()) {
+        products.push(circuit.emulated_mul(l_var, p_var)?);
+    }
+
+    // Sum all products in one batch add
+    circuit.emulated_batch_add(&products)
+}
+
 /// Compute the constant term of the linearization polynomial:
 /// For each instance j:
 ///
@@ -824,6 +878,72 @@ where
     Ok(result)
 }
 
+/// In-circuit evaluation of the public-input polynomial
+/// π(X₁,…,X_μ) = P(X₁,…,X_t) · ∏_{k=t+1}^μ (1 − X_k)
+///
+/// • `mle_var`   – 2^t emulated leaves  (x₀,…,x_{2ᵗ−1})
+/// • `point_var` – μ-dimensional verifier point (ρ₁,…,ρ_μ)
+///
+/// Gate-cost in the circuit:  O(2ᵗ + μ)
+pub fn emulated_pi_evaluation_circuit2<F, E>(
+    circuit: &mut PlonkCircuit<F>,
+    mle_var: &[EmulatedVariable<E>],
+    point_var: &[EmulatedVariable<E>],
+) -> Result<EmulatedVariable<E>, CircuitError>
+where
+    F: PrimeField,
+    E: PrimeField + EmulationConfig<F>,
+{
+    //---------------------------------------------------------------------
+    // 0. Dimensions and sanity checks
+    //---------------------------------------------------------------------
+    let two_t = mle_var.len();
+    if two_t == 0 || two_t & (two_t - 1) != 0 {
+        return Err(CircuitError::ParameterError(
+            "mle_var.len() must be a power of two".into(),
+        ));
+    }
+
+    // t = log₂(2ᵗ).  For a power-of-two, trailing_zeros() gives exactly that.
+    let t = two_t.trailing_zeros() as usize;
+    let mu = point_var.len();
+    if mu < t {
+        return Err(CircuitError::ParameterError(format!(
+            "point length μ = {} < t = {}",
+            mu, t
+        )));
+    }
+
+    //---------------------------------------------------------------------
+    // 1. P(ρ₁,…,ρ_t)  –  dense folding on the first t coordinates
+    //---------------------------------------------------------------------
+    let p_eval = emulated_mle_evaluation_circuit::<F, E>(
+        circuit,
+        mle_var,
+        &point_var[..t], // **only the first t coordinates!**
+    )?;
+
+    //---------------------------------------------------------------------
+    // 2. Q(ρ_{t+1},…,ρ_μ) = ∏ (1 − ρ_k)
+    //---------------------------------------------------------------------
+    let mut q_eval = circuit.emulated_one::<E>();
+    for rho_k in &point_var[t..] {
+        // tmp = 1 − ρ_k
+        let one_minus_rho_k = {
+            let rho_minus_one = circuit.emulated_sub_constant(rho_k, E::one())?; // ρ_k − 1
+                                                                                 // multiply by −1 to flip the sign
+            let minus_one = circuit.create_constant_emulated_variable::<E>(-E::one())?;
+            circuit.emulated_mul(&rho_minus_one, &minus_one)?
+        };
+        q_eval = circuit.emulated_mul(&q_eval, &one_minus_rho_k)?;
+    }
+
+    //---------------------------------------------------------------------
+    // 3. π(ρ) = P(ρ) · Q(ρ)
+    //---------------------------------------------------------------------
+    circuit.emulated_mul(&p_eval, &q_eval)
+}
+
 /// Circuit to evaluate a polynomial oracle at a given point,
 /// returns the variable of the evaluation.
 pub fn emulated_mle_evaluation_circuit<F, E>(
@@ -935,12 +1055,13 @@ mod test {
 
     use ark_bn254::g1::Config as BnConfig;
 
+    use ark_ff::Field;
     use ark_poly::Radix2EvaluationDomain;
-    use ark_std::{One, UniformRand};
+    use ark_std::{rand, One, UniformRand};
+    use rand::rngs::OsRng;
 
     use jf_primitives::rescue::RescueParameter;
     use jf_relation::gadgets::ecc::HasTEForm;
-    use jf_utils::test_rng;
 
     const RANGE_BIT_LEN_FOR_TEST: usize = 16;
 
@@ -954,10 +1075,8 @@ mod test {
         E::ScalarField: EmulationConfig<E::BaseField> + PrimeField + RescueParameter,
         E::BaseField: RescueParameter + PrimeField + EmulationConfig<E::ScalarField>,
     {
-        let mut rng = test_rng();
-
         let mut circuit = PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
-        let zeta = E::ScalarField::rand(&mut rng);
+        let zeta = E::ScalarField::rand(&mut OsRng);
         let zeta_var = circuit.create_emulated_variable(zeta).unwrap();
 
         for domain_size in [64, 128, 256, 512, 1024] {
@@ -984,5 +1103,223 @@ mod test {
                 circuit.emulated_witness(&eval_results[2]).unwrap(),
             );
         }
+
+        // TEST evaluate_pi_poly_circuit_native
+        let mut circuit = PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+        let zeta = E::ScalarField::rand(&mut OsRng);
+        let zeta_var = circuit.create_variable(zeta).unwrap();
+
+        let pub_inputs_vars = (0..=140)
+            .map(|_| {
+                circuit
+                    .create_variable(E::ScalarField::rand(&mut OsRng))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let domain_size = 1048576;
+        // compute the result in the clear
+        let domain = Radix2EvaluationDomain::<E::ScalarField>::new(domain_size).unwrap();
+
+        let sz = circuit.num_gates();
+
+        let gen_inv_var = circuit
+            .create_variable(domain.group_gen.inverse().unwrap())
+            .unwrap();
+
+        let domain_size_var = circuit
+            .create_variable(E::ScalarField::from(domain_size as u64))
+            .unwrap();
+        const IS_BASE: bool = false;
+        let res = evaluate_poly_helper_native::<_, IS_BASE>(
+            &mut circuit,
+            zeta_var,
+            gen_inv_var,
+            domain_size_var,
+        )
+        .unwrap();
+
+        let _eval_var = evaluate_pi_poly_circuit_native(
+            &mut circuit,
+            domain_size,
+            &pub_inputs_vars,
+            &zeta_var,
+            &res[0],
+        )
+        .unwrap();
+
+        ark_std::println!("{}", circuit.num_gates() - sz);
+
+        // check correctness
+
+        // TEST evaluate_pi_poly_circuit_emulated
+
+        let mut circuit = PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+        let zeta = E::ScalarField::rand(&mut OsRng);
+        let zeta_var = circuit.create_emulated_variable(zeta).unwrap();
+
+        let domain_size = 1048576;
+        let sz = circuit.num_gates();
+
+        let pub_inputs_vars = (0..=140)
+            .map(|_| {
+                circuit
+                    .create_emulated_variable(E::ScalarField::rand(&mut OsRng))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let res =
+            evaluate_poly_helper::<E, E::BaseField>(&mut circuit, &zeta_var, domain_size).unwrap();
+
+        let _eval_var2 = evaluate_pi_poly_circuit_emulated::<E, E::BaseField>(
+            &mut circuit,
+            domain_size,
+            &pub_inputs_vars,
+            &zeta_var,
+            &res[0],
+        )
+        .unwrap();
+
+        ark_std::println!("{}", circuit.num_gates() - sz);
+
+        // TEST emulated_mle_evaluation_circuit
+
+        // Assume you are *inside* another circuit builder `circuit`
+        let mut circuit = PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+        // nv == #variables of the MLE == log₂(public_inputs.len())
+
+        let points: Vec<E::BaseField> = (0..15).map(|_| E::BaseField::rand(&mut OsRng)).collect(); // verifier challenge in foreign field E
+        let public_inputs: Vec<E::BaseField> =
+            (0..140).map(|_| E::BaseField::rand(&mut OsRng)).collect();
+
+        let sz = circuit.num_gates();
+        // 1. allocate the public input vector
+        let mut mle_var: Vec<EmulatedVariable<_>> = public_inputs
+            .iter()
+            .map(|val| circuit.create_emulated_variable(*val).unwrap())
+            .collect();
+        mle_var.resize(32768, circuit.emulated_zero());
+
+        // 2. allocate the evaluation point points
+        let point_var: Vec<EmulatedVariable<E::BaseField>> = points
+            .iter()
+            .map(|coord| circuit.create_emulated_variable(*coord).unwrap())
+            .collect();
+
+        // check _eval_pi_hyperplonk matches optimised version
+        let _eval_pi_hyperplonk =
+            emulated_mle_evaluation_circuit(&mut circuit, &mle_var, &point_var).unwrap();
+        ark_std::println!("{}", circuit.num_gates() - sz);
+
+        let sz = circuit.num_gates();
+
+        let mut mle_var: Vec<EmulatedVariable<_>> = public_inputs
+            .iter()
+            .map(|val| circuit.create_emulated_variable(*val).unwrap())
+            .collect();
+        mle_var.resize(256, circuit.emulated_zero());
+
+        // 2. allocate the evaluation point r
+        let points: Vec<EmulatedVariable<E::BaseField>> = points
+            .iter()
+            .map(|coord| circuit.create_emulated_variable(*coord).unwrap())
+            .collect();
+        let _eval_pi_with_mle =
+            emulated_pi_evaluation_circuit2(&mut circuit, &mle_var, &points).unwrap();
+        ark_std::println!("{}", circuit.num_gates() - sz);
+
+        assert_eq!(
+            circuit.emulated_witness(&_eval_pi_with_mle).unwrap(),
+            circuit.emulated_witness(&_eval_pi_hyperplonk).unwrap()
+        );
+    }
+
+    const DOMAIN_SIZE: usize = 1 << 20;
+    const MAX_LEN: usize = 256;
+
+    fn clear_evaluate_pub_poly<F: PrimeField>(
+        domain_size: usize,
+        zeta: F,
+        vanish: F,
+        pub_inputs: &[F],
+    ) -> F {
+        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+        let n_inv = F::from(domain_size as u64).inverse().unwrap();
+        let mut acc = F::zero();
+        for (i, &inp) in pub_inputs.iter().enumerate() {
+            let g = domain.element(i);
+            let v = g * n_inv;
+            let l = vanish * v / (zeta - g);
+            acc += l * inp;
+        }
+        acc
+    }
+
+    #[test]
+    fn test_native_vs_emulated_correctness() {
+        test_native_vs_emulated_correctness_helper::<BnConfig>();
+    }
+
+    /// Test that native and emulated versions agree and match clear evaluation
+    fn test_native_vs_emulated_correctness_helper<E: HasTEForm>()
+    where
+        E::ScalarField: EmulationConfig<E::BaseField> + PrimeField + RescueParameter,
+        E::BaseField: RescueParameter + PrimeField + EmulationConfig<E::ScalarField>,
+    {
+        // setup native
+        let mut nat_circ = PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+        let zeta = E::ScalarField::rand(&mut OsRng);
+        let zeta_var = nat_circ.create_variable(zeta).unwrap();
+        let pub_inputs: Vec<E::ScalarField> = (0..=MAX_LEN)
+            .map(|_| E::ScalarField::rand(&mut OsRng))
+            .collect();
+        let pub_vars: Vec<_> = pub_inputs
+            .iter()
+            .map(|&v| nat_circ.create_variable(v).unwrap())
+            .collect();
+
+        let vanish = {
+            let domain = Radix2EvaluationDomain::<E::ScalarField>::new(DOMAIN_SIZE).unwrap();
+            domain.evaluate_vanishing_polynomial(zeta)
+        };
+        let vanish_var = nat_circ.create_variable(vanish).unwrap();
+
+        let native_out = evaluate_pi_poly_circuit_native(
+            &mut nat_circ,
+            DOMAIN_SIZE,
+            &pub_vars,
+            &zeta_var,
+            &vanish_var,
+        )
+        .unwrap();
+        let native_val = nat_circ.witness(native_out).unwrap();
+
+        // setup emulated
+        let mut emc_circ = PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+        let zeta_em_var = emc_circ.create_emulated_variable(zeta).unwrap();
+        let vanish_em = vanish; // same clear vanish
+        let vanish_em_var = emc_circ.create_emulated_variable(vanish_em).unwrap();
+        let pub_em_vars: Vec<_> = pub_inputs
+            .iter()
+            .map(|&v| emc_circ.create_emulated_variable(v).unwrap())
+            .collect();
+
+        let em_out = evaluate_pi_poly_circuit_emulated::<E, E::BaseField>(
+            &mut emc_circ,
+            DOMAIN_SIZE,
+            &pub_em_vars,
+            &zeta_em_var,
+            &vanish_em_var,
+        )
+        .unwrap();
+        let em_val = emc_circ.emulated_witness(&em_out).unwrap();
+
+        // compare against clear evaluation
+        let clear_val = clear_evaluate_pub_poly(DOMAIN_SIZE, zeta, vanish, &pub_inputs);
+
+        assert_eq!(native_val, clear_val, "native vs clear mismatch");
+        assert_eq!(em_val, clear_val, "emulated vs clear mismatch");
+        assert_eq!(native_val, em_val, "native vs emulated mismatch");
     }
 }
