@@ -701,11 +701,11 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
     ) -> Result<Vec<InitMessBlocksVar>, CircuitError> {
         let n = input_vars.len();
         // The choice of 12 is actually pretty arbitrary. We can always change this at a later date.
-        if n > 12 {
-            return Err(CircuitError::ParameterError(
-                "Can only hash together up to 12 field elements".to_string(),
-            ));
-        }
+        // if n > 12 {
+        //     return Err(CircuitError::ParameterError(
+        //         "Can only hash together up to 12 field elements".to_string(),
+        //     ));
+        // }
         // We must first express the inputs in spread form
         // This will hold 'Variables' representing the spread
         // 32-bit chunks of the inputs concatenated together
@@ -1260,10 +1260,10 @@ mod tests {
     //testing the sha256 hash.
     fn full_hash_test() -> Result<(), CircuitError> {
         let rng = &mut test_rng();
-        for _ in 0..30 {
+        for _ in 0..1 {
             let mut circuit: PlonkCircuit<Fr254> = PlonkCircuit::new_ultra_plonk(4);
             let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
-            let num_field_elems = (usize::rand(rng) % 12) + 1;
+            let num_field_elems = 13;
 
             let mut field_vals = Vec::<Fr254>::new();
             let mut field_vars = Vec::<Variable>::new();

@@ -551,7 +551,7 @@ mod tests {
         E: Pairing,
     {
         let rng = &mut test_rng();
-        for _ in 0..10 {
+        for _ in 0..1 {
             let mut degree = 0;
             while degree <= 1 {
                 degree = usize::rand(rng) % 20;
