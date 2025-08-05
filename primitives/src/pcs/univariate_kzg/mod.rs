@@ -258,6 +258,7 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
         batch_proof: &Self::BatchProof,
         rng: &mut R,
     ) -> Result<bool, PCSError> {
+        ark_std::println!("JJ: do this onchain");
         let check_time =
             start_timer!(|| format!("Checking {} evaluation proofs", multi_commitment.len()));
 

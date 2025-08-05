@@ -1448,6 +1448,27 @@ pub fn decider_circuit(
                 .flatten()
                 .collect::<Vec<Variable>>();
 
+            ark_std::println!(
+                "bn254_accumulator.comm: {}",
+                bn254_accumulator.comm
+            );
+            ark_std::println!(
+                "bn254_accumulator.value: {}",
+                bn254_accumulator.value
+            );
+            ark_std::println!(
+                "bn254_accumulator.point: {}",
+                bn254_accumulator.point
+            );
+            ark_std::println!(
+                "bn254_accumulator.opening_proof.proof: {}",
+                bn254_accumulator.opening_proof.proof
+            );
+            ark_std::println!(
+                "bn254_accumulator.opening_proof: {:?}",
+                bn254_accumulator.opening_proof
+            );
+
             let bn254_acc = [
                 bn254_accumulator.comm.x,
                 bn254_accumulator.comm.y,
