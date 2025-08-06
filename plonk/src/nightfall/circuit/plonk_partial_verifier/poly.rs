@@ -875,6 +875,51 @@ where
     Ok(result)
 }
 
+/// In-circuit evaluation of the public-input polynomial
+/// π(X₁,…,X_μ) = P(X₁,…,X_t) · ∏_{k=t+1}^μ (1 − X_k)
+///
+/// - `mle_var`   – first 2^t coefficients of the MLE
+/// - `point_var` – μ-dimensional verifier point (ρ₁,…,ρ_μ)
+///
+/// Gate-cost in the circuit:  O(2ᵗ + μ)
+pub fn emulated_sparse_mle_evaluation_circuit<F, E>(
+    circuit: &mut PlonkCircuit<F>,
+    mle_var: &[EmulatedVariable<E>],
+    point_var: &[EmulatedVariable<E>],
+) -> Result<EmulatedVariable<E>, CircuitError>
+where
+    F: PrimeField,
+    E: PrimeField + EmulationConfig<F>,
+{
+    let two_t = mle_var.len();
+    if two_t == 0 || two_t & (two_t - 1) != 0 {
+        return Err(CircuitError::ParameterError(
+            "mle_var.len() must be a power of two".into(),
+        ));
+    }
+
+    // t = log₂(2ᵗ)
+    let t = two_t.trailing_zeros() as usize;
+    let mu = point_var.len();
+    if mu < t {
+        return Err(CircuitError::ParameterError(format!(
+            "point length μ = {} < t = {}",
+            mu, t
+        )));
+    }
+
+    let p_eval = emulated_mle_evaluation_circuit::<F, E>(circuit, mle_var, &point_var[..t])?;
+
+    // Q(ρ_{t+1},…,ρ_μ) = ∏ (1 − ρ_k)
+    let mut q_eval = circuit.emulated_one::<E>();
+    for rho_k in &point_var[t..] {
+        let one_minus_rho_k = circuit.emulated_sub(&circuit.emulated_one(), rho_k)?;
+        q_eval = circuit.emulated_mul(&q_eval, &one_minus_rho_k)?;
+    }
+
+    circuit.emulated_mul(&p_eval, &q_eval)
+}
+
 /// Circuit to evaluate a polynomial oracle at a given point,
 /// returns the variable of the evaluation.
 pub fn emulated_mle_evaluation_circuit<F, E>(
