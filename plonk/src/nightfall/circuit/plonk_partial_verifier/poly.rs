@@ -908,16 +908,15 @@ where
         )));
     }
 
-    let p_eval = emulated_mle_evaluation_circuit::<F, E>(circuit, mle_var, &point_var[..t])?;
+    let mut p_eval = emulated_mle_evaluation_circuit::<F, E>(circuit, mle_var, &point_var[..t])?;
 
     // Q(ρ_{t+1},…,ρ_μ) = ∏ (1 − ρ_k)
-    let mut q_eval = circuit.emulated_one::<E>();
     for rho_k in &point_var[t..] {
         let one_minus_rho_k = circuit.emulated_sub(&circuit.emulated_one(), rho_k)?;
-        q_eval = circuit.emulated_mul(&q_eval, &one_minus_rho_k)?;
+        p_eval = circuit.emulated_mul(&p_eval, &one_minus_rho_k)?;
     }
 
-    circuit.emulated_mul(&p_eval, &q_eval)
+    Ok(p_eval)
 }
 
 /// Circuit to evaluate a polynomial oracle at a given point,
