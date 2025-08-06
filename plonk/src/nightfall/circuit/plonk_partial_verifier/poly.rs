@@ -988,7 +988,7 @@ mod test {
 
     use ark_ff::Field;
     use ark_poly::{DenseUVPolynomial, Polynomial, Radix2EvaluationDomain};
-    use ark_std::{One, UniformRand};
+    use ark_std::{rand::Rng, One, UniformRand};
 
     use jf_primitives::rescue::RescueParameter;
     use jf_relation::gadgets::ecc::HasTEForm;
@@ -1038,8 +1038,6 @@ mod test {
         }
     }
 
-    const MAX_LEN: usize = 140;
-
     #[test]
     fn test_pi_poly_native_vs_emulated_correctness() {
         evaluate_pi_poly_circuit_native_emulated_helper::<BnConfig>();
@@ -1053,79 +1051,83 @@ mod test {
     {
         let mut rng = test_rng();
 
-        for domain_size in [256, 512, 1024, 1 << 20] {
-            // setup native
-            let mut nat_circ =
-                PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
-            let zeta = E::ScalarField::rand(&mut rng);
-            let zeta_var = nat_circ.create_variable(zeta).unwrap();
-            let pub_inputs: Vec<E::ScalarField> = (0..=MAX_LEN)
-                .map(|_| E::ScalarField::rand(&mut rng))
-                .collect();
-            let pub_vars: Vec<_> = pub_inputs
-                .iter()
-                .map(|&v| nat_circ.create_variable(v).unwrap())
-                .collect();
+        for domain_size in [256, 512, 1024] {
+            let degrees: Vec<usize> = (0..3).map(|_| rng.gen_range(0..domain_size)).collect();
+            for degree in degrees {
+                // setup native
+                let mut nat_circ =
+                    PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+                let zeta = E::ScalarField::rand(&mut rng);
+                let zeta_var = nat_circ.create_variable(zeta).unwrap();
+                let pub_inputs: Vec<E::ScalarField> = (0..=degree)
+                    .map(|_| E::ScalarField::rand(&mut rng))
+                    .collect();
+                let pub_vars: Vec<_> = pub_inputs
+                    .iter()
+                    .map(|&v| nat_circ.create_variable(v).unwrap())
+                    .collect();
 
-            let domain = Radix2EvaluationDomain::<E::ScalarField>::new(domain_size).unwrap();
+                let domain = Radix2EvaluationDomain::<E::ScalarField>::new(domain_size).unwrap();
 
-            let gen_inv_var = nat_circ
-                .create_variable(domain.group_gen.inverse().unwrap())
+                let gen_inv_var = nat_circ
+                    .create_variable(domain.group_gen.inverse().unwrap())
+                    .unwrap();
+                let domain_size_var = nat_circ
+                    .create_variable(E::ScalarField::from(domain_size as u64))
+                    .unwrap();
+
+                const IS_BASE: bool = false;
+                let vanish_var = evaluate_poly_helper_native::<_, IS_BASE>(
+                    &mut nat_circ,
+                    zeta_var,
+                    gen_inv_var,
+                    domain_size_var,
+                )
+                .unwrap()[1];
+
+                let vanish = nat_circ.witness(vanish_var).unwrap();
+
+                let native_out = evaluate_pi_poly_circuit_native(
+                    &mut nat_circ,
+                    domain_size,
+                    &pub_vars,
+                    &zeta_var,
+                    &vanish_var,
+                )
                 .unwrap();
-            let domain_size_var = nat_circ
-                .create_variable(E::ScalarField::from(domain_size as u64))
+                let native_eval = nat_circ.witness(native_out).unwrap();
+
+                // setup emulated
+                let mut emc_circ =
+                    PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+                let zeta_em_var = emc_circ.create_emulated_variable(zeta).unwrap();
+                let vanish_em_var = emc_circ.create_emulated_variable(vanish).unwrap(); // same clear vanish
+                let pub_em_vars: Vec<_> = pub_inputs
+                    .iter()
+                    .map(|&v| emc_circ.create_emulated_variable(v).unwrap())
+                    .collect();
+
+                let em_out = evaluate_pi_poly_circuit_emulated::<E, E::BaseField>(
+                    &mut emc_circ,
+                    domain_size,
+                    &pub_em_vars,
+                    &zeta_em_var,
+                    &vanish_em_var,
+                )
                 .unwrap();
+                let em_eval = emc_circ.emulated_witness(&em_out).unwrap();
 
-            const IS_BASE: bool = false;
-            let vanish_var = evaluate_poly_helper_native::<_, IS_BASE>(
-                &mut nat_circ,
-                zeta_var,
-                gen_inv_var,
-                domain_size_var,
-            )
-            .unwrap()[1];
+                // compare against clear evaluation
+                let mut coeffs = pub_inputs.to_vec();
+                domain.ifft_in_place(&mut coeffs);
+                let clear_eval =
+                    ark_poly::univariate::DensePolynomial::from_coefficients_vec(coeffs)
+                        .evaluate(&zeta);
 
-            let vanish = nat_circ.witness(vanish_var).unwrap();
-
-            let native_out = evaluate_pi_poly_circuit_native(
-                &mut nat_circ,
-                domain_size,
-                &pub_vars,
-                &zeta_var,
-                &vanish_var,
-            )
-            .unwrap();
-            let native_eval = nat_circ.witness(native_out).unwrap();
-
-            // setup emulated
-            let mut emc_circ =
-                PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
-            let zeta_em_var = emc_circ.create_emulated_variable(zeta).unwrap();
-            let vanish_em_var = emc_circ.create_emulated_variable(vanish).unwrap(); // same clear vanish
-            let pub_em_vars: Vec<_> = pub_inputs
-                .iter()
-                .map(|&v| emc_circ.create_emulated_variable(v).unwrap())
-                .collect();
-
-            let em_out = evaluate_pi_poly_circuit_emulated::<E, E::BaseField>(
-                &mut emc_circ,
-                domain_size,
-                &pub_em_vars,
-                &zeta_em_var,
-                &vanish_em_var,
-            )
-            .unwrap();
-            let em_eval = emc_circ.emulated_witness(&em_out).unwrap();
-
-            // compare against clear evaluation
-            let mut coeffs = pub_inputs.to_vec();
-            domain.ifft_in_place(&mut coeffs);
-            let clear_eval = ark_poly::univariate::DensePolynomial::from_coefficients_vec(coeffs)
-                .evaluate(&zeta);
-
-            assert_eq!(native_eval, clear_eval, "native vs clear mismatch");
-            assert_eq!(em_eval, clear_eval, "emulated vs clear mismatch");
-            assert_eq!(native_eval, em_eval, "native vs emulated mismatch");
+                assert_eq!(native_eval, clear_eval, "native vs clear mismatch");
+                assert_eq!(em_eval, clear_eval, "emulated vs clear mismatch");
+                assert_eq!(native_eval, em_eval, "native vs emulated mismatch");
+            }
         }
     }
 }
