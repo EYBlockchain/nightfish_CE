@@ -359,9 +359,7 @@ where
         // constraint: (zeta - g_i) * l_var == vanish_eval * v_i
         let diff = circuit.emulated_sub_constant(zeta_var, g_i)?;
         let lhs = circuit.emulated_mul(&diff, &l_var)?;
-        let rhs = circuit.emulated_mul_constant(vanish_eval_var, v_i)?;
-        let is_eq = circuit.is_emulated_var_equal(&lhs, &rhs)?.0;
-        circuit.enforce_true(is_eq)?;
+        circuit.emulated_mul_constant_gate(vanish_eval_var, v_i, &lhs)?;
 
         lagrange_vars.push(l_var);
     }
@@ -1074,7 +1072,7 @@ mod test {
         let mut rng = test_rng();
 
         // setup native
-        let mut nat_circ     = PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+        let mut nat_circ = PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
         let zeta = E::ScalarField::rand(&mut rng);
         let zeta_var = nat_circ.create_variable(zeta).unwrap();
         let pub_inputs: Vec<E::ScalarField> = (0..=MAX_LEN)
