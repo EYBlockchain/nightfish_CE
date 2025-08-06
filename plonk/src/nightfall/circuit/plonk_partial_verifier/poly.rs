@@ -889,6 +889,50 @@ where
     Ok(result)
 }
 
+/// In-circuit evaluation of the public-input polynomial
+/// π(X₁,…,X_μ) = P(X₁,…,X_t) · ∏_{k=t+1}^μ (1 − X_k)
+///
+/// - `mle_var`   – first 2^t coefficients of the MLE
+/// - `point_var` – μ-dimensional verifier point (ρ₁,…,ρ_μ)
+///
+/// Gate-cost in the circuit:  O(2ᵗ + μ)
+pub fn emulated_sparse_mle_evaluation_circuit<F, E>(
+    circuit: &mut PlonkCircuit<F>,
+    mle_var: &[EmulatedVariable<E>],
+    point_var: &[EmulatedVariable<E>],
+) -> Result<EmulatedVariable<E>, CircuitError>
+where
+    F: PrimeField,
+    E: PrimeField + EmulationConfig<F>,
+{
+    let two_t = mle_var.len();
+    if two_t == 0 || two_t & (two_t - 1) != 0 {
+        return Err(CircuitError::ParameterError(
+            "mle_var.len() must be a power of two".into(),
+        ));
+    }
+
+    // t = log₂(2ᵗ)
+    let t = two_t.trailing_zeros() as usize;
+    let mu = point_var.len();
+    if mu < t {
+        return Err(CircuitError::ParameterError(format!(
+            "point length μ = {} < t = {}",
+            mu, t
+        )));
+    }
+
+    let mut p_eval = emulated_mle_evaluation_circuit::<F, E>(circuit, mle_var, &point_var[..t])?;
+
+    // Q(ρ_{t+1},…,ρ_μ) = ∏ (1 − ρ_k)
+    for rho_k in &point_var[t..] {
+        let one_minus_rho_k = circuit.emulated_sub(&circuit.emulated_one(), rho_k)?;
+        p_eval = circuit.emulated_mul(&p_eval, &one_minus_rho_k)?;
+    }
+
+    Ok(p_eval)
+}
+
 /// Circuit to evaluate a polynomial oracle at a given point,
 /// returns the variable of the evaluation.
 pub fn emulated_mle_evaluation_circuit<F, E>(
@@ -1000,7 +1044,10 @@ mod test {
 
     use ark_bn254::g1::Config as BnConfig;
 
-    use ark_poly::{DenseUVPolynomial, Polynomial, Radix2EvaluationDomain};
+    use ark_poly::{
+        DenseMultilinearExtension, DenseUVPolynomial, MultilinearExtension, Polynomial,
+        Radix2EvaluationDomain,
+    };
     use ark_std::{rand::Rng, One, UniformRand};
 
     use jf_primitives::rescue::RescueParameter;
@@ -1119,6 +1166,91 @@ mod test {
                 assert_eq!(native_eval, clear_eval, "native vs clear mismatch");
                 assert_eq!(em_eval, clear_eval, "emulated vs clear mismatch");
                 assert_eq!(native_eval, em_eval, "native vs emulated mismatch");
+            }
+        }
+    }
+
+    #[test]
+    fn test_evaluate_mle_native_emulated() {
+        test_evaluate_mle_native_emulated_helper::<BnConfig>();
+    }
+
+    fn test_evaluate_mle_native_emulated_helper<E: HasTEForm>()
+    where
+        E::ScalarField: EmulationConfig<E::BaseField> + PrimeField + RescueParameter,
+        E::BaseField: RescueParameter + PrimeField + EmulationConfig<E::ScalarField>,
+    {
+        let mut rng = test_rng();
+        for n_vars in [3, 6, 10] {
+            let domain_size = 1 << n_vars;
+            let degrees: Vec<usize> = (0..3).map(|_| rng.gen_range(1..domain_size)).collect();
+
+            for degree in degrees {
+                let mut circuit =
+                    PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+
+                let points: Vec<E::ScalarField> = (0..n_vars)
+                    .map(|_| E::ScalarField::rand(&mut rng))
+                    .collect();
+                let public_inputs: Vec<E::ScalarField> = (0..=degree)
+                    .map(|_| E::ScalarField::rand(&mut rng))
+                    .collect();
+
+                let mut padded_public_inputs = public_inputs.clone();
+                padded_public_inputs.resize(domain_size, E::ScalarField::from(0u8));
+
+                // native evaluation, in the clear
+                let poly = DenseMultilinearExtension::<E::ScalarField>::from_evaluations_vec(
+                    n_vars,
+                    padded_public_inputs.clone(),
+                );
+
+                let clear_eval = poly.evaluate(&points).unwrap();
+
+                // emulated evaluation
+                let mut mle_var: Vec<EmulatedVariable<_>> = public_inputs
+                    .iter()
+                    .map(|val| circuit.create_emulated_variable(*val).unwrap())
+                    .collect();
+                mle_var.resize(domain_size, circuit.emulated_zero());
+
+                let points_var: Vec<EmulatedVariable<E::ScalarField>> = points
+                    .iter()
+                    .map(|coord| circuit.create_emulated_variable(*coord).unwrap())
+                    .collect();
+
+                let eval =
+                    emulated_mle_evaluation_circuit(&mut circuit, &mle_var, &points_var).unwrap();
+
+                // sparse MLE evaluation
+                let mut mle_var: Vec<EmulatedVariable<_>> = public_inputs
+                    .iter()
+                    .map(|val| circuit.create_emulated_variable(*val).unwrap())
+                    .collect();
+
+                mle_var.resize(1 << (degree.ilog2() + 1), circuit.emulated_zero());
+
+                let points: Vec<EmulatedVariable<E::ScalarField>> = points
+                    .iter()
+                    .map(|coord| circuit.create_emulated_variable(*coord).unwrap())
+                    .collect();
+                let sparse_eval =
+                    emulated_sparse_mle_evaluation_circuit(&mut circuit, &mle_var, &points)
+                        .unwrap();
+
+                // check MLE evaluation vs clear evaluation
+                assert_eq!(
+                    circuit.emulated_witness(&eval).unwrap(),
+                    clear_eval,
+                    "MLE evaluation does not match clear evaluation"
+                );
+
+                // check MLE evaluation vs sparse MLE evaluation
+                assert_eq!(
+                    circuit.emulated_witness(&eval).unwrap(),
+                    circuit.emulated_witness(&sparse_eval).unwrap(),
+                    "MLE evaluation does not match sparse MLE evaluation"
+                );
             }
         }
     }
