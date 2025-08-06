@@ -986,6 +986,7 @@ mod test {
 
     use ark_bn254::g1::Config as BnConfig;
 
+    use ark_ff::Field;
     use ark_poly::Radix2EvaluationDomain;
     use ark_std::{One, UniformRand};
 
@@ -1083,11 +1084,25 @@ mod test {
             .map(|&v| nat_circ.create_variable(v).unwrap())
             .collect();
 
-        let vanish = {
-            let domain = Radix2EvaluationDomain::<E::ScalarField>::new(DOMAIN_SIZE).unwrap();
-            domain.evaluate_vanishing_polynomial(zeta)
-        };
-        let vanish_var = nat_circ.create_variable(vanish).unwrap();
+        let domain = Radix2EvaluationDomain::<E::ScalarField>::new(DOMAIN_SIZE).unwrap();
+
+        let gen_inv_var = nat_circ
+            .create_variable(domain.group_gen.inverse().unwrap())
+            .unwrap();
+        let domain_size_var = nat_circ
+            .create_variable(E::ScalarField::from(DOMAIN_SIZE as u64))
+            .unwrap();
+
+        const IS_BASE: bool = false;
+        let vanish_var = evaluate_poly_helper_native::<_, IS_BASE>(
+            &mut nat_circ,
+            zeta_var,
+            gen_inv_var,
+            domain_size_var,
+        )
+        .unwrap()[0];
+
+        let vanish = nat_circ.witness(vanish_var).unwrap();
 
         let native_out = evaluate_pi_poly_circuit_native(
             &mut nat_circ,
@@ -1102,8 +1117,7 @@ mod test {
         // setup emulated
         let mut emc_circ = PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
         let zeta_em_var = emc_circ.create_emulated_variable(zeta).unwrap();
-        let vanish_em = vanish; // same clear vanish
-        let vanish_em_var = emc_circ.create_emulated_variable(vanish_em).unwrap();
+        let vanish_em_var = emc_circ.create_emulated_variable(vanish).unwrap(); // same clear vanish
         let pub_em_vars: Vec<_> = pub_inputs
             .iter()
             .map(|&v| emc_circ.create_emulated_variable(v).unwrap())
