@@ -987,7 +987,7 @@ mod test {
     use ark_bn254::g1::Config as BnConfig;
 
     use ark_ff::Field;
-    use ark_poly::Radix2EvaluationDomain;
+    use ark_poly::{DenseUVPolynomial, Polynomial, Radix2EvaluationDomain};
     use ark_std::{One, UniformRand};
 
     use jf_primitives::rescue::RescueParameter;
@@ -1041,24 +1041,6 @@ mod test {
     const DOMAIN_SIZE: usize = 1 << 20;
     const MAX_LEN: usize = 140;
 
-    fn clear_evaluate_pub_poly<F: PrimeField>(
-        domain_size: usize,
-        zeta: F,
-        vanish: F,
-        pub_inputs: &[F],
-    ) -> F {
-        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-        let n_inv = F::from(domain_size as u64).inverse().unwrap();
-        let mut acc = F::zero();
-        for (i, &inp) in pub_inputs.iter().enumerate() {
-            let g = domain.element(i);
-            let v = g * n_inv;
-            let l = vanish * v / (zeta - g);
-            acc += l * inp;
-        }
-        acc
-    }
-
     #[test]
     fn test_pi_poly_native_vs_emulated_correctness() {
         evaluate_pi_poly_circuit_native_emulated_helper::<BnConfig>();
@@ -1100,7 +1082,7 @@ mod test {
             gen_inv_var,
             domain_size_var,
         )
-        .unwrap()[0];
+        .unwrap()[1];
 
         let vanish = nat_circ.witness(vanish_var).unwrap();
 
@@ -1112,7 +1094,7 @@ mod test {
             &vanish_var,
         )
         .unwrap();
-        let native_val = nat_circ.witness(native_out).unwrap();
+        let native_eval = nat_circ.witness(native_out).unwrap();
 
         // setup emulated
         let mut emc_circ = PlonkCircuit::<E::BaseField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
@@ -1131,13 +1113,16 @@ mod test {
             &vanish_em_var,
         )
         .unwrap();
-        let em_val = emc_circ.emulated_witness(&em_out).unwrap();
+        let em_eval = emc_circ.emulated_witness(&em_out).unwrap();
 
         // compare against clear evaluation
-        let clear_val = clear_evaluate_pub_poly(DOMAIN_SIZE, zeta, vanish, &pub_inputs);
+        let mut coeffs = pub_inputs.to_vec();
+        domain.ifft_in_place(&mut coeffs);
+        let clear_eval =
+            ark_poly::univariate::DensePolynomial::from_coefficients_vec(coeffs).evaluate(&zeta);
 
-        assert_eq!(native_val, clear_val, "native vs clear mismatch");
-        assert_eq!(em_val, clear_val, "emulated vs clear mismatch");
-        assert_eq!(native_val, em_val, "native vs emulated mismatch");
+        assert_eq!(native_eval, clear_eval, "native vs clear mismatch");
+        assert_eq!(em_eval, clear_eval, "emulated vs clear mismatch");
+        assert_eq!(native_eval, em_eval, "native vs emulated mismatch");
     }
 }
