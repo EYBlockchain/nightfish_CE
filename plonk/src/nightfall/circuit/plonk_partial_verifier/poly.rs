@@ -349,7 +349,7 @@ where
     let mut lagrange_vars = Vec::with_capacity(pub_inputs_var.len());
 
     // Compute each l_i and enforce (zeta - g^i)*l_i = Z_H(zeta)*v_i
-    for (i, _pub_var) in pub_inputs_var.iter().enumerate() {
+    for i in 0..pub_inputs_var.len() {
         let g_i = domain.element(i);
         let v_i = g_i / n;
         // clear-text l_i
