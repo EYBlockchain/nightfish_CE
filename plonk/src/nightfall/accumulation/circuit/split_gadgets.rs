@@ -46,6 +46,7 @@ where
         old_instances: &[EmulatedPCSInstanceVar<E>],
         t: &[EmulatedVariable<E::ScalarField>],
         oracles: &[EmulatedPolyOracleVar<E::ScalarField>],
+        r_0_evals: &[EmulatedVariable<E::ScalarField>],
         poly_coeffs: &[EmulatedVariable<E::ScalarField>],
         challenges: &[EmulatedVariable<E::ScalarField>],
         transcript: &mut RescueTranscriptVar<E::BaseField>,
@@ -58,6 +59,7 @@ where
         old_instances: &[EmulatedPCSInstanceVar<E>],
         t: &[EmulatedVariable<E::ScalarField>],
         oracles: &[EmulatedPolyOracleVar<E::ScalarField>],
+        r_0_evals: &[EmulatedVariable<E::ScalarField>],
         poly_coeffs: &[EmulatedVariable<E::ScalarField>],
         challenges: &[EmulatedVariable<E::ScalarField>],
         transcript: &mut RescueTranscriptVar<E::BaseField>,
@@ -187,6 +189,7 @@ where
         old_instances: &[EmulatedPCSInstanceVar<E>],
         t: &[EmulatedVariable<E::ScalarField>],
         oracles: &[EmulatedPolyOracleVar<E::ScalarField>],
+        r_0_evals: &[EmulatedVariable<E::ScalarField>],
         poly_coeffs: &[EmulatedVariable<E::ScalarField>],
         challenges: &[EmulatedVariable<E::ScalarField>],
         transcript: &mut RescueTranscriptVar<E::BaseField>,
@@ -201,7 +204,7 @@ where
         }
 
         <Self as SumCheckGadget<E::BaseField>>::verify_challenges::<E>(
-            self, oracles, challenges, transcript,
+            self, oracles, r_0_evals, challenges, transcript,
         )?;
 
         let comms = old_instances
@@ -224,6 +227,7 @@ where
         old_instances: &[EmulatedPCSInstanceVar<E>],
         t: &[EmulatedVariable<E::ScalarField>],
         oracles: &[EmulatedPolyOracleVar<E::ScalarField>],
+        r_0_evals: &[EmulatedVariable<E::ScalarField>],
         poly_coeffs: &[EmulatedVariable<E::ScalarField>],
         challenges: &[EmulatedVariable<E::ScalarField>],
         transcript: &mut RescueTranscriptVar<E::BaseField>,
@@ -238,7 +242,7 @@ where
         }
 
         <Self as SumCheckGadget<E::BaseField>>::verify_challenges::<E>(
-            self, oracles, challenges, transcript,
+            self, oracles, r_0_evals, challenges, transcript,
         )?;
 
         let comms = old_instances
@@ -522,6 +526,14 @@ mod tests {
                 let oracle_var = circuit.poly_oracle_to_emulated_var(oracle).unwrap();
                 oracle_vars.push(oracle_var);
             }
+
+            let r_0_evals = proof.r_0_evals.clone();
+            let mut r_0_evals_vars = vec![];
+            for r_0_eval in r_0_evals.iter() {
+                let r_0_eval_var = circuit.create_emulated_variable(*r_0_eval).unwrap();
+                r_0_evals_vars.push(r_0_eval_var);
+            }
+
             let points = zeromorph_accumulator.points();
 
             let values = zeromorph_accumulator.evaluations();
@@ -556,6 +568,7 @@ mod tests {
                 &instance_vars,
                 &t_vars,
                 &oracle_vars,
+                &r_0_evals_vars,
                 &emulated_poly_coeffs,
                 &challenge_vars,
                 &mut transcript_var,
