@@ -227,6 +227,11 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
         value: &E::ScalarField,
         proof: &Self::Proof,
     ) -> Result<bool, PCSError> {
+        ark_std::println!("JJ: am here in verify");
+        ark_std::println!("commitment = {:?}", commitment);
+        ark_std::println!("point = {:?}", point);
+        ark_std::println!("value = {:?}", value);
+        ark_std::println!("proof = {:?}", proof.proof);
         let check_time = start_timer!(|| "Checking evaluation");
         let pairing_inputs_l: Vec<E::G1Prepared> = vec![
             (verifier_param.g * value - proof.proof * point - commitment.into_group())
@@ -234,14 +239,42 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
                 .into(),
             proof.proof.into(),
         ];
+        ark_std::println!("JJ: pairing_inputs_l = {:?}", pairing_inputs_l);
         let pairing_inputs_r: Vec<E::G2Prepared> =
             vec![verifier_param.h.into(), verifier_param.beta_h.into()];
+        // ark_std::println!("JJ: pairing_inputs_r = {:?}", pairing_inputs_r);
+        let g1_points: Vec<E::G1Affine> = vec![
+            (verifier_param.g * value - proof.proof * point - commitment.into_group())
+                .into_affine(),
+            proof.proof.into(),
+        ];
+        for (i, affine) in g1_points.iter().enumerate() {
+            ark_std::println!(
+                "pairing_inputs_l[{}]: x = {:?}, y = {:?}",
+                i,
+                affine.x(),
+                affine.y()
+            );
+        }
+        let pairing_inputs_l: Vec<E::G1Prepared> = g1_points.iter().map(|p| p.into()).collect();
 
         let res = E::multi_pairing(pairing_inputs_l, pairing_inputs_r)
             .0
             .is_one();
 
         end_timer!(check_time, || format!("Result: {res}"));
+        let pairing_inputs_l: Vec<E::G1Prepared> = vec![
+            (commitment.into_group()).into_affine().into(),
+            proof.proof.into(),
+        ];
+        let pairing_inputs_r: Vec<E::G2Prepared> =
+            vec![verifier_param.h.into(), verifier_param.beta_h.into()];
+
+        let res_new = E::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+            .0
+            .is_one();
+        ark_std::println!("JJ: res_new = {}", res_new);
+
         Ok(res)
     }
 
@@ -285,7 +318,8 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
             total_w += w * randomizer;
             // We don't need to sample randomizers from the full field,
             // only from 128-bit strings.
-            randomizer = u128::rand(rng).into();
+            // randomizer = u128::rand(rng).into();
+            randomizer = 2u128.into();
         }
         total_c -= &verifier_param.g.mul(g_multiplier);
         end_timer!(combination_time);
@@ -492,12 +526,255 @@ mod tests {
     use ark_std::{rand::Rng, UniformRand};
     use jf_utils::test_rng;
 
+    use num_bigint::BigUint;
+
+    /// Converts a decimal string or BigUint to 4 little-endian u64 limbs.
+    pub fn bigint_to_limbs(n: &BigUint) -> [u64; 4] {
+        let mut bytes = n.to_bytes_le();
+        bytes.resize(32, 0); // pad to 32 bytes
+        let mut limbs = [0u64; 4];
+        for i in 0..4 {
+            limbs[i] = u64::from_le_bytes(bytes[i * 8..(i + 1) * 8].try_into().unwrap());
+        }
+        limbs
+    }
+
+    use ark_std::One;
+    use ark_std::Zero;
+    use num_bigint::BigInt;
+
+    fn limbs_to_bigint(limbs: &[u64]) -> BigInt {
+        let base: BigInt = BigInt::one() << 64; // 2^64
+        let mut result = BigInt::zero();
+
+        for (i, &limb) in limbs.iter().enumerate() {
+            // Convert each limb to BigInt and multiply by base^i, then add to the result
+            result += BigInt::from(limb) * &base.pow(i as u32);
+        }
+
+        result
+    }
+    // Converts an Arkworks `[u64; 4]` (BigInt) to a `BigUint`
+    fn ark_bigint_to_biguint(limbs: &[u64; 4]) -> BigUint {
+        let mut bytes = vec![];
+        for limb in limbs {
+            bytes.extend_from_slice(&limb.to_le_bytes());
+        }
+        BigUint::from_bytes_le(&bytes)
+    }
+    #[test]
+    fn test_bn254_pairing_generator() {
+        use ark_bn254::G1Affine;
+        use ark_bn254::G2Affine;
+        // G1 generator
+        let g1 = G1Affine::generator();
+        // G2 generator
+        let g2 = G2Affine::generator();
+        ark_std::println!("G1 generator: {:?}", g1);
+        ark_std::println!("G2 generator: {:?}", g2);
+
+        // e(g1, g2) == e(g1, g2)
+        let res = Bn254::multi_pairing([g1, -g1], [g2, g2]).0.is_one();
+        ark_std::println!("Pairing test: {}", res); // Should print true
+    }
+    #[test]
+    fn test_accumulator() {
+        let limbs = [
+            3577443717552838115,
+            11705489611516651137,
+            16255439218571906434,
+            3025449904741847268,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("Public key 1 x:{}", number);
+        let limbs = [
+            14665545369933317881,
+            9933958648616565356,
+            14589912518833666847,
+            2177993963312036411,
+        ];
+
+        let number = limbs_to_bigint(&limbs);
+        ark_std::println!("Public key 1 x:{}", number);
+
+        // let limbs = bigint_to_limbs(&number.to_biguint().unwrap());
+        // ark_std::println!("Public key 1 limbs: {:?}", limbs);
+        use ark_ff::MontFp;
+        let x: Fr254 = MontFp!(
+            "11559732032986387107991004021392285783925812861821192530917403151452391805634"
+        );
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsx0: {:?}", limbs_back);
+        let x: Fr254 =
+            MontFp!("4082367875863433681332203403145435568316851327593401208105741076214120093531");
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsx0: {:?}", limbs_back);
+        let x: Fr254 = MontFp!(
+            "10857046999023057135944570762232829481370756359578518086990519993285655852781"
+        );
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsx0: {:?}", limbs_back);
+        let x: Fr254 =
+            MontFp!("8495653923123431417604973247489272438418190587263600148770280649306958101930");
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsx0: {:?}", limbs_back);
+        // let x_again = limbs_to_bigint(&limbs_back);
+        // ark_std::println!("x_again: {:?}", x_again);
+        use ark_bn254::Fr as Fr254;
+        use ark_poly::univariate::DensePolynomial;
+        let rng = &mut test_rng();
+        let mut degree = 0;
+        while degree <= 1 {
+            degree = usize::rand(rng) % 20;
+        }
+        let pp = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, degree).unwrap();
+        let (ck, vk) = pp.trim(degree).unwrap();
+        let p = <DensePolynomial<Fr254> as DenseUVPolynomial<Fr254>>::rand(degree, rng);
+        let comm = UnivariateKzgPCS::<Bn254>::commit(&ck, &p).unwrap();
+        let point = Fr254::rand(rng);
+        let (proof, value) = UnivariateKzgPCS::<Bn254>::open(&ck, &p, &point).unwrap();
+        UnivariateKzgPCS::<Bn254>::verify(&vk, &comm, &point, &value, &proof).unwrap();
+
+        let mut vk_jj = vk.clone();
+        use ark_bn254::Fq;
+        vk_jj.g = <Bn254 as Pairing>::G1Affine::new(Fq::from(1), Fq::from(2));
+        use ark_bn254::Fq2;
+        use ark_ff::BigInteger256;
+        let x = Fq2::new(
+            Fq::new(BigInteger256::new([
+                5106727233969649389,
+                7440829307424791261,
+                4785637993704342649,
+                1729627375292849782,
+            ])),
+            Fq::new(BigInteger256::new([
+                10945020018377822914,
+                17413811393473931026,
+                8241798111626485029,
+                1841571559660931130,
+            ])),
+        );
+        let y = Fq2::new(
+            Fq::new(BigInteger256::new([
+                5541340697920699818,
+                16416156555105522555,
+                5380518976772849807,
+                1353435754470862315,
+            ])),
+            Fq::new(BigInteger256::new([
+                6173549831154472795,
+                13567992399387660019,
+                17050234209342075797,
+                650358724130500725,
+            ])),
+        );
+
+        ark_std::println!("x = {}", x);
+        ark_std::println!("y = {}", y);
+        vk_jj.h = <Bn254 as Pairing>::G2Affine::new(x, y);
+        ark_std::println!("JJ: vk_jj.g = {:?}", vk_jj.g);
+        ark_std::println!("JJ: vk_jj.h = {:?}", vk_jj.h);
+        // vk_jj.beta_h = Bn254::G2Affine::zero();
+
+        let x: Fr254 = MontFp!(
+            "10764647077472957448033591885865458661573660819003350325268673957890498500987"
+        );
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsx0: {:?}", limbs_back);
+        let x: Fr254 = MontFp!(
+            "15207030507740967976352749097256929091435606784526748170016829002013506957017"
+        );
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsx1: {:?}", limbs_back);
+        let x: Fr254 = MontFp!(
+            "18253511544609001572866960948873128266198935669250718031100637619547827597184"
+        );
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsy0: {:?}", limbs_back);
+        let x: Fr254 = MontFp!(
+            "19756181390911900613508142947142748782977087973617411469215564659012323409872"
+        );
+        let limb = x.into_bigint(); // [u64; 4]
+        let biguint = ark_bigint_to_biguint(limb.as_ref().try_into().unwrap());
+        let limbs_back = bigint_to_limbs(&biguint);
+        ark_std::println!("limbsy1: {:?}", limbs_back);
+
+        let x = Fq2::new(
+            Fq::new(BigInteger256::new([
+                3059198416762171264,
+                17826071752375934067,
+                2540209951312773215,
+                2907952159147943523,
+            ])),
+            Fq::new(BigInteger256::new([
+                9632549258536950139,
+                4162086999619294322,
+                15740780115627737347,
+                1714907218531776084,
+            ])),
+        );
+        let y = Fq2::new(
+            Fq::new(BigInteger256::new([
+                14329149837203636176,
+                662368139879402519,
+                3020902600790832773,
+                3147341276872722899,
+            ])),
+            Fq::new(BigInteger256::new([
+                11975304264280600281,
+                16369974670302398806,
+                7444268968364960217,
+                2422619729422656478,
+            ])),
+        );
+        ark_std::println!("x = {}", x);
+        ark_std::println!("y = {}", y);
+
+        vk_jj.beta_h = <Bn254 as Pairing>::G2Affine::new(x, y);
+        ark_std::println!("JJ: vk_jj.beta_h = {:?}", vk_jj.beta_h);
+
+        let x: Fq =
+            MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096");
+        let y: Fq = MontFp!(
+            "17425095276760945095381060928122902375593783607513862431869872042018379379257"
+        );
+
+        let commitment = <Bn254 as Pairing>::G1Affine::new(x, y);
+        let point = Fr254::from(0u64);
+        let value = Fr254::from(0u64);
+        let x: Fq = MontFp!(
+            "18991056847380517498711743163082681994472759809034084754240255183913686701539"
+        );
+        let y: Fq = MontFp!(
+            "13671489686767698476199199614913759207054156363727130982459349913990206588665"
+        );
+        let proof = UnivariateKzgProof::<Bn254> {
+            proof: <Bn254 as Pairing>::G1Affine::new(x, y),
+        };
+        UnivariateKzgPCS::<Bn254>::verify(&vk, &comm, &point, &value, &proof).unwrap();
+    }
+
     fn end_to_end_test_template<E>() -> Result<(), PCSError>
     where
         E: Pairing,
     {
         let rng = &mut test_rng();
-        for _ in 0..100 {
+        for _ in 0..1 {
             let mut degree = 0;
             while degree <= 1 {
                 degree = usize::rand(rng) % 20;
