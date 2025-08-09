@@ -409,9 +409,10 @@ pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     gen_inv_var: Variable,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
-    pi: Variable,
+    pi: Vec<Variable>,
     evals: &[Variable; 4],
     lookup_evals: &Option<PlookupEvalsVarNative>,
+    domain_size: usize,
 ) -> Result<Variable, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -471,7 +472,8 @@ where
     prod = circuit.mul(tmp, prod)?;
 
     // r_plonk
-    let pi_eval = circuit.mul(pi, evals[2])?;
+
+    let pi_eval = evaluate_pi_poly_circuit_native(circuit, domain_size, &pi, &zeta_var)?;
     let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
     let non_lookup = circuit.gen_quad_poly(
         &wires,

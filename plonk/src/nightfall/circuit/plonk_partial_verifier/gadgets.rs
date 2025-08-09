@@ -105,9 +105,10 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         gen_inv_var,
         challenges,
         proof_evals,
-        pi,
+        vec![pi],
         &evals,
         &lookup_evals,
+        domain_size,
     )?;
 
     let mut d_1_coeffs = linearization_scalars_circuit_native(
