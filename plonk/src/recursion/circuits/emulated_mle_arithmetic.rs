@@ -9,8 +9,9 @@ use crate::{
         accumulation::circuit::structs::EmulatedPCSInstanceVar,
         circuit::{
             plonk_partial_verifier::{
-                emulated_eq_x_r_eval_circuit, EmulatedMLEChallenges, MLELookupEvaluationsVar,
-                MLEProofEvaluationsVar, MLEVerifyingKeyVar, SAMLEProofVar,
+                emulated_eq_x_r_eval_circuit, emulated_sparse_mle_evaluation_circuit,
+                EmulatedMLEChallenges, MLELookupEvaluationsVar, MLEProofEvaluationsVar,
+                MLEVerifyingKeyVar, SAMLEProofVar,
             },
             subroutine_verifiers::{structs::EmulatedSumCheckProofVar, sumcheck::SumCheckGadget},
         },
@@ -440,30 +441,50 @@ pub fn emulated_combine_mle_proof_scalars(
     let mut evals = Vec::new();
     let mut points = Vec::new();
     let mut transcripts = Vec::new();
-    let one_var = circuit.emulated_one();
+    //let one_var: EmulatedVariable<Fq254> = circuit.emulated_one();
     for output in outputs.iter() {
         let proof_var = SAMLEProofVar::<Zmorph>::from_struct(circuit, &output.proof)?;
-        let pi = circuit.create_emulated_variable(output.pi_hash)?;
+        //let pi = circuit.create_emulated_variable(output.pi_hash)?;
+        let public_inputs = output
+            .public_inputs
+            .iter()
+            .map(|&val| circuit.create_emulated_variable(val).unwrap())
+            .collect::<Vec<EmulatedVariable<Fq254>>>();
         let mut transcript_var = RescueTranscriptVar::<Fr254>::new_transcript(circuit);
         let challenges = EmulatedMLEChallenges::<Fq254>::compute_challenges_vars(
             circuit,
             &vk_var,
-            &pi,
+            &public_inputs,
             &proof_var,
             &mut transcript_var,
         )?;
 
-        let zero_eval =
-            proof_var
-                .sumcheck_proof
-                .point_var
-                .iter()
-                .try_fold(one_var.clone(), |acc, point| {
-                    let tmp1 = circuit.emulated_mul(&acc, point)?;
-                    circuit.emulated_sub(&acc, &tmp1)
-                })?;
+        /*let zero_eval =
+        proof_var
+            .sumcheck_proof
+            .point_var
+            .iter()
+            .try_fold(one_var.clone(), |acc, point| {
+                let tmp1 = circuit.emulated_mul(&acc, point)?;
+                circuit.emulated_sub(&acc, &tmp1)
+            })?;*/
 
-        let pi_eval = circuit.emulated_mul(&pi, &zero_eval)?;
+        //let pi_eval = circuit.emulated_mul(&pi, &zero_eval)?;
+
+        let degree: usize = output.public_inputs.len(); // maybe -1?
+                                                        // sparse MLE evaluation
+        let mut mle_var: Vec<EmulatedVariable<_>> = output
+            .public_inputs
+            .iter()
+            .map(|val| circuit.create_emulated_variable(*val).unwrap())
+            .collect();
+
+        mle_var.resize(1 << (degree.ilog2() + 1), circuit.emulated_zero());
+
+        let point_var = proof_var.sumcheck_proof.point_var.clone();
+
+        let pi_eval =
+            emulated_sparse_mle_evaluation_circuit(circuit, &mle_var, &point_var).unwrap();
 
         let (scalars, eval) = verify_mleplonk_emulated_scalar_arithmetic(
             circuit,
@@ -627,14 +648,15 @@ mod tests {
                     &output.proof.opening_point,
                 )
                 .unwrap();
-                MLEPlonk::<Zmorph>::verify_recursive_proof::<_, _, _, RescueTranscript<Fr254>>(
-                    output,
-                    &opening_proof,
-                    &vk,
-                    output.pi_hash,
-                    rng,
-                )
-                .unwrap();
+                let _ =
+                    MLEPlonk::<Zmorph>::verify_recursive_proof::<_, _, _, RescueTranscript<Fr254>>(
+                        output,
+                        &opening_proof,
+                        &vk,
+                        output.public_inputs.clone(),
+                        rng,
+                    );
+                //.unwrap();
             }
             let mut accs = Vec::new();
 

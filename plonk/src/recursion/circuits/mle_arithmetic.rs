@@ -8,8 +8,8 @@ use crate::{
     nightfall::{
         circuit::{
             plonk_partial_verifier::{
-                eq_x_r_eval_circuit, MLEChallengesVar, MLELookupEvaluationsNativeVar,
-                MLEProofEvalsNativeVar, SAMLEProofNative,
+                eq_x_r_eval_circuit, sparse_mle_evaluation_circuit, MLEChallengesVar,
+                MLELookupEvaluationsNativeVar, MLEProofEvalsNativeVar, SAMLEProofNative,
             },
             subroutine_verifiers::{structs::SumCheckProofVar, sumcheck::SumCheckGadget},
         },
@@ -528,9 +528,9 @@ pub fn combine_mle_proof_scalars(
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
         let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
 
-        let pi_hash = circuit.create_variable(output.pi_hash)?;
+        //let pi_hash = circuit.create_variable(output.pi_hash)?; // shouldn't this be a public input (constant variable), and enforced equal to other instances of pi_hash in the circuit?
 
-        let zero_eval =
+        /*let zero_eval =
             proof_var
                 .sumcheck_proof()
                 .point_var
@@ -542,7 +542,22 @@ pub fn combine_mle_proof_scalars(
                     )
                 })?;
 
-        let pi_eval = circuit.mul(pi_hash, zero_eval)?;
+        let pi_eval = circuit.mul(pi_hash, zero_eval)?;*/
+
+        let mut mle: Vec<_> = output.public_inputs.clone();
+        mle.resize(1 << (mle.len().ilog2() + 1), Fq254::from(0u8));
+
+        let mut mle_var = vec![];
+        for val in mle {
+            mle_var.push(circuit.create_variable(val)?);
+        }
+
+        let pi_eval = sparse_mle_evaluation_circuit::<Fq254>(
+            circuit,
+            &mle_var,
+            &proof_var.sumcheck_proof().point_var.clone(),
+        )
+        .unwrap();
 
         let (scalars, eval) = verify_mleplonk_scalar_arithmetic(
             circuit,
@@ -749,7 +764,7 @@ mod tests {
             let mut transcript = RescueTranscript::<P::BaseField>::new_transcript(b"mle_plonk");
             let mle_challenges = MLEChallenges::<P::ScalarField>::new_recursion(
                 &proof.proof,
-                &[public_input[0]],
+                &public_input,
                 &_vk1,
                 &mut transcript,
             )
@@ -778,7 +793,7 @@ mod tests {
                 proof,
                 &opening_proof,
                 &_vk1,
-                public_input[0],
+                public_input.to_vec(),
                 rng,
             )
             .unwrap();

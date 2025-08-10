@@ -108,7 +108,7 @@ impl ChallengesVar {
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
         vk: &VerifyingKey<PCS>,
-        pi: &Variable,
+        public_inputs: &Vec<Variable>,
         proof: &ProofVarNative<P>,
         transcript: &mut C,
     ) -> Result<Self, CircuitError>
@@ -123,7 +123,9 @@ impl ChallengesVar {
         let vk_hash = circuit.create_variable(vk.hash())?;
         transcript.push_variable(&vk_hash)?;
 
-        transcript.push_variable(pi)?;
+        for pi in public_inputs {
+            transcript.push_variable(pi)?;
+        }
 
         transcript.append_point_variables(&proof.wire_commitments, circuit)?;
 
@@ -223,7 +225,7 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
     pub fn compute_challenges_vars<PCS, P>(
         circuit: &mut PlonkCircuit<P::BaseField>,
         vk_var: &MLEVerifyingKeyVar<PCS>,
-        pi: &EmulatedVariable<P::ScalarField>,
+        public_inputs: &Vec<EmulatedVariable<P::ScalarField>>,
         proof_var: &SAMLEProofVar<PCS>,
         transcript_var: &mut RescueTranscriptVar<P::BaseField>,
     ) -> Result<EmulatedMLEChallenges<E>, CircuitError>
@@ -234,7 +236,9 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
     {
         transcript_var.append_visitor(vk_var, circuit)?;
-        transcript_var.push_emulated_variable(pi, circuit)?;
+        for pi in public_inputs.iter() {
+            transcript_var.push_emulated_variable(pi, circuit)?;
+        }
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
         let [gamma, alpha, tau]: [usize; 3] = transcript_var
@@ -327,7 +331,7 @@ impl MLEChallengesVar {
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
         vk_var: &MLEVerifyingKeyVar<PCS>,
-        pi_hash: &EmulatedVariable<P::ScalarField>,
+        public_inputs: &Vec<EmulatedVariable<P::ScalarField>>,
         proof_var: &SAMLEProofVar<PCS>,
         transcript_var: &mut C,
     ) -> Result<Self, CircuitError>
@@ -340,7 +344,9 @@ impl MLEChallengesVar {
         C: CircuitTranscript<F>,
     {
         transcript_var.append_visitor(vk_var, circuit)?;
-        transcript_var.push_emulated_variable(pi_hash, circuit)?;
+        for pi in public_inputs.iter() {
+            transcript_var.push_emulated_variable(pi, circuit)?;
+        }
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
         let [gamma, alpha, tau]: [usize; 3] = transcript_var

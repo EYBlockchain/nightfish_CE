@@ -935,6 +935,39 @@ where
     Ok(p_eval)
 }
 
+pub fn sparse_mle_evaluation_circuit<F: PrimeField>(
+    circuit: &mut PlonkCircuit<F>,
+    mle_var: &[Variable],
+    point_var: &[Variable],
+) -> Result<Variable, CircuitError> {
+    let two_t = mle_var.len();
+    if two_t == 0 || two_t & (two_t - 1) != 0 {
+        return Err(CircuitError::ParameterError(
+            "mle_var.len() must be a power of two".into(),
+        ));
+    }
+
+    // t = log₂(2ᵗ)
+    let t = two_t.trailing_zeros() as usize;
+    let mu = point_var.len();
+    if mu < t {
+        return Err(CircuitError::ParameterError(format!(
+            "point length μ = {} < t = {}",
+            mu, t
+        )));
+    }
+
+    let mut p_eval = mle_evaluation_circuit::<F>(circuit, mle_var, &point_var[..t])?;
+
+    // Q(ρ_{t+1},…,ρ_μ) = ∏ (1 − ρ_k)
+    for rho_k in &point_var[t..] {
+        let one_minus_rho_k = circuit.sub(circuit.one(), *rho_k)?;
+        p_eval = circuit.mul(p_eval, one_minus_rho_k)?;
+    }
+
+    Ok(p_eval)
+}
+
 /// Circuit to evaluate a polynomial oracle at a given point,
 /// returns the variable of the evaluation.
 pub fn emulated_mle_evaluation_circuit<F, E>(
@@ -961,6 +994,31 @@ where
                 circuit.emulated_sub(&mut_evals_var[(b << 1) + 1], &mut_evals_var[b << 1])?;
             let tmp = circuit.emulated_mul(&point_var[i - 1], &right_sub_left_var)?;
             mut_evals_var[b] = circuit.emulated_add(&mut_evals_var[b << 1], &tmp)?;
+        }
+    }
+    Ok(mut_evals_var[0].clone())
+}
+
+pub fn mle_evaluation_circuit<F: PrimeField>(
+    circuit: &mut PlonkCircuit<F>,
+    mle_var: &[Variable],
+    point_var: &[Variable],
+) -> Result<Variable, CircuitError> {
+    let nv = point_var.len();
+
+    if mle_var.len().ilog2() as usize != nv {
+        return Err(CircuitError::ParameterError(
+            "num_vars != point.len()".to_string(),
+        ));
+    }
+    let mut mut_evals_var = mle_var.to_vec();
+    // Mimick `evaluate` function of `DenseMultilinearExtension` which calls the `fix_variables` function.
+    for i in 1..nv + 1 {
+        for b in 0..(1 << (nv - i)) {
+            let right_sub_left_var =
+                circuit.sub(mut_evals_var[(b << 1) + 1], mut_evals_var[b << 1])?;
+            let tmp = circuit.mul(point_var[i - 1], right_sub_left_var)?;
+            mut_evals_var[b] = circuit.add(mut_evals_var[b << 1], tmp)?;
         }
     }
     Ok(mut_evals_var[0].clone())
@@ -1209,6 +1267,29 @@ mod test {
 
                 let clear_eval = poly.evaluate(&points).unwrap();
 
+                // native evaluation, in-circuit
+                let mut mle: Vec<E::ScalarField> = public_inputs.clone();
+                mle.resize(1 << (degree.ilog2() + 1), E::ScalarField::from(0u8));
+
+                let mut circuit_scalar =
+                    PlonkCircuit::<E::ScalarField>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
+                let mut mle_var = vec![];
+                for val in &mle {
+                    mle_var.push(circuit_scalar.create_variable(*val).unwrap());
+                }
+
+                let mut points_var: Vec<Variable> = vec![];
+                for p in points.clone() {
+                    points_var.push(circuit_scalar.create_variable(p).unwrap());
+                }
+
+                let sparse_eval_circuit = sparse_mle_evaluation_circuit::<E::ScalarField>(
+                    &mut circuit_scalar,
+                    &mle_var,
+                    &points_var,
+                )
+                .unwrap();
+
                 // emulated evaluation
                 let mut mle_var: Vec<EmulatedVariable<_>> = public_inputs
                     .iter()
@@ -1244,6 +1325,13 @@ mod test {
                 assert_eq!(
                     circuit.emulated_witness(&eval).unwrap(),
                     clear_eval,
+                    "MLE evaluation does not match clear evaluation"
+                );
+
+                // check sparse MLE evaluation vs clear evaluation
+                assert_eq!(
+                    clear_eval,
+                    circuit_scalar.witness(sparse_eval_circuit).unwrap(),
                     "MLE evaluation does not match clear evaluation"
                 );
 

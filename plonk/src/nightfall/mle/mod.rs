@@ -110,8 +110,8 @@ where
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
-        let pi_hash = circuit.public_input()?[0];
-        Ok(RecursiveOutput::new(proof, pi_hash, transcript))
+        let public_inputs = circuit.public_input()?;
+        Ok(RecursiveOutput::new(proof, public_inputs, transcript))
     }
 
     fn verify<T: Transcript>(

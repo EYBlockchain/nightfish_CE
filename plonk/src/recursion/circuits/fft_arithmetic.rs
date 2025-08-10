@@ -82,13 +82,20 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
     } else {
         None
     };
-    let pi_hash = circuit.create_variable(output.pi_hash)?;
+
+    let public_inputs = output
+        .public_inputs
+        .iter()
+        .map(|pi| circuit.create_variable(*pi).unwrap()) // TODO unwrap
+        .collect();
+
+    //let pi_hash = circuit.create_variable(output.public_inputs[0])?;
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
 
     // Generate the challenges
     let challenges =
-        ChallengesVar::compute_challenges(circuit, vk, &pi_hash, &proof, &mut transcript)?;
+        ChallengesVar::compute_challenges(circuit, vk, &public_inputs, &proof, &mut transcript)?;
 
     // Output the scalars
     let vk_k =
@@ -97,7 +104,7 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
             .collect::<Result<Vec<Variable>, CircuitError>>()?;
     let scalars = compute_scalars_for_native_field::<Fr254, IS_BASE>(
         circuit,
-        pi_hash,
+        public_inputs,
         &challenges,
         &proof_evals,
         lookup_evals,

@@ -1034,7 +1034,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         recursion_output: &RecursiveOutput<PCS, Self, T>,
         opening_proof: &PCS::Proof,
         vk: &MLEVerifyingKey<PCS>,
-        public_input: P::ScalarField,
+        public_inputs: Vec<P::ScalarField>,
         _rng: &mut R,
     ) -> Result<bool, PlonkError>
     where
@@ -1055,13 +1055,13 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let num_vars = proof.gkr_proof.challenge_point().len();
         let n = 1usize << num_vars;
 
-        let mut pi_evals = vec![public_input];
+        let mut pi_evals = public_inputs.clone();
         pi_evals.resize(n, P::ScalarField::zero());
         let pi_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars, pi_evals);
 
         let challenges = MLEChallenges::<P::ScalarField>::new_recursion(
             proof,
-            &[public_input],
+            &public_inputs,
             vk,
             &mut transcript,
         )?;
@@ -1450,7 +1450,7 @@ pub mod tests {
                     proof,
                     &opening_proof,
                     vk_ref,
-                    public_inputs[i][0],
+                    public_inputs[i].clone(),
                     rng
                 )
                 .unwrap()
@@ -1462,7 +1462,7 @@ pub mod tests {
                     proof,
                     &opening_proof,
                     vk_ref,
-                    E::ScalarField::zero(),
+                    vec![E::ScalarField::zero()],
                     rng,
                 )
                 .is_err()
@@ -1478,7 +1478,7 @@ pub mod tests {
                     proof,
                     &default_opening,
                     vk_ref,
-                    public_inputs[i][0],
+                    public_inputs[i].clone(),
                     rng,
                 )
                 .is_err()

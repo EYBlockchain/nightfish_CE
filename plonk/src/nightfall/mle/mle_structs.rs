@@ -1,6 +1,8 @@
 //! This module contains structs used for proving and verifying Plonk proofs constructed
 //! using multilinear extensions.
 
+use ark_std::format;
+
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_poly::DenseMultilinearExtension;
 
@@ -414,7 +416,7 @@ impl<F: PrimeField> MLEChallenges<F> {
     /// Create a new set of challenges from an SAMLEProof.
     pub fn new_recursion<PCS, P, T>(
         proof: &SAMLEProof<PCS>,
-        public_input: &[F],
+        public_inputs: &[F],
         vk: &MLEVerifyingKey<PCS>,
         transcript: &mut T,
     ) -> Result<Self, PlonkError>
@@ -433,7 +435,9 @@ impl<F: PrimeField> MLEChallenges<F> {
         // Append Vk and public input to transcript.
         transcript.append_visitor(vk)?;
 
-        transcript.push_message(b"public input", &public_input[0])?;
+        for (_, pi) in public_inputs.iter().enumerate() {
+            transcript.push_message(b"public input", pi)?;
+        }
 
         // We know that the commitments we are using will always be points on an SW curve.
         // We append wire commitments here.

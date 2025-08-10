@@ -131,7 +131,7 @@ where
         let verifier = FFTVerifier::<PCS>::new(verify_key.domain_size)?;
         let pcs_info = verifier.prepare_pcs_info::<T>(
             verify_key,
-            &[proof.pi_hash],
+            &proof.public_inputs.as_slice(),
             &proof.proof,
             &extra_transcript_init_msg,
         )?;
@@ -746,9 +746,9 @@ where
             extra_transcript_init_msg,
         )?;
 
-        let pi_hash = circuit.public_input()?[0];
+        let public_inputs = circuit.public_input()?;
 
-        Ok(RecursiveOutput::new(proof, pi_hash, transcript))
+        Ok(RecursiveOutput::new(proof, public_inputs, transcript))
     }
 
     fn verify<T>(
@@ -1210,7 +1210,7 @@ pub mod test {
             // Inconsistent proof should fail the verification.
             let bad_proof = RecursiveOutput {
                 proof: proof.proof.clone(),
-                pi_hash: E::ScalarField::zero(),
+                public_inputs: vec![E::ScalarField::zero()],
                 transcript: T::new_transcript(b"bad_transcript"),
             };
 
@@ -1228,7 +1228,7 @@ pub mod test {
             bad_proof.opening_proof = PCS::Proof::default();
             let bad_proof = RecursiveOutput::new(
                 bad_proof,
-                proof.pi_hash,
+                proof.public_inputs.clone(),
                 T::new_transcript(b"bad_transcript"),
             );
 

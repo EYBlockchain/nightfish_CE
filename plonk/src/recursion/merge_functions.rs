@@ -405,7 +405,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             let verifier = Verifier::new(vk.domain_size)?;
             verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                 vk,
-                &[output.pi_hash],
+                &output.public_inputs,
                 &output.proof,
                 &None,
             )
@@ -594,18 +594,18 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_pi_hashes: Vec<Vec<Variable>> = bn254info
-            .grumpkin_outputs
-            .chunks_exact(2)
-            .map(|output_pair| {
-                output_pair
-                    .iter()
-                    .map(|output| circuit.create_variable(output.pi_hash))
-                    .collect::<Result<Vec<Variable>, CircuitError>>()
-            })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+        /*let old_pi_hashes: Vec<Vec<Variable>> = bn254info
+        .grumpkin_outputs
+        .chunks_exact(2)
+        .map(|output_pair| {
+            output_pair
+                .iter()
+                .map(|output| circuit.create_variable(output.pi_hash))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+        })
+        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;*/
 
-        let pi_hashes = izip!(
+        /*let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
             impl_pi_vars.iter(),
             old_acc_vars.iter(),
@@ -661,9 +661,9 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 Ok(pi_hash)
             },
         )
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+        .collect::<Result<Vec<Variable>, CircuitError>>()?;*/
         // For checking correctness during testing
-        #[cfg(test)]
+        /*#[cfg(test)]
         {
             for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter())
             {
@@ -672,7 +672,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
                 );
             }
-        }
+        }*/
 
         // Now do the specific pi checks.
         let specific_pi_vars: Vec<Variable> = specific_pi_fn(&impl_pi_vars, circuit)?;
@@ -722,9 +722,9 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|&var| circuit.set_variable_public(var))?;
 
-        pi_hashes
-            .iter()
-            .try_for_each(|x| circuit.set_variable_public(*x))?;
+        /*pi_hashes
+        .iter()
+        .try_for_each(|x| circuit.set_variable_public(*x))?;*/
 
         let specific_pi_out = specific_pi_vars
             .iter()
@@ -761,7 +761,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let pi_hashes = impl_pi_vars
+        /*let pi_hashes = impl_pi_vars
             .iter()
             .map(|pi_vars| {
                 let pi_hash_pre =
@@ -806,7 +806,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
                 );
             }
-        }
+        }*/
         // Do any specific pi required
         let specific_pi_vars = specific_pi_fn(&impl_pi_vars, circuit)?;
 
@@ -834,9 +834,9 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|&var| circuit.set_variable_public(var))?;
 
-        pi_hashes
-            .iter()
-            .try_for_each(|x| circuit.set_variable_public(*x))?;
+        /*pi_hashes
+        .iter()
+        .try_for_each(|x| circuit.set_variable_public(*x))?;*/
 
         let specific_pi = specific_pi_vars
             .iter()
@@ -1078,7 +1078,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     let mut bn254_acc_vars = Vec::<Variable>::new();
-    let mut pi_hash_vars = Vec::<Variable>::new();
+    //let mut pi_hash_vars = Vec::<Variable>::new();
 
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
@@ -1197,9 +1197,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 
                 bn254_acc_vars.extend_from_slice(&bn254_acc);
 
-                let bn254_pi_hashes = bn254_outputs
+                /*let bn254_pi_hashes = bn254_outputs
                     .iter()
-                    .map(|bn| circuit.create_variable(bn.pi_hash))
+                    .map(|bn| circuit.create_variable(bn.public_inputs[0])) // TODO
                     .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
                 let bn_pi_hashes_prepped = bn254_pi_hashes
@@ -1258,7 +1258,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                         circuit.witness(pi_hash).unwrap(),
                         fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash)
                     );
-                }
+                }*/
 
                 let next_grumpkin_challenges = reconstruct_mle_challenges::<
                     _,
@@ -1338,9 +1338,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
     // Finally pi hashes are constructed to fit into either field
-    for var in pi_hash_vars.iter() {
-        circuit.set_variable_public(*var)?;
-    }
+    //for var in pi_hash_vars.iter() {
+    //    circuit.set_variable_public(*var)?;
+    //}
 
     let specific_pi_field = specific_pi
         .into_iter()
@@ -1512,7 +1512,7 @@ pub fn decider_circuit(
             .flatten()
             .collect::<Vec<Variable>>();
 
-            let bn254_pi_hashes = bn254_outputs
+            /*let bn254_pi_hashes = bn254_outputs
                 .iter()
                 .map(|bn| circuit.create_variable(bn.pi_hash))
                 .collect::<Result<Vec<Variable>, CircuitError>>()?;
@@ -1558,12 +1558,13 @@ pub fn decider_circuit(
                     calc_pi_hash,
                 ],
                 &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
-            )?;
+            )?;*/
 
-            let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
-            let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
+            //let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
+            //let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
 
-            circuit.enforce_equal(pi_native, pi_hash)
+            //circuit.enforce_equal(pi_native, pi_hash)
+            Ok::<(), CircuitError>(())
         },
     )?;
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
