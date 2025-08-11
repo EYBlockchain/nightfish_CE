@@ -8,7 +8,7 @@ use ark_std::{string::ToString, vec::Vec};
 use jf_primitives::{pcs::Accumulation, rescue::RescueParameter};
 use jf_relation::{
     errors::CircuitError,
-    gadgets::{ecc::HasTEForm, EmulationConfig},
+    gadgets::{ecc::HasTEForm, EmulatedVariable, EmulationConfig},
     Circuit, PlonkCircuit, Variable,
 };
 
@@ -127,6 +127,7 @@ pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     output: &RecursiveOutput<PCS, Scheme, T>,
     vk: &MLEVerifyingKeyVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
+    pi_hash: &EmulatedVariable<P::ScalarField>,
 ) -> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
 where
     PCS: Accumulation<
@@ -146,11 +147,10 @@ where
     let mut transcript = C::new_transcript(circuit);
 
     let proof_var = SAMLEProofVar::from_struct(circuit, &output.proof)?;
-    let pi_hash = circuit.create_emulated_variable(output.pi_hash)?;
 
     // Now we begin by recovering the circuit version of the MLEChallenges struct.
     let mle_challenges =
-        MLEChallengesVar::compute_challenges(circuit, vk, &pi_hash, &proof_var, &mut transcript)?;
+        MLEChallengesVar::compute_challenges(circuit, vk, pi_hash, &proof_var, &mut transcript)?;
 
     let mle_challenges_field = mle_challenges.to_field(circuit)?;
     // Next we need to know the number of variables the polynomials used in the proof had, this is the same as `proof_var.opening_point_var.len()`.
