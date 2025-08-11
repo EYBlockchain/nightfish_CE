@@ -437,8 +437,6 @@ where
 
     let sumcheck_proof = VPSumCheck::<P>::prove(&vp, transcript)?;
 
-    let _ = transcript.squeeze_scalar_challenge::<P>(b"r")?;
-
     evals.push(sumcheck_proof.poly_evals[..4 * batch_size].to_vec());
 
     sumcheck_proofs.push(sumcheck_proof);
@@ -506,7 +504,7 @@ where
     let mut challenge_point = vec![r];
     // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
     // supplied evaluations.
-    for (i, (proof, evals)) in proof
+    for (i, (sumcheck_proof, evals)) in proof
         .sumcheck_proofs()
         .iter()
         .zip(proof.evals().iter())
@@ -526,16 +524,19 @@ where
 
         // Check that the initial evaluation of the sumcheck is correct.
         let initial_eval = sumcheck_intial_evaluation(evals, lambda, r);
-        if proof.eval != initial_eval {
+        if sumcheck_proof.eval != initial_eval {
             return Err(PlonkError::InvalidParameters(
                 "Initial sumcheck evaluation does not match expected value".to_string(),
             ));
         }
 
-        let deferred_check = VPSumCheck::<P>::verify(proof, transcript)?;
-        r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
+        let deferred_check = VPSumCheck::<P>::verify(sumcheck_proof, transcript)?;
         sc_eq_eval = eq_eval(&deferred_check.point, &challenge_point)?;
-        challenge_point = [deferred_check.point.as_slice(), &[r]].concat();
+        // If this is the last round, we do need to generate a new challenge point.
+        if i != proof.sumcheck_proofs().len() - 1 {
+            r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
+            challenge_point = [deferred_check.point.as_slice(), &[r]].concat();
+        }
         res = deferred_check;
     }
     let final_evals = proof.evals().last().unwrap();

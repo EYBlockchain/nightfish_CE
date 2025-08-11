@@ -510,10 +510,14 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
             circuit.enforce_emulated_var_equal(&init_eval, &proof.eval_var)?;
 
             res = circuit.verify_emulated_proof::<P>(proof, transcript)?;
-            let r_native = transcript.squeeze_scalar_challenge::<P>(circuit)?;
-            r = circuit.to_emulated_variable(r_native)?;
             sc_eq_eval = emulated_eq_x_r_eval_circuit(circuit, &proof.point_var, &challenge_point)?;
-            challenge_point = [proof.point_var.as_slice(), &[r.clone()]].concat();
+
+            // If this is the last round, we do need to generate a new challenge point.
+            if i != self.sumcheck_proofs().len() - 1 {
+                let r_native = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+                r = circuit.to_emulated_variable(r_native)?;
+                challenge_point = [proof.point_var.as_slice(), &[r.clone()]].concat();
+            }
         }
 
         let final_evals = self.evals().last().unwrap();
