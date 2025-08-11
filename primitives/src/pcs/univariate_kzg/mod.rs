@@ -248,32 +248,33 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
                 .into_affine(),
             proof.proof.into(),
         ];
-        for (i, affine) in g1_points.iter().enumerate() {
-            ark_std::println!(
-                "pairing_inputs_l[{}]: x = {:?}, y = {:?}",
-                i,
-                affine.x(),
-                affine.y()
-            );
-        }
+        // for (i, affine) in g1_points.iter().enumerate() {
+        //     ark_std::println!(
+        //         "pairing_inputs_l[{}]: x = {:?}, y = {:?}",
+        //         i,
+        //         affine.x(),
+        //         affine.y()
+        //     );
+        // }
         let pairing_inputs_l: Vec<E::G1Prepared> = g1_points.iter().map(|p| p.into()).collect();
 
         let res = E::multi_pairing(pairing_inputs_l, pairing_inputs_r)
             .0
             .is_one();
+         ark_std::println!("JJ: res of verification = {}", res);
 
         end_timer!(check_time, || format!("Result: {res}"));
-        let pairing_inputs_l: Vec<E::G1Prepared> = vec![
-            (commitment.into_group()).into_affine().into(),
-            proof.proof.into(),
-        ];
-        let pairing_inputs_r: Vec<E::G2Prepared> =
-            vec![verifier_param.h.into(), verifier_param.beta_h.into()];
+        // let pairing_inputs_l: Vec<E::G1Prepared> = vec![
+        //     (commitment.into_group()).into_affine().into(),
+        //     proof.proof.into(),
+        // ];
+        // let pairing_inputs_r: Vec<E::G2Prepared> =
+        //     vec![verifier_param.h.into(), verifier_param.beta_h.into()];
 
-        let res_new = E::multi_pairing(pairing_inputs_l, pairing_inputs_r)
-            .0
-            .is_one();
-        ark_std::println!("JJ: res_new = {}", res_new);
+        // let res_new = E::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+        //     .0
+        //     .is_one();
+        // ark_std::println!("JJ: res_new = {}", res_new);
 
         Ok(res)
     }
@@ -578,6 +579,183 @@ mod tests {
         ark_std::println!("Pairing test: {}", res); // Should print true
     }
     #[test]
+    fn test_accumulator_jj() {
+        use ark_bn254::Fr as Fr254;
+        use ark_poly::univariate::DensePolynomial;
+        use ark_bn254::Fq;
+        use ark_bn254::Fq2;
+        use ark_ff::BigInteger256;
+        use ark_ff::MontFp;
+
+        // let's do a random accumulator test
+        ark_std::println!("===========let's do a random accumulator test. ===========");
+        let rng = &mut test_rng();
+        let mut degree = 0;
+        while degree <= 1 {
+            degree = usize::rand(rng) % 20;
+        }
+        let pp = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, degree).unwrap();
+        let (ck, vk) = pp.trim(degree).unwrap();
+        let p = <DensePolynomial<Fr254> as DenseUVPolynomial<Fr254>>::rand(degree, rng);
+        let comm = UnivariateKzgPCS::<Bn254>::commit(&ck, &p).unwrap();
+        let point = Fr254::rand(rng);
+        let (proof, value) = UnivariateKzgPCS::<Bn254>::open(&ck, &p, &point).unwrap();
+        UnivariateKzgPCS::<Bn254>::verify(&vk, &comm, &point, &value, &proof).unwrap();
+
+        ark_std::println!("===========Real accumulator test. ===========");
+        let mut vk_new = vk.clone();
+        vk_new.g = <Bn254 as Pairing>::G1Affine::new(Fq::from(1), Fq::from(2));
+
+        vk_new.h = <Bn254 as Pairing>::G2Affine::new(
+            Fq2::new(
+            Fq::new(BigInteger256::new([
+                5106727233969649389,
+                7440829307424791261,
+                4785637993704342649,
+                1729627375292849782,
+            ])),
+            Fq::new(BigInteger256::new([
+                10945020018377822914,
+                17413811393473931026,
+                8241798111626485029,
+                1841571559660931130,
+            ])),
+        ), Fq2::new(
+            Fq::new(BigInteger256::new([
+                5541340697920699818,
+                16416156555105522555,
+                5380518976772849807,
+                1353435754470862315,
+            ])),
+            Fq::new(BigInteger256::new([
+                6173549831154472795,
+                13567992399387660019,
+                17050234209342075797,
+                650358724130500725,
+            ])),
+        ));
+        vk_new.beta_h = <Bn254 as Pairing>::G2Affine::new(Fq2::new(
+            Fq::new(BigInteger256::new([
+                3059198416762171264,
+                17826071752375934067,
+                2540209951312773215,
+                2907952159147943523,
+            ])),
+            Fq::new(BigInteger256::new([
+                9632549258536950139,
+                4162086999619294322,
+                15740780115627737347,
+                1714907218531776084,
+            ])),
+        ), Fq2::new(
+            Fq::new(BigInteger256::new([
+                14329149837203636176,
+                662368139879402519,
+                3020902600790832773,
+                3147341276872722899,
+            ])),
+            Fq::new(BigInteger256::new([
+                11975304264280600281,
+                16369974670302398806,
+                7444268968364960217,
+                2422619729422656478,
+            ])),
+        ));
+
+        ark_std::println!("JJ: vk_new = {:?}", vk_new);
+
+        let commitment_new = <Bn254 as Pairing>::G1Affine::new(MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096"),  MontFp!(
+            "17425095276760945095381060928122902375593783607513862431869872042018379379257"
+        ));
+        let point_new = Fr254::from(0u64);
+        let value_new = Fr254::from(0u64);
+        let proof_new = UnivariateKzgProof::<Bn254> {
+            proof: <Bn254 as Pairing>::G1Affine::new(MontFp!(
+            "18991056847380517498711743163082681994472759809034084754240255183913686701539"
+        ), MontFp!(
+            "13671489686767698476199199614913759207054156363727130982459349913990206588665"
+        )),
+        };
+        UnivariateKzgPCS::<Bn254>::verify(&vk_new, &commitment_new, &point_new, &value_new, &proof_new).unwrap();
+
+        ark_std::println!("===========Real accumulator test2. ===========");
+        let mut vk_new = vk.clone();
+        let ck_new = ck.clone();
+        vk_new.g = <Bn254 as Pairing>::G1Affine::new(Fq::from(1), Fq::from(2));
+
+        vk_new.h = <Bn254 as Pairing>::G2Affine::new(
+            Fq2::new(
+            Fq::new(BigInteger256::new([
+                5106727233969649389,
+                7440829307424791261,
+                4785637993704342649,
+                1729627375292849782,
+            ])),
+            Fq::new(BigInteger256::new([
+                10945020018377822914,
+                17413811393473931026,
+                8241798111626485029,
+                1841571559660931130,
+            ])),
+        ), Fq2::new(
+            Fq::new(BigInteger256::new([
+                5541340697920699818,
+                16416156555105522555,
+                5380518976772849807,
+                1353435754470862315,
+            ])),
+            Fq::new(BigInteger256::new([
+                6173549831154472795,
+                13567992399387660019,
+                17050234209342075797,
+                650358724130500725,
+            ])),
+        ));
+        vk_new.beta_h = <Bn254 as Pairing>::G2Affine::new(Fq2::new(
+            Fq::new(BigInteger256::new([
+                3059198416762171264,
+                17826071752375934067,
+                2540209951312773215,
+                2907952159147943523,
+            ])),
+            Fq::new(BigInteger256::new([
+                9632549258536950139,
+                4162086999619294322,
+                15740780115627737347,
+                1714907218531776084,
+            ])),
+        ), Fq2::new(
+            Fq::new(BigInteger256::new([
+                14329149837203636176,
+                662368139879402519,
+                3020902600790832773,
+                3147341276872722899,
+            ])),
+            Fq::new(BigInteger256::new([
+                11975304264280600281,
+                16369974670302398806,
+                7444268968364960217,
+                2422619729422656478,
+            ])),
+        ));
+
+        ark_std::println!("JJ: vk_new = {:?}", vk_new);
+
+        let commitment_new = <Bn254 as Pairing>::G1Affine::new(MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096"),  MontFp!(
+            "17425095276760945095381060928122902375593783607513862431869872042018379379257"
+        ));
+        let point_new = Fr254::from(0u64);
+        let value_new = Fr254::from(0u64);
+        let proof_new = UnivariateKzgProof::<Bn254> {
+            proof: <Bn254 as Pairing>::G1Affine::new(MontFp!(
+            "18991056847380517498711743163082681994472759809034084754240255183913686701539"
+        ), MontFp!(
+            "13671489686767698476199199614913759207054156363727130982459349913990206588665"
+        )),
+        };
+        UnivariateKzgPCS::<Bn254>::verify(&vk_new, &commitment_new, &point_new, &value_new, &proof_new).unwrap();
+    }
+    #[test]
     fn test_accumulator() {
         let limbs = [
             3577443717552838115,
@@ -748,25 +926,25 @@ mod tests {
         vk_jj.beta_h = <Bn254 as Pairing>::G2Affine::new(x, y);
         ark_std::println!("JJ: vk_jj.beta_h = {:?}", vk_jj.beta_h);
 
-        let x: Fq =
+        let x_com: Fq =
             MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096");
-        let y: Fq = MontFp!(
+        let y_com: Fq = MontFp!(
             "17425095276760945095381060928122902375593783607513862431869872042018379379257"
         );
 
-        let commitment = <Bn254 as Pairing>::G1Affine::new(x, y);
-        let point = Fr254::from(0u64);
-        let value = Fr254::from(0u64);
-        let x: Fq = MontFp!(
+        let commitment_new = <Bn254 as Pairing>::G1Affine::new(x_com, y_com);
+        let point_new = Fr254::from(0u64);
+        let value_new = Fr254::from(0u64);
+        let x_new: Fq = MontFp!(
             "18991056847380517498711743163082681994472759809034084754240255183913686701539"
         );
-        let y: Fq = MontFp!(
+        let y_new: Fq = MontFp!(
             "13671489686767698476199199614913759207054156363727130982459349913990206588665"
         );
-        let proof = UnivariateKzgProof::<Bn254> {
-            proof: <Bn254 as Pairing>::G1Affine::new(x, y),
+        let proof_new = UnivariateKzgProof::<Bn254> {
+            proof: <Bn254 as Pairing>::G1Affine::new(x_new, y_new),
         };
-        UnivariateKzgPCS::<Bn254>::verify(&vk, &comm, &point, &value, &proof).unwrap();
+        UnivariateKzgPCS::<Bn254>::verify(&vk_jj, &commitment_new, &point_new, &value_new, &proof_new).unwrap();
     }
 
     fn end_to_end_test_template<E>() -> Result<(), PCSError>
