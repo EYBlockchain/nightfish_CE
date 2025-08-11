@@ -475,6 +475,12 @@ where
         let q0 = eval_chunk[2];
         let q1 = eval_chunk[3];
 
+        if q0 * q1 == P::ScalarField::zero() {
+            return Err(PlonkError::InvalidParameters(
+                "Division by zero in GKR proof".to_string(),
+            ));
+        }
+
         p_claims.push(p0 * q1 + p1 * q0);
         q_claims.push(q0 * q1);
     }
