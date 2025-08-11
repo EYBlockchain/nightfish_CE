@@ -331,13 +331,6 @@ where
 
         let g = prover_param.powers_of_g[0];
 
-        for instance in self.instances.iter() {
-            transcript.append_curve_point(b"commitment", &instance.comm)?;
-            transcript.push_message(b"point", &instance.point)?;
-            transcript.push_message(b"value", &instance.value)?;
-            transcript.append_curve_point(b"opening_proof", &instance.opening_proof.proof)?;
-        }
-
         let r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
         let r_powers = cfg_into_iter!(0..self.instances.len())
             .map(|i| r.pow([i as u64]))
@@ -426,19 +419,6 @@ where
         } else {
             &mut new_transcript
         };
-
-        // Add items to the transcript in the same order as the prover.
-        for instance in self.instances.iter() {
-            transcript.append_curve_point(b"commitment", &instance.comm)?;
-            transcript.push_message(b"point", &instance.point)?;
-            transcript.push_message(b"value", &instance.value)?;
-            transcript.append_curve_point(b"opening_proof", &instance.opening_proof.proof)?;
-        }
-
-        for old_acc in old_accs.iter() {
-            transcript.append_curve_point(b"commitment", &old_acc.s_beta_g)?;
-            transcript.append_curve_point(b"opening_proof", &old_acc.s_g)?;
-        }
 
         let r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
         let r_powers = cfg_into_iter!(0..self.instances.len() + old_accs.len())
