@@ -210,7 +210,7 @@ where
 
         // This challenge is used to generate our random 'U'.
         let alpha: E::ScalarField = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"label")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"alpha")
             .map_err(|_| {
                 PCSError::InvalidParameters("Couldn't squeeze a challenge scalar".to_string())
             })?;
@@ -283,7 +283,7 @@ where
             let r_j = E::G1::msm_bigint(r_j_bases, r_j_scalars).into_affine();
 
             transcript
-                .append_curve_points(b"label", &[l_j, r_j])
+                .append_curve_points(b"ipa_round_points", &[l_j, r_j])
                 .map_err(|_| {
                     PCSError::InvalidParameters("could not append curve points".to_string())
                 })?;
@@ -503,7 +503,7 @@ where
 
         // This challenge is used to generate our random 'U'.
         let alpha: E::ScalarField = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"label")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"alpha")
             .map_err(|_| {
                 PCSError::InvalidParameters("Couldn't squeeze a challenge scalar".to_string())
             })?;
@@ -516,7 +516,7 @@ where
 
         for (l, r) in l_j.iter().zip(r_j.iter()) {
             transcript
-                .append_curve_points(b"label", &[*l, *r])
+                .append_curve_points(b"ipa_round_points", &[*l, *r])
                 .map_err(|_| {
                     PCSError::InvalidParameters(
                         "Couldn't append curve points to transcript".to_string(),
