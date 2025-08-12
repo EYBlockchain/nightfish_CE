@@ -165,6 +165,13 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
         polynomial: &Self::Polynomial,
         point: &Self::Point,
     ) -> Result<(Self::Proof, Self::Evaluation), PCSError> {
+        ark_std::println!("JJ: am here in open");
+        ark_std::println!("JJ: prover_param len - polynomial degree should be 1");
+        ark_std::println!("JJ: polynomial degree = {:?}", polynomial.degree());
+        ark_std::println!(
+            "JJ: prover_param len = {:?}",
+            prover_param.borrow().powers_of_g.len()
+        );
         let open_time =
             start_timer!(|| format!("Opening polynomial of degree {}", polynomial.degree()));
         let divisor = Self::Polynomial::from_coefficients_vec(vec![-*point, E::ScalarField::one()]);
@@ -243,11 +250,11 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
         let pairing_inputs_r: Vec<E::G2Prepared> =
             vec![verifier_param.h.into(), verifier_param.beta_h.into()];
         // ark_std::println!("JJ: pairing_inputs_r = {:?}", pairing_inputs_r);
-        let g1_points: Vec<E::G1Affine> = vec![
-            (verifier_param.g * value - proof.proof * point - commitment.into_group())
-                .into_affine(),
-            proof.proof.into(),
-        ];
+        // let g1_points: Vec<E::G1Affine> = vec![
+        //     (verifier_param.g * value - proof.proof * point - commitment.into_group())
+        //         .into_affine(),
+        //     proof.proof.into(),
+        // ];
         // for (i, affine) in g1_points.iter().enumerate() {
         //     ark_std::println!(
         //         "pairing_inputs_l[{}]: x = {:?}, y = {:?}",
@@ -256,12 +263,12 @@ impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
         //         affine.y()
         //     );
         // }
-        let pairing_inputs_l: Vec<E::G1Prepared> = g1_points.iter().map(|p| p.into()).collect();
+        // let pairing_inputs_l: Vec<E::G1Prepared> = g1_points.iter().map(|p| p.into()).collect();
 
         let res = E::multi_pairing(pairing_inputs_l, pairing_inputs_r)
             .0
             .is_one();
-         ark_std::println!("JJ: res of verification = {}", res);
+        ark_std::println!("JJ: res of verification = {}", res);
 
         end_timer!(check_time, || format!("Result: {res}"));
         // let pairing_inputs_l: Vec<E::G1Prepared> = vec![
@@ -580,180 +587,463 @@ mod tests {
     }
     #[test]
     fn test_accumulator_jj() {
-        use ark_bn254::Fr as Fr254;
-        use ark_poly::univariate::DensePolynomial;
         use ark_bn254::Fq;
         use ark_bn254::Fq2;
+        use ark_bn254::Fr as Fr254;
         use ark_ff::BigInteger256;
         use ark_ff::MontFp;
+        use ark_poly::univariate::DensePolynomial;
 
         // let's do a random accumulator test
         ark_std::println!("===========let's do a random accumulator test. ===========");
         let rng = &mut test_rng();
-        let mut degree = 0;
-        while degree <= 1 {
-            degree = usize::rand(rng) % 20;
-        }
+        let degree = 1;
         let pp = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, degree).unwrap();
         let (ck, vk) = pp.trim(degree).unwrap();
-        let p = <DensePolynomial<Fr254> as DenseUVPolynomial<Fr254>>::rand(degree, rng);
+        ark_std::println!("JJ: ck = {:?}", ck);
+        let mut p = <DensePolynomial<Fr254> as DenseUVPolynomial<Fr254>>::rand(degree, rng);
+        p.coeffs[0] = Fr254::zero();
         let comm = UnivariateKzgPCS::<Bn254>::commit(&ck, &p).unwrap();
-        let point = Fr254::rand(rng);
+        let point = Fr254::zero();
         let (proof, value) = UnivariateKzgPCS::<Bn254>::open(&ck, &p, &point).unwrap();
         UnivariateKzgPCS::<Bn254>::verify(&vk, &comm, &point, &value, &proof).unwrap();
 
-        ark_std::println!("===========Real accumulator test. ===========");
+        // ark_std::println!("===========test random e(beta_g,h)=e(g, beta_h) ===========");
+
+        // let beta_g_random = ck.powers_of_g[1];
+        // let h_random = vk.h;
+        // let g_random = vk.g;
+        // let beta_h_random = vk.beta_h;
+        // let pairing_inputs_l_random: std::vec::Vec<_> = vec![beta_g_random, -g_random];
+        // let pairing_inputs_r_random: std::vec::Vec<_> = vec![h_random, beta_h_random];
+        // let res_random = Bn254::multi_pairing(pairing_inputs_l_random, pairing_inputs_r_random)
+        //     .0
+        //     .is_one();
+        // ark_std::println!("JJ: res of pairing = {}", res_random); // Should print true
+
+        ark_std::println!("===========Test eval and points are zero ===========");
+        let mut ck_1 = ck.clone();
+        ck_1.powers_of_g = vec![
+            <Bn254 as Pairing>::G1Affine::new(MontFp!("1"), MontFp!("2")),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "10054994567794822032199322394970208989264976650753242865261403343122188057499"
+                ),
+                MontFp!(
+                    "2978818807908787159945426934220246593272741737117070745308231863911597571889"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "19074055978403752357563014048183373862001948885811722264434285567511839850610"
+                ),
+                MontFp!(
+                    "19474742045452541724705901194735108540800477197719732839230652200215760859063"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "5306534174048918790581798361655064046215514086949807356154958517781052782827"
+                ),
+                MontFp!(
+                    "1665346687387458430305892798559645616723286100628709368220097748678278427831"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "10375577484422646400048200149825289659464395365491799935301498088797916822182"
+                ),
+                MontFp!(
+                    "20275246284978228207895116148617569780993815634600170292208545903875843831035"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "19888570942276472057214796999198936826492523874210527085519872084858749680233"
+                ),
+                MontFp!(
+                    "20478355194129305160831514192951329646263767243482924402566879419389855847235"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "4533729371868756332064743906558412757138693158054033928953346008407863092831"
+                ),
+                MontFp!(
+                    "11286372074259548342143466766011458970306005387611329308272523527984134432659"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "20745845632846919483072573216103178009686643617036081890977920160887898362741"
+                ),
+                MontFp!(
+                    "11841334211012865047964221209728310924161398939624884939408152650662746916708"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "20359248871286114074131968021518556556773284232203160414710868378193532981655"
+                ),
+                MontFp!(
+                    "12631091270923666779983454116592653385552367693440339308488405144506384366893"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "6830010040417244408662642874564953130302504680187723414928453573651486672620"
+                ),
+                MontFp!(
+                    "18539028144341976734498078173006852091946465725966228356676162067461122569851"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "3478333414978413749291898181673354074039628522629795168287698087284134979460"
+                ),
+                MontFp!(
+                    "17694975789017987960313440972050687913190970196491390234201649578218401512209"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "18118619071644107837041995690090465725348883823094121372163570304738132595219"
+                ),
+                MontFp!(
+                    "3194530628449873662417148674425243572560659792513364699868717681184156375875"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "4302937159549338369609889015064655203503367741625764111157242933925892493899"
+                ),
+                MontFp!(
+                    "11996029724428862490435985266434064727776294405707128254854500600698389752861"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "8355350768480365594404261205558140279373897946280992569902377207740575123051"
+                ),
+                MontFp!(
+                    "12372561866495366856185490914107713057768854537403621429419138000159251103610"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "5105573100607401244236569838906979765325899168487380190287634862125937234121"
+                ),
+                MontFp!(
+                    "3752261101847355777901560301421101213822263385465717676484315276941880713875"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "17148122481548950220871266930247257434683037084945282465152045261278028380817"
+                ),
+                MontFp!(
+                    "7708076609134714141230862755218933126770492236056468794760416795776598438326"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "15848409709319349733176610320380241742406087686143191372456568900597802976538"
+                ),
+                MontFp!(
+                    "9540146790009863485159934628832642812628412304135129213688914635145813336228"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "9185770045054305184736758259657793607839640259766650293556487547032562309671"
+                ),
+                MontFp!(
+                    "11432911110051951631681921017531569575364342685421065346648675066153239320614"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "3844555500753136322381327512496960205691007499508862075997741767231659629794"
+                ),
+                MontFp!(
+                    "13882617567199404882268834641472753340717618088155332445678296340535985037488"
+                ),
+            ),
+            <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "8759526961640533228687024024673542721180423764142837463808078984280460322044"
+                ),
+                MontFp!(
+                    "16527689915433169127535813128203532618519498681751726449956122245958384772958"
+                ),
+            ),
+        ];
         let mut vk_new = vk.clone();
         vk_new.g = <Bn254 as Pairing>::G1Affine::new(Fq::from(1), Fq::from(2));
 
         vk_new.h = <Bn254 as Pairing>::G2Affine::new(
             Fq2::new(
-            Fq::new(BigInteger256::new([
-                5106727233969649389,
-                7440829307424791261,
-                4785637993704342649,
-                1729627375292849782,
-            ])),
-            Fq::new(BigInteger256::new([
-                10945020018377822914,
-                17413811393473931026,
-                8241798111626485029,
-                1841571559660931130,
-            ])),
-        ), Fq2::new(
-            Fq::new(BigInteger256::new([
-                5541340697920699818,
-                16416156555105522555,
-                5380518976772849807,
-                1353435754470862315,
-            ])),
-            Fq::new(BigInteger256::new([
-                6173549831154472795,
-                13567992399387660019,
-                17050234209342075797,
-                650358724130500725,
-            ])),
-        ));
-        vk_new.beta_h = <Bn254 as Pairing>::G2Affine::new(Fq2::new(
-            Fq::new(BigInteger256::new([
-                3059198416762171264,
-                17826071752375934067,
-                2540209951312773215,
-                2907952159147943523,
-            ])),
-            Fq::new(BigInteger256::new([
-                9632549258536950139,
-                4162086999619294322,
-                15740780115627737347,
-                1714907218531776084,
-            ])),
-        ), Fq2::new(
-            Fq::new(BigInteger256::new([
-                14329149837203636176,
-                662368139879402519,
-                3020902600790832773,
-                3147341276872722899,
-            ])),
-            Fq::new(BigInteger256::new([
-                11975304264280600281,
-                16369974670302398806,
-                7444268968364960217,
-                2422619729422656478,
-            ])),
-        ));
+                Fq::new(BigInteger256::new([
+                    5106727233969649389,
+                    7440829307424791261,
+                    4785637993704342649,
+                    1729627375292849782,
+                ])),
+                Fq::new(BigInteger256::new([
+                    10945020018377822914,
+                    17413811393473931026,
+                    8241798111626485029,
+                    1841571559660931130,
+                ])),
+            ),
+            Fq2::new(
+                Fq::new(BigInteger256::new([
+                    5541340697920699818,
+                    16416156555105522555,
+                    5380518976772849807,
+                    1353435754470862315,
+                ])),
+                Fq::new(BigInteger256::new([
+                    6173549831154472795,
+                    13567992399387660019,
+                    17050234209342075797,
+                    650358724130500725,
+                ])),
+            ),
+        );
+        vk_new.beta_h = <Bn254 as Pairing>::G2Affine::new(
+            Fq2::new(
+                Fq::new(BigInteger256::new([
+                    3059198416762171264,
+                    17826071752375934067,
+                    2540209951312773215,
+                    2907952159147943523,
+                ])),
+                Fq::new(BigInteger256::new([
+                    9632549258536950139,
+                    4162086999619294322,
+                    15740780115627737347,
+                    1714907218531776084,
+                ])),
+            ),
+            Fq2::new(
+                Fq::new(BigInteger256::new([
+                    14329149837203636176,
+                    662368139879402519,
+                    3020902600790832773,
+                    3147341276872722899,
+                ])),
+                Fq::new(BigInteger256::new([
+                    11975304264280600281,
+                    16369974670302398806,
+                    7444268968364960217,
+                    2422619729422656478,
+                ])),
+            ),
+        );
 
         ark_std::println!("JJ: vk_new = {:?}", vk_new);
+        let degree = 19;
+        let mut poly_random =
+            <DensePolynomial<Fr254> as DenseUVPolynomial<Fr254>>::rand(degree, rng);
+        poly_random.coeffs[0] = Fr254::zero();
 
-        let commitment_new = <Bn254 as Pairing>::G1Affine::new(MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096"),  MontFp!(
-            "17425095276760945095381060928122902375593783607513862431869872042018379379257"
-        ));
-        let point_new = Fr254::from(0u64);
-        let value_new = Fr254::from(0u64);
-        let proof_new = UnivariateKzgProof::<Bn254> {
-            proof: <Bn254 as Pairing>::G1Affine::new(MontFp!(
-            "18991056847380517498711743163082681994472759809034084754240255183913686701539"
-        ), MontFp!(
-            "13671489686767698476199199614913759207054156363727130982459349913990206588665"
-        )),
-        };
-        UnivariateKzgPCS::<Bn254>::verify(&vk_new, &commitment_new, &point_new, &value_new, &proof_new).unwrap();
+        let comm = UnivariateKzgPCS::<Bn254>::commit(&ck_1, &poly_random).unwrap();
+        let point = Fr254::zero();
+        let (proof, value) = UnivariateKzgPCS::<Bn254>::open(&ck_1, &poly_random, &point).unwrap();
+        UnivariateKzgPCS::<Bn254>::verify(&vk_new, &comm, &point, &value, &proof).unwrap();
+
+        // ark_std::println!("===========Do the paring check mannully===========");
+        // let left_1 = vk_new.g * value - proof.proof * point - comm;
+        // // make left_1 into affine
+        // let left_1 = left_1.into_affine();
+        // let left_2 = proof.proof;
+
+        // let right_1 = vk_new.h;
+        // let right_2 = vk_new.beta_h;
+
+        // let left_1 = proof.proof;
+        // let left_2 = (vk_new.g * value - comm).into_affine();
+
+        // let right_1 = (vk_new.h * point - vk_new.beta_h).into_affine();
+        // let right_2 = vk_new.h;
+
+        // let res = Bn254::multi_pairing(vec![left_1, left_2], vec![right_1, right_2])
+        //     .0
+        //     .is_one();
+        // ark_std::println!("manual paring check: {}", res);
+
+        // let g1s = [left_1, left_2];
+        // let g2s = [right_1, right_2];
+
+        // for g1_signs in 0..4 {
+        //     for g2_signs in 0..4 {
+        //         // Determine sign for each element
+        //         let g1_vec = vec![
+        //             if g1_signs & 1 == 0 { g1s[0] } else { -g1s[0] },
+        //             if g1_signs & 2 == 0 { g1s[1] } else { -g1s[1] },
+        //         ];
+        //         let g2_vec = vec![
+        //             if g2_signs & 1 == 0 { g2s[0] } else { -g2s[0] },
+        //             if g2_signs & 2 == 0 { g2s[1] } else { -g2s[1] },
+        //         ];
+        //         let res = Bn254::multi_pairing(g1_vec.clone(), g2_vec.clone())
+        //             .0
+        //             .is_one();
+        //         ark_std::println!(
+        //             "Signs: G1[{}, {}], G2[{}, {}] => pairing result: {}",
+        //             if g1_signs & 1 == 0 { "+" } else { "-" },
+        //             if g1_signs & 2 == 0 { "+" } else { "-" },
+        //             if g2_signs & 1 == 0 { "+" } else { "-" },
+        //             if g2_signs & 2 == 0 { "+" } else { "-" },
+        //             res
+        //         );
+        //     }
+        // }
+
+        // ark_std::println!("===========e(beta_g,h)=e(g, beta_h) ===========");
+
+        // let beta_g = ck_1.powers_of_g[1];
+        // let h = vk_new.h;
+        // let g = vk_new.g;
+        // let beta_h = vk_new.beta_h;
+        // let pairing_inputs_l: std::vec::Vec<_> = vec![beta_g, -g];
+        // let pairing_inputs_r: std::vec::Vec<_> = vec![h, beta_h];
+        // let res = Bn254::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+        //     .0
+        //     .is_one();
+        // ark_std::println!("JJ: res of pairing = {}", res);
+
+        // for i in 0..ck_1.powers_of_g.len() - 1 {
+        //     let res = Bn254::multi_pairing(
+        //         vec![ck_1.powers_of_g[i + 1], -ck_1.powers_of_g[i]],
+        //         vec![h, beta_h],
+        //     )
+        //     .0
+        //     .is_one();
+        //     ark_std::println!("e(beta^i_g, beta_h) = e(beta^i+1_g, beta_h): {}", res);
+        // }
+
+        // let commitment_new = <Bn254 as Pairing>::G1Affine::new(
+        //     MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096"),
+        //     MontFp!(
+        //         "17425095276760945095381060928122902375593783607513862431869872042018379379257"
+        //     ),
+        // );
+        // let point_new = Fr254::from(0u64);
+        // let value_new = Fr254::from(0u64);
+        // let proof_new = UnivariateKzgProof::<Bn254> {
+        //     proof: <Bn254 as Pairing>::G1Affine::new(
+        //         MontFp!(
+        //             "18991056847380517498711743163082681994472759809034084754240255183913686701539"
+        //         ),
+        //         MontFp!(
+        //             "13671489686767698476199199614913759207054156363727130982459349913990206588665"
+        //         ),
+        //     ),
+        // };
+        // UnivariateKzgPCS::<Bn254>::verify(
+        //     &vk_new,
+        //     &commitment_new,
+        //     &point_new,
+        //     &value_new,
+        //     &proof_new,
+        // )
+        // .unwrap();
 
         ark_std::println!("===========Real accumulator test2. ===========");
         let mut vk_new = vk.clone();
-        let ck_new = ck.clone();
         vk_new.g = <Bn254 as Pairing>::G1Affine::new(Fq::from(1), Fq::from(2));
 
         vk_new.h = <Bn254 as Pairing>::G2Affine::new(
             Fq2::new(
-            Fq::new(BigInteger256::new([
-                5106727233969649389,
-                7440829307424791261,
-                4785637993704342649,
-                1729627375292849782,
-            ])),
-            Fq::new(BigInteger256::new([
-                10945020018377822914,
-                17413811393473931026,
-                8241798111626485029,
-                1841571559660931130,
-            ])),
-        ), Fq2::new(
-            Fq::new(BigInteger256::new([
-                5541340697920699818,
-                16416156555105522555,
-                5380518976772849807,
-                1353435754470862315,
-            ])),
-            Fq::new(BigInteger256::new([
-                6173549831154472795,
-                13567992399387660019,
-                17050234209342075797,
-                650358724130500725,
-            ])),
-        ));
-        vk_new.beta_h = <Bn254 as Pairing>::G2Affine::new(Fq2::new(
-            Fq::new(BigInteger256::new([
-                3059198416762171264,
-                17826071752375934067,
-                2540209951312773215,
-                2907952159147943523,
-            ])),
-            Fq::new(BigInteger256::new([
-                9632549258536950139,
-                4162086999619294322,
-                15740780115627737347,
-                1714907218531776084,
-            ])),
-        ), Fq2::new(
-            Fq::new(BigInteger256::new([
-                14329149837203636176,
-                662368139879402519,
-                3020902600790832773,
-                3147341276872722899,
-            ])),
-            Fq::new(BigInteger256::new([
-                11975304264280600281,
-                16369974670302398806,
-                7444268968364960217,
-                2422619729422656478,
-            ])),
-        ));
+                Fq::new(BigInteger256::new([
+                    5106727233969649389,
+                    7440829307424791261,
+                    4785637993704342649,
+                    1729627375292849782,
+                ])),
+                Fq::new(BigInteger256::new([
+                    10945020018377822914,
+                    17413811393473931026,
+                    8241798111626485029,
+                    1841571559660931130,
+                ])),
+            ),
+            Fq2::new(
+                Fq::new(BigInteger256::new([
+                    5541340697920699818,
+                    16416156555105522555,
+                    5380518976772849807,
+                    1353435754470862315,
+                ])),
+                Fq::new(BigInteger256::new([
+                    6173549831154472795,
+                    13567992399387660019,
+                    17050234209342075797,
+                    650358724130500725,
+                ])),
+            ),
+        );
+        vk_new.beta_h = <Bn254 as Pairing>::G2Affine::new(
+            Fq2::new(
+                Fq::new(BigInteger256::new([
+                    3059198416762171264,
+                    17826071752375934067,
+                    2540209951312773215,
+                    2907952159147943523,
+                ])),
+                Fq::new(BigInteger256::new([
+                    9632549258536950139,
+                    4162086999619294322,
+                    15740780115627737347,
+                    1714907218531776084,
+                ])),
+            ),
+            Fq2::new(
+                Fq::new(BigInteger256::new([
+                    14329149837203636176,
+                    662368139879402519,
+                    3020902600790832773,
+                    3147341276872722899,
+                ])),
+                Fq::new(BigInteger256::new([
+                    11975304264280600281,
+                    16369974670302398806,
+                    7444268968364960217,
+                    2422619729422656478,
+                ])),
+            ),
+        );
 
         ark_std::println!("JJ: vk_new = {:?}", vk_new);
 
-        let commitment_new = <Bn254 as Pairing>::G1Affine::new(MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096"),  MontFp!(
-            "17425095276760945095381060928122902375593783607513862431869872042018379379257"
-        ));
+        let commitment_new = <Bn254 as Pairing>::G1Affine::new(
+            MontFp!("3887810704895428322962904948451372935129289338514763739831754287772972287096"),
+            MontFp!(
+                "17425095276760945095381060928122902375593783607513862431869872042018379379257"
+            ),
+        );
         let point_new = Fr254::from(0u64);
         let value_new = Fr254::from(0u64);
         let proof_new = UnivariateKzgProof::<Bn254> {
-            proof: <Bn254 as Pairing>::G1Affine::new(MontFp!(
-            "18991056847380517498711743163082681994472759809034084754240255183913686701539"
-        ), MontFp!(
-            "13671489686767698476199199614913759207054156363727130982459349913990206588665"
-        )),
+            proof: <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "18991056847380517498711743163082681994472759809034084754240255183913686701539"
+                ),
+                MontFp!(
+                    "13671489686767698476199199614913759207054156363727130982459349913990206588665"
+                ),
+            ),
         };
-        UnivariateKzgPCS::<Bn254>::verify(&vk_new, &commitment_new, &point_new, &value_new, &proof_new).unwrap();
+        UnivariateKzgPCS::<Bn254>::verify(
+            &vk_new,
+            &commitment_new,
+            &point_new,
+            &value_new,
+            &proof_new,
+        )
+        .unwrap();
     }
     #[test]
     fn test_accumulator() {
@@ -944,7 +1234,14 @@ mod tests {
         let proof_new = UnivariateKzgProof::<Bn254> {
             proof: <Bn254 as Pairing>::G1Affine::new(x_new, y_new),
         };
-        UnivariateKzgPCS::<Bn254>::verify(&vk_jj, &commitment_new, &point_new, &value_new, &proof_new).unwrap();
+        UnivariateKzgPCS::<Bn254>::verify(
+            &vk_jj,
+            &commitment_new,
+            &point_new,
+            &value_new,
+            &proof_new,
+        )
+        .unwrap();
     }
 
     fn end_to_end_test_template<E>() -> Result<(), PCSError>
