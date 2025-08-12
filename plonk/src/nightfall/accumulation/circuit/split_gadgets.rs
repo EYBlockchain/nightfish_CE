@@ -79,6 +79,7 @@ where
     E::BaseField: PrimeField + RescueParameter,
     E::ScalarField: EmulationConfig<E::BaseField> + RescueParameter,
 {
+    /// This method is exclusively used in tests.
     fn verify_split_accumulation(
         &mut self,
         acc: &EmulatedPCSInstanceVar<E>,
@@ -186,6 +187,8 @@ where
 
         Ok(())
     }
+
+    /// This method is exclusively used in tests.
     fn verify_split_level_one(
         &mut self,
         acc: &EmulatedPCSInstanceVar<E>,
@@ -223,6 +226,7 @@ where
         self.enforce_point_equal(&calc_point, &acc.comm)
     }
 
+    /// This method is exclusively used in tests.
     fn verify_split_level_one_recursion(
         &mut self,
         acc: &EmulatedPCSInstanceVar<E>,
@@ -294,6 +298,7 @@ where
         self.enforce_point_equal(&calc_point, &acc.comm)
     }
 
+    /// This method is exclusively used in tests.
     fn verify_split_level_two(
         &mut self,
         acc: &PCSInstanceVar,

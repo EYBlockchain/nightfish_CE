@@ -63,6 +63,7 @@ where
     E::ScalarField: EmulationConfig<E::BaseField> + RescueParameter,
     E::BaseField: RescueParameter + PrimeField,
 {
+    /// This method is exclusively used in tests.
     fn verify_atomic_accumulation(
         &mut self,
         old_instances: &[AtomicInstanceVar<E>],
@@ -139,6 +140,7 @@ where
         Ok(())
     }
 
+    /// This method is exclusively used in tests.
     fn verify_atomic_level_one(
         &mut self,
         old_instances: &[AtomicInstanceVar<E>],
@@ -192,6 +194,7 @@ where
         Ok(())
     }
 
+    /// This method is exclusively used in tests.
     fn verify_atomic_level_two(
         &mut self,
         r_challenge: Variable,
