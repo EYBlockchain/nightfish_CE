@@ -578,8 +578,6 @@ where
             cur *= point;
         }
 
-        let k = degree.ilog2();
-
         // This is used when a default proof is constructed so that we don't panic when we index into the vecs.
         if u_j_vec.is_empty() {
             u_j_vec.resize(k as usize, E::ScalarField::one());
