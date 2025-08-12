@@ -425,6 +425,33 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
     })?;
 
+    use ark_ec::bn::Bn;
+    use ark_ec::pairing::Pairing;
+    use ark_ec::AffineRepr;
+    use ark_ec::CurveGroup;
+    for acc in bn254info.old_accumulators.iter() {
+        let comm = acc.comm;
+        let opening_proof = acc.opening_proof.proof;
+        let h = vk_bn254[0].open_key.h;
+        let beta_h = vk_bn254[0].open_key.beta_h;
+        let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
+            opening_proof.into(),
+            (-(comm.into_group())).into_affine().into(),
+        ];
+        let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
+            vec![beta_h.into(), h.into()];
+
+        let res =
+            <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+                .0
+                .is_one();
+        if res {
+            ark_std::println!("Atomic accumulator check passed");
+        } else {
+            ark_std::println!("Atomic accumulator check failed 1");
+        }
+    }
+
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
     // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
@@ -1658,6 +1685,33 @@ pub fn decider_circuit(
         .iter()
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
+
+    use ark_ec::bn::Bn;
+    use ark_ec::pairing::Pairing;
+    use ark_ec::AffineRepr;
+    use ark_ec::CurveGroup;
+    for acc in grumpkin_info.forwarded_acumulators.iter() {
+        let comm = acc.comm;
+        let opening_proof = acc.opening_proof.proof;
+        let h = vk_bn254.open_key.h;
+        let beta_h = vk_bn254.open_key.beta_h;
+        let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
+            opening_proof.into(),
+            (-(comm.into_group())).into_affine().into(),
+        ];
+        let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
+            vec![beta_h.into(), h.into()];
+
+        let res =
+            <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+                .0
+                .is_one();
+        if res {
+            ark_std::println!("Atomic accumulator check passed in decider circuit!");
+        } else {
+            ark_std::println!("Atomic accumulator check failed in decider circuit!");
+        }
+    }
 
     let (_, sha_hash) = circuit.full_shifted_sha256_hash(
         &[specific_pi.clone(), bn254_acc_vars.clone()].concat(),
