@@ -403,7 +403,13 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         P: HasTEForm<BaseField = F, ScalarField = E>,
         C: CircuitTranscript<F>,
     {
-        // First we extract the initial r challenge.
+        // First we append the first evaluations to the transcript
+        let first_evals = self.evals.first().unwrap();
+        for eval in first_evals {
+            transcript.push_emulated_variable(eval, circuit)?;
+        }
+
+        // Next we extract the initial r challenge.
         let r_0 = transcript.squeeze_scalar_challenge::<P>(circuit)?;
 
         // Now we create vecs to store the r, lambda and sumcheck challenges.
@@ -474,6 +480,11 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
             let q_eval = circuit.emulated_mul(q0, q1)?;
             let zero_check = circuit.is_emulated_var_zero(&q_eval)?;
             circuit.enforce_false(zero_check.into())?;
+
+            transcript.push_emulated_variable(p0, circuit)?;
+            transcript.push_emulated_variable(p1, circuit)?;
+            transcript.push_emulated_variable(q0, circuit)?;
+            transcript.push_emulated_variable(q1, circuit)?;
         }
 
         let one_var = circuit.emulated_one();
@@ -776,6 +787,11 @@ pub(crate) mod tests {
                     "Claimed values do not match the provided evaluations".to_string(),
                 ));
             }
+
+            transcript.push_message(b"p0", &p0)?;
+            transcript.push_message(b"p1", &p1)?;
+            transcript.push_message(b"q0", &q0)?;
+            transcript.push_message(b"q1", &q1)?;
         }
 
         let mut res = DeferredCheck::default();

@@ -382,6 +382,11 @@ where
         first_evals.push(p1[0]);
         first_evals.push(q0[0]);
         first_evals.push(q1[0]);
+
+        transcript.push_message(b"p0", &p0[0])?;
+        transcript.push_message(b"p1", &p1[0])?;
+        transcript.push_message(b"q0", &q0[0])?;
+        transcript.push_message(b"q1", &q1[0])?;
     }
     evals.push(first_evals);
     // Prove each layer of the circuit.
@@ -481,6 +486,11 @@ where
 
         p_claims.push(p0 * q1 + p1 * q0);
         q_claims.push(q0 * q1);
+
+        transcript.push_message(b"p0", &p0)?;
+        transcript.push_message(b"p1", &p1)?;
+        transcript.push_message(b"q0", &q0)?;
+        transcript.push_message(b"q1", &q1)?;
     }
 
     batch_inversion(&mut q_claims);
