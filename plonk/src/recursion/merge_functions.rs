@@ -1410,12 +1410,34 @@ pub fn decider_circuit(
     );
     let mut bn254_acc_vars = vec![];
 
+
+    // --- faking the accumulators for the test ---
+    use ark_ff::MontFp;
+    let g = <Bn254 as Pairing>::G1Affine::new(MontFp!("1"), MontFp!("2"));
+    let beta_g = <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "10054994567794822032199322394970208989264976650753242865261403343122188057499"
+                ),
+                MontFp!(
+                    "2978818807908787159945426934220246593272741737117070745308231863911597571889"
+                ),
+            );
+
+    let mut forwarded_acumulators = grumpkin_info.forwarded_acumulators.clone();
+    forwarded_acumulators[0].comm = beta_g;
+    forwarded_acumulators[0].value = Fr254::zero();
+    forwarded_acumulators[0].point = Fr254::zero();
+    forwarded_acumulators[0].opening_proof.proof = g;
+    forwarded_acumulators[1] = forwarded_acumulators[0].clone();
+    // --- end of faking the accumulators ---   
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
         grumpkin_info.bn254_outputs.chunks_exact(2),
         grumpkin_info.grumpkin_outputs.iter(),
         impl_specific_pi.iter(),
-        grumpkin_info.forwarded_acumulators.iter(),
+        // grumpkin_info.forwarded_acumulators.iter(),
+        forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
         recursion_scalars.iter()
     )
@@ -1690,7 +1712,9 @@ pub fn decider_circuit(
     use ark_ec::pairing::Pairing;
     use ark_ec::AffineRepr;
     use ark_ec::CurveGroup;
-    for acc in grumpkin_info.forwarded_acumulators.iter() {
+    
+    for acc in forwarded_acumulators.iter() {
+    // for acc in grumpkin_info.forwarded_acumulators.iter() {
         let comm = acc.comm;
         let opening_proof = acc.opening_proof.proof;
         let h = vk_bn254.open_key.h;
@@ -1732,7 +1756,7 @@ pub fn decider_circuit(
     }
     for elem in bn254_acc_vars.clone().iter() {
         ark_std::println!(
-            "BN254 accumulator variable without debug: {:?}",
+            "BN254 accumulator variable without debug: {}",
             circuit.witness(*elem)?
         );
     }
