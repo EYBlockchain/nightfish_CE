@@ -79,6 +79,7 @@ where
     E::BaseField: PrimeField + RescueParameter,
     E::ScalarField: EmulationConfig<E::BaseField> + RescueParameter,
 {
+    /// This method is exclusively used in tests.
     fn verify_split_accumulation(
         &mut self,
         acc: &EmulatedPCSInstanceVar<E>,
@@ -177,10 +178,17 @@ where
         let commitment =
             EmulMultiScalarMultiplicationCircuit::<E::BaseField, E>::msm(self, &bases, &coeffs)?;
         self.enforce_point_equal(&commitment, &acc.comm)?;
+        // Ensure the accumulator's point matches a2
+        assert_eq!(acc.point.len(), a2.len());
+        for (coord_acc, coord_a2) in acc.point.iter().zip(a2.iter()) {
+            self.enforce_emulated_var_equal(coord_acc, coord_a2)?;
+        }
         self.emulated_mul_gate(&acc.value, &eq_a1_a2_eval, &deferred_check)?;
 
         Ok(())
     }
+
+    /// This method is exclusively used in tests.
     fn verify_split_level_one(
         &mut self,
         acc: &EmulatedPCSInstanceVar<E>,
@@ -218,6 +226,7 @@ where
         self.enforce_point_equal(&calc_point, &acc.comm)
     }
 
+    /// This method is exclusively used in tests.
     fn verify_split_level_one_recursion(
         &mut self,
         acc: &EmulatedPCSInstanceVar<E>,
@@ -289,6 +298,7 @@ where
         self.enforce_point_equal(&calc_point, &acc.comm)
     }
 
+    /// This method is exclusively used in tests.
     fn verify_split_level_two(
         &mut self,
         acc: &PCSInstanceVar,
