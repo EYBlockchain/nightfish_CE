@@ -1259,7 +1259,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                         fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash)
                     );
                 }
-                let calc_pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(calc_pi_hash)?;
+                let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
 
                 let next_grumpkin_challenges = reconstruct_mle_challenges::<
                     _,
@@ -1268,7 +1268,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     _,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(output, &vk_var, circuit, &calc_pi_hash_emul)?;
+                >(output, &vk_var, circuit, &pi_hash_emul)?;
                 Ok(next_grumpkin_challenges)
             },
         )
