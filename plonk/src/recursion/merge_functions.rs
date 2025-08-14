@@ -1644,6 +1644,10 @@ pub fn decider_circuit(
     circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
 
     circuit.set_variable_public(sha_hash)?;
+    ark_std::println!(
+        "Decider circuit hash: {}",
+        sha_hash
+    );
     Ok(field_pi_out)
 }
 
