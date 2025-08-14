@@ -144,6 +144,12 @@ where
             .fold(DensePolynomial::zero, |acc, poly| acc + poly)
             .reduce(DensePolynomial::zero, |a, b| a + b);
 
+        transcript
+            .push_message(b"r_0_eval", &r_poly[0])
+            .map_err(|_| {
+                PolynomialError::ParameterError("Could not append to transcript".to_string())
+            })?;
+
         let r_prime_poly = r_prime_poly::<P::ScalarField>(&r_poly);
 
         let oracle = PolyOracle::<P::ScalarField>::from_poly_and_info(
@@ -324,6 +330,11 @@ where
     where
         O: Oracle<P::ScalarField, Point = P::ScalarField> + TranscriptVisitor,
     {
+        transcript
+            .push_message(b"r_0_eval", &r_0_eval)
+            .map_err(|_| {
+                PolynomialError::ParameterError("Could not append oracle to transcript".to_string())
+            })?;
         transcript.append_visitor(oracle).map_err(|_| {
             PolynomialError::ParameterError("Could not append oracle to transcript".to_string())
         })?;
@@ -479,6 +490,7 @@ where
         }
         let mut prover_state = ProverState::<P>::new(poly)?;
         let eval = prover_state.eval;
+        transcript.push_message(b"eval", &eval)?;
 
         let mut oracles = Vec::new();
         let mut r_0_evals = Vec::new();
@@ -507,6 +519,8 @@ where
         transcript: &mut T,
     ) -> Result<DeferredCheck<P::ScalarField>, PlonkError> {
         let mut verifier_state = VerifierState::<P>::from(proof);
+
+        transcript.push_message(b"eval", &proof.eval)?;
 
         for (oracle, r_0_eval) in proof.oracles.iter().zip(proof.r_0_evals.iter()) {
             verifier_state.verify_sumcheck_round(oracle, *r_0_eval, transcript)?;
