@@ -10,7 +10,7 @@ use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{cfg_iter, string::ToString, sync::Arc, vec, vec::Vec};
 use jf_primitives::{
-    circuit::rescue::RescueNativeGadget,
+    circuit::{rescue::RescueNativeGadget, sha256::Sha256HashGadget},
     pcs::{
         prelude::{UnivariateKzgPCS, UnivariateKzgProof},
         PolynomialCommitmentScheme,
@@ -32,7 +32,6 @@ use jf_relation::{
 use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
 use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
 use rayon::prelude::*;
-use sha3::{Digest, Keccak256};
 
 use crate::{
     errors::PlonkError,
@@ -425,6 +424,33 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         transcript.append_curve_point(b"comm", &acc.comm)?;
         transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
     })?;
+
+    use ark_ec::bn::Bn;
+    use ark_ec::pairing::Pairing;
+    use ark_ec::AffineRepr;
+    use ark_ec::CurveGroup;
+    for acc in bn254info.old_accumulators.iter() {
+        let comm = acc.comm;
+        let opening_proof = acc.opening_proof.proof;
+        let h = vk_bn254[0].open_key.h;
+        let beta_h = vk_bn254[0].open_key.beta_h;
+        let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
+            opening_proof.into(),
+            (-(comm.into_group())).into_affine().into(),
+        ];
+        let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
+            vec![beta_h.into(), h.into()];
+
+        let res =
+            <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+                .0
+                .is_one();
+        if res {
+            ark_std::println!("Atomic accumulator check passed");
+        } else {
+            ark_std::println!("Atomic accumulator check failed 1");
+        }
+    }
 
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
@@ -1377,6 +1403,7 @@ pub fn decider_circuit(
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
         &mut PlonkCircuit<Fr254>,
+        &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
@@ -1403,12 +1430,40 @@ pub fn decider_circuit(
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
+    ark_std::println!(
+        "grumpkin_info.forwarded_acumulators: {:?}",
+        grumpkin_info.forwarded_acumulators
+    );
+    let mut bn254_acc_vars = vec![];
+
+
+    // --- faking the accumulators for the test ---
+    use ark_ff::MontFp;
+    let g = <Bn254 as Pairing>::G1Affine::new(MontFp!("1"), MontFp!("2"));
+    let beta_g = <Bn254 as Pairing>::G1Affine::new(
+                MontFp!(
+                    "10054994567794822032199322394970208989264976650753242865261403343122188057499"
+                ),
+                MontFp!(
+                    "2978818807908787159945426934220246593272741737117070745308231863911597571889"
+                ),
+            );
+
+    let mut forwarded_acumulators = grumpkin_info.forwarded_acumulators.clone();
+    forwarded_acumulators[0].comm = beta_g;
+    forwarded_acumulators[0].value = Fr254::zero();
+    forwarded_acumulators[0].point = Fr254::zero();
+    forwarded_acumulators[0].opening_proof.proof = g;
+    forwarded_acumulators[1] = forwarded_acumulators[0].clone();
+    // --- end of faking the accumulators ---   
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
         grumpkin_info.bn254_outputs.chunks_exact(2),
         grumpkin_info.grumpkin_outputs.iter(),
         impl_specific_pi.iter(),
-        grumpkin_info.forwarded_acumulators.iter(),
+        // grumpkin_info.forwarded_acumulators.iter(),
+        forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
         recursion_scalars.iter()
     )
@@ -1479,6 +1534,18 @@ pub fn decider_circuit(
                 .flatten()
                 .collect::<Vec<Variable>>();
 
+            ark_std::println!("bn254_accumulator.comm: {}", bn254_accumulator.comm);
+            ark_std::println!("bn254_accumulator.value: {}", bn254_accumulator.value);
+            ark_std::println!("bn254_accumulator.point: {}", bn254_accumulator.point);
+            ark_std::println!(
+                "bn254_accumulator.opening_proof.proof: {}",
+                bn254_accumulator.opening_proof.proof
+            );
+            ark_std::println!(
+                "bn254_accumulator.opening_proof: {:?}",
+                bn254_accumulator.opening_proof
+            );
+
             let bn254_acc = [
                 bn254_accumulator.comm.x,
                 bn254_accumulator.comm.y,
@@ -1496,6 +1563,8 @@ pub fn decider_circuit(
                                 "Could not convert slice to fixed length array".to_string(),
                             )
                         })?;
+
+                ark_std::println!("low_eval: {}, high_eval: {}", low_eval, high_eval);
                 let low_var = circuit.create_variable(low_eval)?;
                 let high_var = circuit.create_variable(high_eval)?;
 
@@ -1512,6 +1581,10 @@ pub fn decider_circuit(
             .into_iter()
             .flatten()
             .collect::<Vec<Variable>>();
+
+            ark_std::println!("bn254_acc length: {}", bn254_acc.len());
+
+            bn254_acc_vars.extend_from_slice(&bn254_acc);
 
             let bn254_pi_hashes = bn254_outputs
                 .iter()
@@ -1658,7 +1731,9 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
-    let specific_pi = specific_pi_fn(&impl_spec_pi, circuit)?;
+
+    let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
+    let specific_pi = specific_pi_fn(&impl_spec_pi, circuit, &mut lookup_vars)?;
 
     verify_zeromorph_circuit(
         circuit,
@@ -1674,34 +1749,70 @@ pub fn decider_circuit(
         .iter()
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
-    let field_pi = field_pi_out
-        .iter()
-        .flat_map(|f| f.into_bigint().to_bytes_be())
-        .collect::<Vec<u8>>();
 
-    let acc_elems = grumpkin_info
-        .forwarded_acumulators
-        .iter()
-        .flat_map(|acc| {
-            let point = Point::<Fq254>::from(acc.comm);
-            let opening_proof = Point::<Fq254>::from(acc.opening_proof.proof);
-            point
-                .coords()
-                .iter()
-                .chain(opening_proof.coords().iter())
-                .flat_map(|coord| coord.into_bigint().to_bytes_be())
-                .collect::<Vec<u8>>()
-        })
-        .collect::<Vec<u8>>();
+    use ark_ec::bn::Bn;
+    use ark_ec::pairing::Pairing;
+    use ark_ec::AffineRepr;
+    use ark_ec::CurveGroup;
+    
+    for acc in forwarded_acumulators.iter() {
+    // for acc in grumpkin_info.forwarded_acumulators.iter() {
+        let comm = acc.comm;
+        let opening_proof = acc.opening_proof.proof;
+        let h = vk_bn254.open_key.h;
+        let beta_h = vk_bn254.open_key.beta_h;
+        let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
+            opening_proof.into(),
+            (-(comm.into_group())).into_affine().into(),
+        ];
+        let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
+            vec![beta_h.into(), h.into()];
 
-    let mut hasher = Keccak256::new();
-    hasher.update([field_pi, acc_elems].concat());
-    let buf = hasher.finalize();
+        let res =
+            <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+                .0
+                .is_one();
+        if res {
+            ark_std::println!("Atomic accumulator check passed in decider circuit!");
+        } else {
+            ark_std::println!("Atomic accumulator check failed in decider circuit!");
+        }
+    }
 
-    // Generate challenge from state bytes using little-endian order
-    let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
+    let (_, sha_hash) = circuit.full_shifted_sha256_hash(
+        &[specific_pi.clone(), bn254_acc_vars.clone()].concat(),
+        &mut lookup_vars,
+    )?;
+    // print everything to compute the hash
+    for elem in specific_pi.clone().iter() {
+        ark_std::println!("Specific PI element: {:?}", circuit.witness(*elem)?);
+    }
+    for elem in specific_pi.clone().iter() {
+        ark_std::println!(
+            "Specific PI element without debug: {}",
+            circuit.witness(*elem)?
+        );
+    }
+    for elem in bn254_acc_vars.clone().iter() {
+        ark_std::println!("BN254 accumulator variable: {:?}", circuit.witness(*elem)?);
+    }
+    for elem in bn254_acc_vars.clone().iter() {
+        ark_std::println!(
+            "BN254 accumulator variable without debug: {}",
+            circuit.witness(*elem)?
+        );
+    }
+    circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
+    ark_std::println!(
+        "SHA256 hash in decider circuit: {:?}",
+        circuit.witness(sha_hash)?
+    );
+    ark_std::println!(
+        "SHA256 hash in decider circuit without debug: {}",
+        circuit.witness(sha_hash)?
+    );
 
-    circuit.create_public_variable(pi_hash)?;
+    circuit.set_variable_public(sha_hash)?;
     Ok(field_pi_out)
 }
 
