@@ -490,6 +490,7 @@ where
         }
         let mut prover_state = ProverState::<P>::new(poly)?;
         let eval = prover_state.eval;
+        transcript.push_message(b"eval", &eval)?;
 
         let mut oracles = Vec::new();
         let mut r_0_evals = Vec::new();
@@ -518,6 +519,8 @@ where
         transcript: &mut T,
     ) -> Result<DeferredCheck<P::ScalarField>, PlonkError> {
         let mut verifier_state = VerifierState::<P>::from(proof);
+
+        transcript.push_message(b"eval", &proof.eval)?;
 
         for (oracle, r_0_eval) in proof.oracles.iter().zip(proof.r_0_evals.iter()) {
             verifier_state.verify_sumcheck_round(oracle, *r_0_eval, transcript)?;

@@ -89,6 +89,7 @@ pub trait SumCheckGadget<F: PrimeField + RescueParameter> {
     fn verify_challenges<E>(
         &mut self,
         poly_oracles: &[EmulatedPolyOracleVar<E::ScalarField>],
+        eval: &EmulatedVariable<E::ScalarField>,
         r_0_evals: &[EmulatedVariable<E::ScalarField>],
         challenges: &[EmulatedVariable<E::ScalarField>],
         transcript: &mut RescueTranscriptVar<F>,
@@ -342,6 +343,7 @@ where
     {
         let num_rounds = proof.point_var.len();
         let mut eval_var = proof.eval_var.clone();
+        transcript.push_emulated_variable(&eval_var, self)?;
         for i in 0..num_rounds {
             transcript.push_emulated_variable(&proof.r_0_evals_var[i], self)?;
             for evaluation in proof.oracles_var[i].evaluations_var.iter() {
@@ -381,6 +383,7 @@ where
     {
         let num_rounds = sum_check_proof_var.point_var.len();
         let mut eval_var = sum_check_proof_var.eval_var;
+        transcript.push_variable(&eval_var)?;
         for i in 0..num_rounds {
             transcript.push_variable(&sum_check_proof_var.r_0_evals_var[i])?;
 
@@ -509,6 +512,7 @@ where
     {
         let mut calc_challenges = vec![];
 
+        transcript.push_emulated_variable(&proof.eval_var, self)?;
         for (evaluations, r_0_eval) in proof
             .oracles_var
             .iter()
@@ -529,6 +533,7 @@ where
     fn verify_challenges<E>(
         &mut self,
         poly_oracles: &[EmulatedPolyOracleVar<E::ScalarField>],
+        eval: &EmulatedVariable<E::ScalarField>,
         r_0_evals: &[EmulatedVariable<E::ScalarField>],
         challenges: &[EmulatedVariable<E::ScalarField>],
         transcript: &mut RescueTranscriptVar<F>,
@@ -539,6 +544,7 @@ where
         F: PrimeField + RescueParameter,
     {
         let mut calc_challenges = vec![];
+        transcript.push_emulated_variable(eval, self)?;
 
         for (evaluations, r_0_eval) in poly_oracles
             .iter()
@@ -725,6 +731,7 @@ mod test {
                 .iter()
                 .map(|oracle| circuit.poly_oracle_to_emulated_var(oracle))
                 .collect::<Result<Vec<_>, _>>()?;
+            let eval_var = circuit.create_emulated_variable(sum_check_proof.eval)?;
             let r_0_evals_var = r_0_evals
                 .iter()
                 .map(|eval| circuit.create_emulated_variable(*eval))
@@ -736,6 +743,7 @@ mod test {
             let mut transcript = RescueTranscriptVar::<Fq>::new_transcript(&mut circuit);
             circuit.verify_challenges::<E>(
                 &emul_oracles_var,
+                &eval_var,
                 &r_0_evals_var,
                 &emul_challenges_var,
                 &mut transcript,
