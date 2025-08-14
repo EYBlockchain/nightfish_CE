@@ -925,6 +925,9 @@ mod tests {
             let mle_proof_challenges = outputs
                 .iter()
                 .map(|output| {
+                    let pi_hash = challenges_circuit
+                        .create_emulated_variable(output.pi_hash)
+                        .unwrap();
                     let (stuff, _) = reconstruct_mle_challenges::<
                         _,
                         _,
@@ -932,7 +935,9 @@ mod tests {
                         _,
                         RescueTranscript<Fr254>,
                         RescueTranscriptVar<Fr254>,
-                    >(output, &vk_var, &mut challenges_circuit)
+                    >(
+                        output, &vk_var, &mut challenges_circuit, &pi_hash
+                    )
                     .unwrap();
                     stuff
                 })
