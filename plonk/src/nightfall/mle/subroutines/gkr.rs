@@ -387,7 +387,6 @@ where
     // Prove each layer of the circuit.
     // Start with the last layer.
     let r_0 = transcript.squeeze_scalar_challenge::<P>(b"r_0")?;
-    ark_std::println!("r_0: {:?}", r_0);
 
     let mut challenge_point = vec![r_0];
 
@@ -404,7 +403,6 @@ where
             .collect::<Vec<_>>();
 
         let lambda = transcript.squeeze_scalar_challenge::<P>(b"lambda")?;
-        ark_std::println!("lambda: {:?}", lambda);
         let sumcheck_products = sum_check_products(batch_size, lambda);
 
         let num_vars = layer.first().unwrap().num_vars();
@@ -413,7 +411,6 @@ where
 
         let sumcheck_proof = VPSumCheck::<P>::prove(&vp, transcript)?;
         let r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
-        ark_std::println!("r: {:?}", r);
 
         evals.push(sumcheck_proof.poly_evals[..4 * batch_size].to_vec());
 
@@ -499,7 +496,6 @@ where
     let mut res = DeferredCheck::default();
     let mut lambda = P::ScalarField::zero();
     let mut r = transcript.squeeze_scalar_challenge::<P>(b"r_0")?;
-    ark_std::println!("r_0: {:?}", r);
     let mut sc_eq_eval = P::ScalarField::zero();
     let mut challenge_point = vec![r];
     // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
@@ -521,7 +517,6 @@ where
         }
 
         lambda = transcript.squeeze_scalar_challenge::<P>(b"lambda")?;
-        ark_std::println!("lambda: {:?}", lambda);
 
         // Check that the initial evaluation of the sumcheck is correct.
         let initial_eval = sumcheck_intial_evaluation(evals, lambda, r);
@@ -533,7 +528,6 @@ where
 
         let deferred_check = VPSumCheck::<P>::verify(proof, transcript)?;
         r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
-        ark_std::println!("r_0: {:?}", r);
         sc_eq_eval = eq_eval(&deferred_check.point, &challenge_point)?;
         challenge_point = [deferred_check.point.as_slice(), &[r]].concat();
         res = deferred_check;
