@@ -1596,16 +1596,16 @@ pub fn decider_circuit(
         .lookup_verifying_key
         .as_ref()
         .unwrap();
-    let range_table_comm =
-        circuit.create_point_variable(&Point::<Fr254>::from(lookup_vk.range_table_comm))?;
+    let range_table_comm = circuit
+        .create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.range_table_comm))?;
     let key_table_comm =
-        circuit.create_point_variable(&Point::<Fr254>::from(lookup_vk.key_table_comm))?;
-    let table_dom_sep_comm =
-        circuit.create_point_variable(&Point::<Fr254>::from(lookup_vk.table_dom_sep_comm))?;
+        circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.key_table_comm))?;
+    let table_dom_sep_comm = circuit
+        .create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.table_dom_sep_comm))?;
     let q_dom_sep_comm =
-        circuit.create_point_variable(&Point::<Fr254>::from(lookup_vk.q_dom_sep_comm))?;
+        circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_dom_sep_comm))?;
     let q_lookup_comm =
-        circuit.create_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
+        circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
 
     let lookup_bases = &[
         range_table_comm,
