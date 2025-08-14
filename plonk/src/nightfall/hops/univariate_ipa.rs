@@ -94,6 +94,9 @@ where
     <E as Pairing>::BaseField: RescueParameter,
     E::ScalarField: EmulationConfig<E::BaseField>,
 {
+    /// This is is a fixed, transparent SRS derived from a hard-coded hash-to-curve seed.
+    /// Since the verifier is hard-wired to the same SRS, we exclude it from the Fiat-Shamir transcript.
+    /// In Nightfall, the SRS is instantiated with `UnivariateUniversalIpaParams::gen_srs("Nightfall_4", 1 << 18)`.
     type SRS = UnivariateUniversalIpaParams<E>;
     type Polynomial = DensePolynomial<E::ScalarField>;
     type Point = E::ScalarField;

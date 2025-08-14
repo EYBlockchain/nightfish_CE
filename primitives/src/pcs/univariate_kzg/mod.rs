@@ -84,7 +84,13 @@ impl<E: Pairing> Hash for UnivariateKzgProof<E> {
 pub type UnivariateKzgBatchProof<E> = Vec<UnivariateKzgProof<E>>;
 
 impl<E: Pairing> PolynomialCommitmentScheme for UnivariateKzgPCS<E> {
-    // Config
+    /// This is is a fixed, trusted SRS generated during the [Powers-of-Tau ceremony](https://zfnd.org/conclusion-of-the-powers-of-tau-ceremony).
+    /// Since the verifier is hard-wired to the same SRS, we exclude it from the Fiat-Shamir transcript.
+    /// In Nightfall, the SRS is instantiated with:
+    /// const MAX_KZG_DEGREE: usize = 26;
+    /// let ptau_file = path.join(format!("bin/ppot_{}.ptau", MAX_KZG_DEGREE));
+    /// UnivariateKzgPCS::download_ptau_file_if_needed(MAX_KZG_DEGREE, &ptau_file).unwrap();
+    /// UnivariateKzgPCS::universal_setup_bn254(&ptau_file, 1 << MAX_KZG_DEGREE).unwrap();
     type SRS = UnivariateUniversalParams<E>;
     // Polynomial and its associated types
     type Polynomial = DensePolynomial<E::ScalarField>;
