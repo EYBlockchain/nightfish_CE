@@ -527,12 +527,11 @@ mod tests {
                 oracle_vars.push(oracle_var);
             }
 
-            let r_0_evals = proof.r_0_evals.clone();
-            let mut r_0_evals_vars = vec![];
-            for r_0_eval in r_0_evals.iter() {
-                let r_0_eval_var = circuit.create_emulated_variable(*r_0_eval).unwrap();
-                r_0_evals_vars.push(r_0_eval_var);
-            }
+            let r_0_evals_vars = proof
+                .r_0_evals
+                .iter()
+                .map(|e| circuit.create_emulated_variable(*e))
+                .collect::<Result<Vec<_>, CircuitError>>()?;
 
             let points = zeromorph_accumulator.points();
 
