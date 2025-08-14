@@ -333,7 +333,10 @@ mod tests {
 
     use crate::{
         errors::PlonkError,
-        nightfall::{ipa_snark::test::gen_circuit_for_test, ipa_verifier::FFTVerifier},
+        nightfall::{
+            accumulation::accumulation_structs::AtomicInstance,
+            ipa_snark::test::gen_circuit_for_test, ipa_verifier::FFTVerifier,
+        },
         proof_system::UniversalSNARK,
     };
     use ark_bn254::{g1::Config as BnConfig, Bn254};
@@ -495,7 +498,12 @@ mod tests {
             let opening_proofs = outputs
                 .iter()
                 .map(|output| output.proof.opening_proof.proof)
-                .chain(accs.iter().map(|acc| acc.opening_proof.proof))
+                .chain(
+                    accs.iter()
+                        .map(|acc: &AtomicInstance<UnivariateKzgPCS<Bn254>>| {
+                            acc.opening_proof.proof
+                        }),
+                )
                 .collect::<Vec<_>>();
 
             let comms_lists = pcs_infos
