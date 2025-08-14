@@ -1037,23 +1037,15 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 ) -> Result<Bn254CircuitOutput, PlonkError> {
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = if !IS_BASE {
-        izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4)
-        )
-        .map(|(outputs, old_accs)| {
-            calculate_recursion_scalars(outputs, old_accs, &bn254_vks[0], circuit)
-        })
-        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+        izip!(grumpkin_info.bn254_outputs.chunks_exact(2),)
+            .map(|outputs| calculate_recursion_scalars(outputs, &bn254_vks[0], circuit))
+            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     } else {
         izip!(
             grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4),
             bn254_vks.chunks_exact(2),
         )
-        .map(|(outputs, old_accs, vks)| {
-            calculate_recursion_scalars_base(outputs, old_accs, vks, circuit)
-        })
+        .map(|(outputs, vks)| calculate_recursion_scalars_base(outputs, vks, circuit))
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
     // Make a vk variable
@@ -1374,12 +1366,9 @@ pub fn decider_circuit(
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
-    let recursion_scalars = izip!(
-        grumpkin_info.bn254_outputs.chunks_exact(2),
-        grumpkin_info.transcript_accumulators.chunks_exact(4)
-    )
-    .map(|(outputs, old_accs)| calculate_recursion_scalars(outputs, old_accs, vk_bn254, circuit))
-    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+    let recursion_scalars = izip!(grumpkin_info.bn254_outputs.chunks_exact(2))
+        .map(|outputs| calculate_recursion_scalars(outputs, vk_bn254, circuit))
+        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
