@@ -26,7 +26,7 @@ pub fn verify_ipa_circuit<E, F, P>(
     verifier_param: &<UnivariateUniversalIpaParams<E> as StructuredReferenceString>::VerifierParam,
     commitment: &PointVariable,
     eval_point_var: EmulatedVariable<E::ScalarField>,
-    evaluation: E::ScalarField,
+    poly_eval_var: EmulatedVariable<E::ScalarField>,
     proof_l_i: Vec<PointVariable>,
     proof_r_i: Vec<PointVariable>,
     proof_c: E::ScalarField,
@@ -48,7 +48,6 @@ where
     transcript_var.push_emulated_variable(&eval_point_var, circuit)?;
 
     // Append Poly Evaluation
-    let poly_eval_var = circuit.create_emulated_variable(evaluation)?;
     transcript_var.push_emulated_variable(&poly_eval_var, circuit)?;
 
     let alpha = transcript_var.squeeze_scalar_challenge::<P>(circuit)?;
@@ -173,7 +172,7 @@ mod test {
     use ark_bw6_761::BW6_761;
     use ark_ec::{AffineRepr, CurveGroup};
 
-    use ark_std::{rand::SeedableRng, UniformRand, Zero};
+    use ark_std::{rand::SeedableRng, UniformRand};
     use jf_primitives::pcs::prelude::UnivariateKzgPCS;
     use jf_relation::{
         gadgets::ecc::{MultiScalarMultiplicationCircuit, Point},
@@ -274,13 +273,14 @@ mod test {
         }
 
         let eval_point_var = circuit.create_emulated_variable(pcs_info.u)?;
+        let poly_eval_var = circuit.emulated_zero();
 
         verify_ipa_circuit::<Bls12_377, _, Param377>(
             &mut circuit,
             &open_key,
             &g_comm_var,
             eval_point_var,
-            Fr::zero(),
+            poly_eval_var,
             proof_l_i,
             proof_r_i,
             pcs_info.opening_proof.c,

@@ -3,7 +3,7 @@
 use ark_ec::{pairing::Pairing, short_weierstrass::Affine};
 use ark_ff::{Field, PrimeField};
 
-use ark_std::{string::ToString, vec, vec::Vec, One, Zero};
+use ark_std::{string::ToString, vec, vec::Vec, One};
 use jf_primitives::{pcs::StructuredReferenceString, rescue::RescueParameter};
 use jf_relation::{
     errors::CircuitError,
@@ -237,7 +237,7 @@ where
         verifier_param,
         &batch_comm,
         x,
-        E::ScalarField::zero(),
+        zero_var,
         proof_l_i,
         proof_r_i,
         proof.degree_check_proof.c,
