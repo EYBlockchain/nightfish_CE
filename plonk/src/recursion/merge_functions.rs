@@ -10,7 +10,7 @@ use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{cfg_iter, string::ToString, sync::Arc, vec, vec::Vec};
 use jf_primitives::{
-    circuit::rescue::RescueNativeGadget,
+    circuit::{rescue::RescueNativeGadget, sha256::Sha256HashGadget},
     pcs::{
         prelude::{UnivariateKzgPCS, UnivariateKzgProof},
         PolynomialCommitmentScheme,
@@ -32,7 +32,6 @@ use jf_relation::{
 use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
 use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
 use rayon::prelude::*;
-use sha3::{Digest, Keccak256};
 
 use crate::{
     errors::PlonkError,
@@ -1377,6 +1376,7 @@ pub fn decider_circuit(
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
         &mut PlonkCircuit<Fr254>,
+        &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
@@ -1402,6 +1402,8 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    let mut bn254_acc_vars = vec![];
 
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
@@ -1512,6 +1514,8 @@ pub fn decider_circuit(
             .into_iter()
             .flatten()
             .collect::<Vec<Variable>>();
+
+            bn254_acc_vars.extend_from_slice(&bn254_acc);
 
             let bn254_pi_hashes = bn254_outputs
                 .iter()
@@ -1658,7 +1662,9 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
-    let specific_pi = specific_pi_fn(&impl_spec_pi, circuit)?;
+
+    let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
+    let specific_pi = specific_pi_fn(&impl_spec_pi, circuit, &mut lookup_vars)?;
 
     verify_zeromorph_circuit(
         circuit,
@@ -1674,34 +1680,12 @@ pub fn decider_circuit(
         .iter()
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
-    let field_pi = field_pi_out
-        .iter()
-        .flat_map(|f| f.into_bigint().to_bytes_be())
-        .collect::<Vec<u8>>();
 
-    let acc_elems = grumpkin_info
-        .forwarded_acumulators
-        .iter()
-        .flat_map(|acc| {
-            let point = Point::<Fq254>::from(acc.comm);
-            let opening_proof = Point::<Fq254>::from(acc.opening_proof.proof);
-            point
-                .coords()
-                .iter()
-                .chain(opening_proof.coords().iter())
-                .flat_map(|coord| coord.into_bigint().to_bytes_be())
-                .collect::<Vec<u8>>()
-        })
-        .collect::<Vec<u8>>();
+    let (_, sha_hash) = circuit
+        .full_shifted_sha256_hash(&[specific_pi, bn254_acc_vars].concat(), &mut lookup_vars)?;
+    circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
 
-    let mut hasher = Keccak256::new();
-    hasher.update([field_pi, acc_elems].concat());
-    let buf = hasher.finalize();
-
-    // Generate challenge from state bytes using little-endian order
-    let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
-
-    circuit.create_public_variable(pi_hash)?;
+    circuit.set_variable_public(sha_hash)?;
     Ok(field_pi_out)
 }
 
