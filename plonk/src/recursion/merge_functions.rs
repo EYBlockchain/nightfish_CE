@@ -419,12 +419,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
     transcript.merge(&outputs[1].transcript)?;
 
-    // Append the old bn254 accumulators to the transcript.
-    bn254info.old_accumulators.iter().try_for_each(|acc| {
-        transcript.append_curve_point(b"comm", &acc.comm)?;
-        transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
-    })?;
-
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
     // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
@@ -1042,23 +1036,15 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 ) -> Result<Bn254CircuitOutput, PlonkError> {
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = if !IS_BASE {
-        izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4)
-        )
-        .map(|(outputs, old_accs)| {
-            calculate_recursion_scalars(outputs, old_accs, &bn254_vks[0], circuit)
-        })
-        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+        izip!(grumpkin_info.bn254_outputs.chunks_exact(2),)
+            .map(|outputs| calculate_recursion_scalars(outputs, &bn254_vks[0], circuit))
+            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     } else {
         izip!(
             grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4),
             bn254_vks.chunks_exact(2),
         )
-        .map(|(outputs, old_accs, vks)| {
-            calculate_recursion_scalars_base(outputs, old_accs, vks, circuit)
-        })
+        .map(|(outputs, vks)| calculate_recursion_scalars_base(outputs, vks, circuit))
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
     // Make a vk variable
@@ -1381,12 +1367,9 @@ pub fn decider_circuit(
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
-    let recursion_scalars = izip!(
-        grumpkin_info.bn254_outputs.chunks_exact(2),
-        grumpkin_info.transcript_accumulators.chunks_exact(4)
-    )
-    .map(|(outputs, old_accs)| calculate_recursion_scalars(outputs, old_accs, vk_bn254, circuit))
-    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+    let recursion_scalars = izip!(grumpkin_info.bn254_outputs.chunks_exact(2))
+        .map(|outputs| calculate_recursion_scalars(outputs, vk_bn254, circuit))
+        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;

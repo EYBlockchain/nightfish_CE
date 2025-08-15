@@ -435,11 +435,6 @@ where
             transcript.append_curve_point(b"opening_proof", &instance.opening_proof.proof)?;
         }
 
-        for old_acc in old_accs.iter() {
-            transcript.append_curve_point(b"commitment", &old_acc.s_beta_g)?;
-            transcript.append_curve_point(b"opening_proof", &old_acc.s_g)?;
-        }
-
         let r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
         let r_powers = cfg_into_iter!(0..self.instances.len() + old_accs.len())
             .map(|i| r.pow([i as u64]))

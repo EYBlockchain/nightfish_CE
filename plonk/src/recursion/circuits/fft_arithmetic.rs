@@ -1,14 +1,13 @@
 //! This module contains the code for performing scalar arithmetic to do with FFT Proofs.
 
-use ark_bn254::{g1::Config as BnConfig, Fq as Fq254, Fr as Fr254};
+use ark_bn254::{g1::Config as BnConfig, Fr as Fr254};
 
 use ark_std::{string::ToString, vec::Vec};
 
-use jf_relation::{errors::CircuitError, gadgets::ecc::Point, Circuit, PlonkCircuit, Variable};
+use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
 use crate::{
     nightfall::{
-        accumulation::accumulation_structs::AtomicInstance,
         circuit::plonk_partial_verifier::{
             compute_scalars_for_native_field, ChallengesVar, PlookupEvalsVarNative,
             ProofEvalsVarNative, ProofVarNative,
@@ -112,7 +111,6 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn calculate_recursion_scalars(
     outputs: &[RecursiveOutput<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>],
-    old_accs: &[AtomicInstance<Kzg>],
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
@@ -127,34 +125,12 @@ pub fn calculate_recursion_scalars(
         .map(|output| partial_verify_fft_plonk::<false>(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Now we transform the 'old_accs' into the relevant circuit variables
-    let acc_vars: Vec<(_, _, _, _)> = old_accs
-        .iter()
-        .map(|acc| {
-            let comm_point = Point::<Fq254>::from(acc.comm);
-            let emulated_comm = circuit.create_emulated_point_variable(&comm_point)?;
-            let point = circuit.create_variable(acc.point)?;
-            let eval = circuit.create_variable(acc.value)?;
-            let opening_proof_point = Point::<Fq254>::from(acc.opening_proof.proof);
-            let opening_proof = circuit.create_emulated_point_variable(&opening_proof_point)?;
-            Result::<_, CircuitError>::Ok((emulated_comm, point, eval, opening_proof))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     // Since we have checked that outputs is non-empty, we can safely unwrap the first element
     let mut transcript = pcs_infos[0].transcript.clone();
     pcs_infos
         .iter()
         .skip(1)
         .try_for_each(|pcs_info| transcript.merge(&pcs_info.transcript))?;
-
-    // Append old_accs to the transcript
-    acc_vars
-        .iter()
-        .try_for_each(|(comm, _, _, opening_proof)| {
-            transcript.append_point_variable(comm, circuit)?;
-            transcript.append_point_variable(opening_proof, circuit)
-        })?;
 
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
@@ -169,7 +145,7 @@ pub fn calculate_recursion_scalars(
         circuit,
     )?;
 
-    let mut challenge_powers = (0..outputs.len() + old_accs.len() - 1)
+    let mut challenge_powers = (0..outputs.len())
         .scan(circuit.one(), |state, _| {
             if let Ok(challenge_power) = circuit.mul(*state, batching_challenge) {
                 *state = challenge_power;
@@ -205,7 +181,6 @@ pub fn calculate_recursion_scalars(
 /// It then combines all the scalars in suc a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn calculate_recursion_scalars_base(
     outputs: &[RecursiveOutput<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>],
-    old_accs: &[AtomicInstance<Kzg>],
     vks: &[VerifyingKey<Kzg>],
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
@@ -221,34 +196,12 @@ pub fn calculate_recursion_scalars_base(
         .map(|(output, vk)| partial_verify_fft_plonk::<true>(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Now we transform the 'old_accs' into the relevant circuit variables
-    let acc_vars: Vec<(_, _, _, _)> = old_accs
-        .iter()
-        .map(|acc| {
-            let comm_point = Point::<Fq254>::from(acc.comm);
-            let emulated_comm = circuit.create_emulated_point_variable(&comm_point)?;
-            let point = circuit.create_variable(acc.point)?;
-            let eval = circuit.create_variable(acc.value)?;
-            let opening_proof_point = Point::<Fq254>::from(acc.opening_proof.proof);
-            let opening_proof = circuit.create_emulated_point_variable(&opening_proof_point)?;
-            Result::<_, CircuitError>::Ok((emulated_comm, point, eval, opening_proof))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     // Since we have checked that outputs is non-empty, we can safely unwrap the first element
     let mut transcript = pcs_infos[0].transcript.clone();
     pcs_infos
         .iter()
         .skip(1)
         .try_for_each(|pcs_info| transcript.merge(&pcs_info.transcript))?;
-
-    // Append old_accs to the transcript
-    acc_vars
-        .iter()
-        .try_for_each(|(comm, _, _, opening_proof)| {
-            transcript.append_point_variable(comm, circuit)?;
-            transcript.append_point_variable(opening_proof, circuit)
-        })?;
 
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
@@ -263,7 +216,7 @@ pub fn calculate_recursion_scalars_base(
         circuit,
     )?;
 
-    let mut challenge_powers = (0..outputs.len() + old_accs.len() - 1)
+    let mut challenge_powers = (0..outputs.len())
         .scan(circuit.one(), |state, _| {
             if let Ok(challenge_power) = circuit.mul(*state, batching_challenge) {
                 *state = challenge_power;
@@ -380,7 +333,10 @@ mod tests {
 
     use crate::{
         errors::PlonkError,
-        nightfall::{ipa_snark::test::gen_circuit_for_test, ipa_verifier::FFTVerifier},
+        nightfall::{
+            accumulation::accumulation_structs::AtomicInstance,
+            ipa_snark::test::gen_circuit_for_test, ipa_verifier::FFTVerifier,
+        },
         proof_system::UniversalSNARK,
     };
     use ark_bn254::{g1::Config as BnConfig, Bn254};
@@ -500,7 +456,7 @@ mod tests {
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
             let recursion_scalars =
-                calculate_recursion_scalars(&outputs, &accs, &vk, &mut verifier_circuit)?;
+                calculate_recursion_scalars(&outputs, &vk, &mut verifier_circuit)?;
             let (instance_scalars, proof_scalars) =
                 recursion_scalars.split_at(recursion_scalars.len() - 6);
 
@@ -542,7 +498,12 @@ mod tests {
             let opening_proofs = outputs
                 .iter()
                 .map(|output| output.proof.opening_proof.proof)
-                .chain(accs.iter().map(|acc| acc.opening_proof.proof))
+                .chain(
+                    accs.iter()
+                        .map(|acc: &AtomicInstance<UnivariateKzgPCS<Bn254>>| {
+                            acc.opening_proof.proof
+                        }),
+                )
                 .collect::<Vec<_>>();
 
             let comms_lists = pcs_infos
