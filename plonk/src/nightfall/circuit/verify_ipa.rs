@@ -25,7 +25,7 @@ pub fn verify_ipa_circuit<E, F, P>(
     circuit: &mut PlonkCircuit<F>,
     verifier_param: &<UnivariateUniversalIpaParams<E> as StructuredReferenceString>::VerifierParam,
     commitment: &PointVariable,
-    evaluation_point: E::ScalarField,
+    eval_point_var: EmulatedVariable<E::ScalarField>,
     evaluation: E::ScalarField,
     proof_l_i: Vec<PointVariable>,
     proof_r_i: Vec<PointVariable>,
@@ -45,7 +45,6 @@ where
     transcript_var.append_point_variable(commitment, circuit)?;
 
     // Append evaluation points
-    let eval_point_var = circuit.create_emulated_variable(evaluation_point)?;
     transcript_var.push_emulated_variable(&eval_point_var, circuit)?;
 
     // Append Poly Evaluation
@@ -110,7 +109,7 @@ where
     let g_prime = &verifier_param.g_bases;
 
     let mut b_powers = vec![eval_point_var.clone()];
-    let mut current_power = eval_point_var.clone();
+    let mut current_power = eval_point_var;
     for _ in 0..k - 1 {
         current_power = circuit.emulated_mul(&current_power, &current_power)?;
         b_powers.push(current_power.clone());
@@ -273,11 +272,14 @@ mod test {
             circuit.enforce_false(is_neutral.into())?;
             circuit.enforce_on_curve::<Param377>(point_var)?;
         }
+
+        let eval_point_var = circuit.create_emulated_variable(pcs_info.u)?;
+
         verify_ipa_circuit::<Bls12_377, _, Param377>(
             &mut circuit,
             &open_key,
             &g_comm_var,
-            pcs_info.u,
+            eval_point_var,
             Fr::zero(),
             proof_l_i,
             proof_r_i,

@@ -210,8 +210,6 @@ where
 
     let batch_comm = EmulMultiScalarMultiplicationCircuit::<F, P>::msm(circuit, &bases, &scalars)?;
 
-    let eval_point = circuit.emulated_witness(&x)?;
-
     let proof_l_i: Vec<PointVariable> = proof
         .degree_check_proof
         .l_i
@@ -238,7 +236,7 @@ where
         circuit,
         verifier_param,
         &batch_comm,
-        eval_point,
+        x,
         E::ScalarField::zero(),
         proof_l_i,
         proof_r_i,
