@@ -213,7 +213,7 @@ where
 
         // This challenge is used to generate our random 'U'.
         let alpha: E::ScalarField = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"label")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"alpha")
             .map_err(|_| {
                 PCSError::InvalidParameters("Couldn't squeeze a challenge scalar".to_string())
             })?;
@@ -286,7 +286,7 @@ where
             let r_j = E::G1::msm_bigint(r_j_bases, r_j_scalars).into_affine();
 
             transcript
-                .append_curve_points(b"label", &[l_j, r_j])
+                .append_curve_points(b"ipa_round_points", &[l_j, r_j])
                 .map_err(|_| {
                     PCSError::InvalidParameters("could not append curve points".to_string())
                 })?;
@@ -506,20 +506,36 @@ where
 
         // This challenge is used to generate our random 'U'.
         let alpha: E::ScalarField = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"label")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"alpha")
             .map_err(|_| {
                 PCSError::InvalidParameters("Couldn't squeeze a challenge scalar".to_string())
             })?;
 
         let l_j = proof.l_i.clone();
         let r_j = proof.r_i.clone();
+        if l_j.len() != r_j.len() {
+            return Err(PCSError::InvalidParameters(
+                "proof.l_i and proof.r_i must have the same length".to_string(),
+            ));
+        }
+        if l_j.len() != verifier_param.g_bases.len().ilog2() as usize {
+            return Err(PCSError::InvalidParameters(format!(
+                "proof.l_i and proof.r_i length {} is not equal to log of g_bases length {}",
+                l_j.len(),
+                verifier_param.g_bases.len().ilog2()
+            )));
+        }
 
         let mut u_j_vec = Vec::new();
         let mut u_j_inv_vec = Vec::new();
 
         for (l, r) in l_j.iter().zip(r_j.iter()) {
+            // The points must not be zero and are on the curve because AffineRepr guarantees it.
+            assert!(!l.is_zero());
+            assert!(!r.is_zero());
+
             transcript
-                .append_curve_points(b"label", &[*l, *r])
+                .append_curve_points(b"ipa_round_points", &[*l, *r])
                 .map_err(|_| {
                     PCSError::InvalidParameters(
                         "Couldn't append curve points to transcript".to_string(),
@@ -564,8 +580,6 @@ where
             b.push(cur);
             cur *= point;
         }
-
-        let k = degree.ilog2();
 
         // This is used when a default proof is constructed so that we don't panic when we index into the vecs.
         if u_j_vec.is_empty() {
