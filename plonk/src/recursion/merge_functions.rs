@@ -1433,8 +1433,8 @@ pub fn decider_circuit(
         grumpkin_info.bn254_outputs.chunks_exact(2),
         grumpkin_info.grumpkin_outputs.iter(),
         impl_specific_pi.iter(),
-        // grumpkin_info.forwarded_acumulators.iter(),
-        forwarded_acumulators.iter(),
+        grumpkin_info.forwarded_acumulators.iter(),
+        // forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
         recursion_scalars.iter()
     )
