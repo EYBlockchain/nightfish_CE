@@ -303,14 +303,14 @@ mod tests {
             batch_proof.clone(),
         )?;
 
-        Zeromorph::<UnivariateIpaPCS<E>>::verify(
+        assert!(Zeromorph::<UnivariateIpaPCS<E>>::verify(
             &vk,
             &batch_commitment,
             &point,
             &value,
             &batch_proof,
         )
-        .unwrap();
+        .unwrap());
 
         circuit.check_circuit_satisfiability(&[]).unwrap();
         ark_std::println!(" constraint count: {}", circuit.num_gates());
