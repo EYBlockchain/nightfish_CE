@@ -700,12 +700,6 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<InitMessBlocksVar>, CircuitError> {
         let n = input_vars.len();
-        // The choice of 12 is actually pretty arbitrary. We can always change this at a later date.
-        // if n > 12 {
-        //     return Err(CircuitError::ParameterError(
-        //         "Can only hash together up to 12 field elements".to_string(),
-        //     ));
-        // }
         // We must first express the inputs in spread form
         // This will hold 'Variables' representing the spread
         // 32-bit chunks of the inputs concatenated together
