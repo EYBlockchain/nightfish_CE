@@ -146,6 +146,8 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        ark_std::println!("base grumpkin circuit size: {}", circuit.num_gates());
+
         #[cfg(test)]
         {
             ark_std::println!(
@@ -153,6 +155,11 @@ pub trait RecursiveProver {
                 circuit.num_gates()
             );
         }
+
+        ark_std::println!(
+            "base grumpkin circuit public input length: {}",
+            circuit.pub_input_indices.len()
+        );
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
@@ -250,6 +257,8 @@ pub trait RecursiveProver {
         bn254_circuit_out.specific_pi =
             [extra_checks_pi_field, bn254_circuit_out.specific_pi].concat();
 
+        ark_std::println!("base bn254 circuit size: {}", circuit.num_gates());
+
         #[cfg(test)]
         {
             ark_std::println!(
@@ -257,6 +266,11 @@ pub trait RecursiveProver {
                 circuit.num_gates()
             );
         }
+
+        ark_std::println!(
+            "base bn254 circuit public input length: {}",
+            circuit.pub_input_indices.len()
+        );
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
@@ -314,6 +328,8 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        ark_std::println!("merge grumpkin circuit size: {}", circuit.num_gates());
+
         #[cfg(test)]
         {
             ark_std::println!(
@@ -321,6 +337,11 @@ pub trait RecursiveProver {
                 circuit.num_gates()
             );
         }
+
+        ark_std::println!(
+            "merge grumpkin circuit public input length: {}",
+            circuit.pub_input_indices.len()
+        );
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
@@ -382,6 +403,13 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        ark_std::println!("merge bn254 circuit size: {}", circuit.num_gates());
+
+        ark_std::println!(
+            "merge bn254 circuit public input length: {}",
+            circuit.pub_input_indices.len()
+        );
+
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
         // Run the following code only when testing
@@ -439,6 +467,8 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        ark_std::println!("decider circuit size: {}", circuit.num_gates());
+
         #[cfg(test)]
         {
             ark_std::println!(
@@ -446,6 +476,11 @@ pub trait RecursiveProver {
                 circuit.num_gates()
             );
         }
+
+        ark_std::println!(
+            "Decider circuit public input length: {}",
+            circuit.pub_input_indices.len()
+        );
 
         circuit.finalize_for_arithmetization()?;
 
