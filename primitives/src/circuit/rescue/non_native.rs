@@ -1107,6 +1107,7 @@ mod tests {
 
             let expected_sponge = RescueCRHF::sponge_with_bit_padding(&data_t, 1);
 
+            let num_gates = circuit.num_gates();
             // sponge with padding
             let sponge_var = RescueNonNativeGadget::<T, F>::rescue_sponge_with_padding(
                 &mut circuit,
@@ -1114,6 +1115,11 @@ mod tests {
                 1,
             )
             .unwrap()[0];
+            ark_std::println!(
+                "num_gates: {}, input_len: {}",
+                circuit.num_gates() - num_gates,
+                input_len,
+            );
 
             assert_eq!(
                 field_switching::<T, F>(&expected_sponge[0]),

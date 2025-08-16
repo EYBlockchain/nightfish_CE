@@ -4,16 +4,13 @@
 // You should have received a copy of the MIT License
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
-//! !!!Warning!!!
-//! The parameters in this file are mock parameters for testing purpose.
-//! They are not correct and shall not be used for anything else
-
 use crate::rescue::{RescueParameter, ROUNDS, STATE_SIZE};
 use ark_bn254::Fq;
 
-/// This is a dummy implementation of Rescue parameters
-/// to satisfy trait bound for Fq.
-/// This code should not be used for any other purpose.
+//All parameters are generated from the following script
+// <https://github.com/EspressoSystems/Marvellous/blob/c189c3ffb7a6a2dd1413b5dc44075b9252c03fe3/rescue_fq254.sage>
+// q254 = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+
 impl RescueParameter for Fq {
     const A: u64 = 5;
     const A_INV: &'static [u64] = &[

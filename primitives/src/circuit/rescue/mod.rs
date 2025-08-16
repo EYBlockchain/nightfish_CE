@@ -7,6 +7,7 @@
 //! Rescue hash related gates and gadgets. Including both native and non-native
 //! fields.
 
+mod emulated;
 mod native;
 mod non_native;
 
