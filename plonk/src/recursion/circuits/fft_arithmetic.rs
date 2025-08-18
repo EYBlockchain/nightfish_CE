@@ -83,11 +83,13 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
         None
     };
 
-    let public_inputs = output
+    let public_inputs: Vec<usize> = output
         .public_inputs
         .iter()
         .map(|pi| circuit.create_variable(*pi).unwrap()) // TODO unwrap
         .collect();
+
+    ark_std::println!("PI len {}", public_inputs.len());
 
     //let pi_hash = circuit.create_variable(output.public_inputs[0])?;
 
@@ -411,7 +413,7 @@ mod tests {
         let rng = &mut jf_utils::test_rng();
         for m in 2..8 {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
-            let pi = circuit.public_input()?[0];
+            let pi = circuit.public_input()?;
 
             let srs_size = circuit.srs_size()?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
@@ -430,7 +432,7 @@ mod tests {
 
             let pcs_info = fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                 &vk,
-                &[pi],
+                &pi,
                 &output.proof,
                 &None,
             )?;
@@ -464,8 +466,8 @@ mod tests {
         for m in 2..8 {
             let circuit_one = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fr254>(m, 4, PlonkType::UltraPlonk, true)?;
-            let pi_one = circuit_one.public_input()?[0];
-            let pi_two = circuit_two.public_input()?[0];
+            let pi_one = circuit_one.public_input()?;
+            let pi_two = circuit_two.public_input()?;
 
             let srs_size = circuit_one.srs_size()?;
 
@@ -532,10 +534,10 @@ mod tests {
             let pcs_infos = outputs
                 .iter()
                 .zip(pis.iter())
-                .map(|(output, &pi)| {
+                .map(|(output, &ref pi)| {
                     fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                         &vk,
-                        &[pi],
+                        &pi,
                         &output.proof,
                         &None,
                     )

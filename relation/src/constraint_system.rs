@@ -1540,7 +1540,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
 
         // Here we make the only public input the hash of all the public inputs.
-        let public_input = self
+        /*let public_input = self
             .pub_input_indices
             .iter()
             .map(|&i| self.witness[i])
@@ -1550,6 +1550,18 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
         self.pub_input_indices = vec![];
         let _ = self.create_public_variable(new_public_input)?;
+
+        let wire_vars = self
+            .pub_input_indices
+            .iter()
+            .map(|&var| [0, 0, 0, 0, var])
+            .collect::<Vec<_>>();
+
+        wire_vars.iter().try_for_each(|wire_vars| {
+            // Create an io gate that forces `witness[var] = public_input`.
+            self.pub_input_gate_ids.push(self.num_gates());
+            self.insert_gate(wire_vars, Box::new(IoGate))
+        })?;*/
 
         let wire_vars = self
             .pub_input_indices
@@ -1665,7 +1677,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
 
         // Here we make the only public input the hash of all the public inputs.
-        let public_input = self
+        /*let public_input = self
             .pub_input_indices
             .iter()
             .map(|&i| self.witness[i])
@@ -1675,6 +1687,18 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
         self.pub_input_indices = vec![];
         let _ = self.create_public_variable(new_public_input)?;
+
+        let wire_vars = self
+            .pub_input_indices
+            .iter()
+            .map(|&var| [0, 0, 0, 0, var])
+            .collect::<Vec<_>>();
+
+        wire_vars.iter().try_for_each(|wire_vars| {
+            // Create an io gate that forces `witness[var] = public_input`.
+            self.pub_input_gate_ids.push(self.num_gates());
+            self.insert_gate(wire_vars, Box::new(IoGate))
+        })?;*/
 
         let wire_vars = self
             .pub_input_indices

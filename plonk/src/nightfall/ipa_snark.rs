@@ -399,7 +399,11 @@ where
 
         // In the recursive setting we know that the public inputs have length 1.
         transcript.append_visitor(&prove_keys.vk)?;
-        transcript.push_message(b"public_input", &circuits.public_input()?[0])?;
+
+        let pis = circuits.public_input()?;
+        for pi in pis {
+            transcript.push_message(b"public_input", &pi)?;
+        }
 
         // Round 1
         let ((wires_poly_comms, wire_polys), pi_poly) =

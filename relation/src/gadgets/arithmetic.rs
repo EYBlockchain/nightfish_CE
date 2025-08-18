@@ -6,6 +6,8 @@
 
 //! Circuit implementation for arithmetic extensions
 
+use core::panic;
+
 use super::utils::next_multiple;
 use crate::{
     constants::{GATE_WIDTH, N_MUL_SELECTORS},
@@ -179,6 +181,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
     /// Return error if variables are invalid.
     pub fn sum(&mut self, elems: &[Variable]) -> Result<Variable, CircuitError> {
         if elems.is_empty() {
+            panic!("oops");
             return Err(CircuitError::ParameterError(
                 "Sum over an empty slice of variables is undefined".to_string(),
             ));
