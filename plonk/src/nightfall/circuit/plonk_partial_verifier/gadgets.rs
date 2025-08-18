@@ -52,7 +52,6 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
         poly::evaluate_poly_helper_native(circuit, challenges.zeta, gen_inv_var, domain_size)?;
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
-        domain_size,
         challenges,
         proof_evals,
         public_inputs,

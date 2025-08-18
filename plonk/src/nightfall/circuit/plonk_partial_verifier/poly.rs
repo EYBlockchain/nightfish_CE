@@ -369,7 +369,6 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    domain_size: usize,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     pi: Vec<Variable>,
