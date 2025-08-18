@@ -1540,7 +1540,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
 
         // Here we make the only public input the hash of all the public inputs.
-        let public_input = self
+        /*let public_input = self
             .pub_input_indices
             .iter()
             .map(|&i| self.witness[i])
@@ -1561,7 +1561,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
             // Create an io gate that forces `witness[var] = public_input`.
             self.pub_input_gate_ids.push(self.num_gates());
             self.insert_gate(wire_vars, Box::new(IoGate))
-        })?;
+        })?;*/
 
         let num_slots_needed = match self.support_lookup() {
             false => self.num_gates(),
@@ -1665,7 +1665,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
 
         // Here we make the only public input the hash of all the public inputs.
-        let public_input = self
+        /*let public_input = self
             .pub_input_indices
             .iter()
             .map(|&i| self.witness[i])
@@ -1686,7 +1686,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
             // Create an io gate that forces `witness[var] = public_input`.
             self.pub_input_gate_ids.push(self.num_gates());
             self.insert_gate(wire_vars, Box::new(IoGate))
-        })?;
+        })?;*/
 
         let num_slots_needed = match self.support_lookup() {
             false => self.num_gates(),
