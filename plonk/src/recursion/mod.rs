@@ -1173,8 +1173,6 @@ mod tests {
         HASH_LIST.get_or_init(|| RwLock::new(Vec::new()))
     }
     #[test]
-    #[ignore = "Only run this test on powerful machines"]
-    #[allow(clippy::type_complexity)]
     fn test_preprocess_and_prove() -> Result<(), PlonkError> {
         let now = ark_std::time::Instant::now();
         struct TestProver;
