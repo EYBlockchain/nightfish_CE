@@ -390,10 +390,22 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         E: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
         P::BaseField: PrimeField + RescueParameter + EmulationConfig<E>,
     {
-        if self.evals().is_empty() {
+        if self.sumcheck_proof_vars.len() != self.challenges.len() {
             return Err(CircuitError::ParameterError(
-                "No evaluations to verify".to_string(),
+                "sumcheck_proof_vars must be the same length as challenges".to_string(),
             ));
+        }
+        if self.evals().len() != self.sumcheck_proof_vars.len() + 1 {
+            return Err(CircuitError::ParameterError(
+                "evals must be one longer than sumcheck_proof_vars".to_string(),
+            ));
+        }
+        for evals in self.evals().iter() {
+            if evals.len() % 4 != 0 {
+                return Err(CircuitError::ParameterError(
+                    "evals[i] must have length divisible by 4".to_string(),
+                ));
+            }
         }
 
         // Unwrap is safe because we have checked that the proof has evaluations.
