@@ -587,8 +587,12 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let mut public_inputs = circuit.public_input()?;
 
         // Append the singular public input to the transcript.
-        transcript.push_message(b"pi", &public_inputs[0])?;
+        //public_inputs.resize(circuit.num_gates(), P::ScalarField::zero());
+        for pi in &public_inputs {
+            transcript.push_message(b"pi", pi)?;
+        }
 
+        // maybe resize before
         public_inputs.resize(circuit.num_gates(), P::ScalarField::zero());
 
         // We take the negative because we need to add the public input from the gate equation.

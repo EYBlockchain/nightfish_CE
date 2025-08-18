@@ -822,7 +822,7 @@ mod tests {
             let proof_native = SAMLEProofNative::from_struct(&mut circuit, &proof.proof)?;
 
             let gate_info = &pk1.verifying_key.gate_info;
-            let mut pi_poly = vec![public_input[0]];
+            let mut pi_poly = public_input.clone();
             let num_vars = gkr_sumcheck_challenges.last().as_ref().unwrap().len();
             pi_poly.resize(1 << num_vars, F::zero());
 
