@@ -1647,8 +1647,9 @@ impl<F: PrimeField> PlonkCircuit<F> {
                     "num_slots_needed is too large".to_string(),
                 ))?;
 
+        //let num_pub_inputs = self.pub_input_indices.len().next_power_of_two();
         self.eval_domain =
-            Radix2EvaluationDomain::new(2).ok_or(CircuitError::DomainCreationError)?;
+            Radix2EvaluationDomain::new(num_slots_needed).ok_or(CircuitError::DomainCreationError)?;
         self.pad(num_slots_needed)?;
         self.rearrange_gates(num_slots_needed)?;
         self.compute_wire_permutation(num_slots_needed);
@@ -1728,8 +1729,9 @@ impl<F: PrimeField> PlonkCircuit<F> {
                     "num_slots_needed is too large".to_string(),
                 ))?;
 
+        //let num_pub_inputs = self.pub_input_indices.len().next_power_of_two();
         self.eval_domain =
-            Radix2EvaluationDomain::new(2).ok_or(CircuitError::DomainCreationError)?;
+            Radix2EvaluationDomain::new(num_slots_needed).ok_or(CircuitError::DomainCreationError)?;
         self.pad(num_slots_needed)?;
 
         self.rearrange_gates(num_slots_needed)?;
