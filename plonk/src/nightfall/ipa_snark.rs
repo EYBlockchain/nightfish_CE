@@ -570,6 +570,8 @@ where
             q_comm,
         };
 
+        ark_std::println!("Prover challenges: {:?}", challenges);
+
         Ok((proof, transcript))
     }
 }
