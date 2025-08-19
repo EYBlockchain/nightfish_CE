@@ -6,27 +6,31 @@ use ark_std::{string::ToString, vec, vec::Vec};
 
 use super::plonk_partial_verifier::UnivariateUniversalIpaParamsVar;
 use crate::{
-    nightfall::hops::{srs::UnivariateUniversalIpaParams, univariate_ipa::UnivariateIpaProof},
+    nightfall::hops::srs::UnivariateUniversalIpaParams,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
 };
 use jf_primitives::{pcs::StructuredReferenceString, rescue::RescueParameter};
 use jf_relation::{
     errors::CircuitError,
     gadgets::{
-        ecc::{EmulMultiScalarMultiplicationCircuit, HasTEForm, Point, PointVariable},
+        ecc::{EmulMultiScalarMultiplicationCircuit, HasTEForm, PointVariable},
         EmulatedVariable, EmulationConfig,
     },
     Circuit, PlonkCircuit,
 };
 
 /// Circuit gadget to perform a full IPA verification.
+#[allow(clippy::too_many_arguments)]
 pub fn verify_ipa_circuit<E, F, P>(
     circuit: &mut PlonkCircuit<F>,
     verifier_param: &<UnivariateUniversalIpaParams<E> as StructuredReferenceString>::VerifierParam,
     commitment: &PointVariable,
-    evaluation_point: E::ScalarField,
-    evaluation: E::ScalarField,
-    proof: UnivariateIpaProof<E>,
+    eval_point_var: EmulatedVariable<E::ScalarField>,
+    poly_eval_var: EmulatedVariable<E::ScalarField>,
+    proof_l_i: Vec<PointVariable>,
+    proof_r_i: Vec<PointVariable>,
+    proof_c: E::ScalarField,
+    proof_f: E::ScalarField,
 ) -> Result<(), CircuitError>
 where
     E: Pairing<BaseField = F, G1Affine = Affine<P>>,
@@ -41,11 +45,9 @@ where
     transcript_var.append_point_variable(commitment, circuit)?;
 
     // Append evaluation points
-    let eval_point_var = circuit.create_emulated_variable(evaluation_point)?;
     transcript_var.push_emulated_variable(&eval_point_var, circuit)?;
 
     // Append Poly Evaluation
-    let poly_eval_var = circuit.create_emulated_variable(evaluation)?;
     transcript_var.push_emulated_variable(&poly_eval_var, circuit)?;
 
     let alpha = transcript_var.squeeze_scalar_challenge::<P>(circuit)?;
@@ -56,12 +58,22 @@ where
     let mut u_j_value_vec = Vec::new();
     let mut u_j_inv_vec = Vec::new();
     let one_emul_var = circuit.emulated_one();
-    for (l, r) in proof.l_i.iter().zip(proof.r_i.iter()) {
-        let commit_points: [Point<F>; 2] = [Point::<F>::from(*l), Point::<F>::from(*r)];
-        let commit_vars = commit_points
-            .iter()
-            .map(|commit_point| circuit.create_point_variable(commit_point))
-            .collect::<Result<Vec<_>, _>>()?;
+
+    if proof_l_i.len() != proof_r_i.len() {
+        return Err(CircuitError::ParameterError(
+            "Length of proof.l_i and proof.r_i must be equal".to_string(),
+        ));
+    }
+    if proof_l_i.len() != verifier_param.g_bases.len().ilog2() as usize {
+        return Err(CircuitError::ParameterError(
+            ark_std::format!("Length of proof.l_i and proof.r_i, {}, must be equal to the log2 of the number of bases, {}",
+            proof_l_i.len(),
+            verifier_param.g_bases.len().ilog2() as usize),
+        ));
+    }
+
+    for (l, r) in proof_l_i.iter().zip(proof_r_i.iter()) {
+        let commit_vars = vec![*l, *r];
 
         transcript_var.append_point_variables(&commit_vars, circuit)?;
         let u_j_idx = transcript_var.squeeze_scalar_challenge::<P>(circuit)?;
@@ -82,15 +94,7 @@ where
 
     // Calc LHS and MSM
     let mut scalar_vars = [u_j_inv_vec.as_slice(), u_j_vec.as_slice()].concat();
-    let bases_point: Vec<Point<F>> = [proof.l_i.as_slice(), proof.r_i.as_slice()]
-        .concat()
-        .into_iter()
-        .map(Point::<F>::from)
-        .collect();
-    let mut bases_vars: Vec<PointVariable> = bases_point
-        .iter()
-        .map(|b| circuit.create_point_variable(b))
-        .collect::<Result<Vec<PointVariable>, _>>()?;
+    let mut bases_vars: Vec<PointVariable> = proof_l_i.into_iter().chain(proof_r_i).collect();
 
     let verifier_point_var = verifier_param_var.g_bases[0];
     let zero_var = circuit.emulated_zero();
@@ -104,7 +108,7 @@ where
     let g_prime = &verifier_param.g_bases;
 
     let mut b_powers = vec![eval_point_var.clone()];
-    let mut current_power = eval_point_var.clone();
+    let mut current_power = eval_point_var;
     for _ in 0..k - 1 {
         current_power = circuit.emulated_mul(&current_power, &current_power)?;
         b_powers.push(current_power.clone());
@@ -115,7 +119,7 @@ where
         let tmp = circuit.emulated_mul_add(b_power, u_j, &one_emul_var)?;
         b_0 = circuit.emulated_mul(&b_0, &tmp)?;
     }
-    let c_var = circuit.create_emulated_variable(proof.c)?;
+    let c_var = circuit.create_emulated_variable(proof_c)?;
     let c_var = circuit.emulated_sub(&zero_var, &c_var)?;
     let mut msm_scalars = vec![c_var.clone()];
     for u_j in u_j_vec.iter().rev() {
@@ -131,7 +135,7 @@ where
 
     let u_scalar = circuit.emulated_mul(&c_b, &alpha)?;
 
-    let f_var = circuit.create_emulated_variable(proof.f)?;
+    let f_var = circuit.create_emulated_variable(proof_f)?;
     let f_var = circuit.emulated_sub(&zero_var, &f_var)?;
 
     let verifier_u_var = verifier_param_var.u;
@@ -168,9 +172,13 @@ mod test {
     use ark_bw6_761::BW6_761;
     use ark_ec::{AffineRepr, CurveGroup};
 
-    use ark_std::{rand::SeedableRng, UniformRand, Zero};
+    use ark_std::{rand::SeedableRng, UniformRand};
     use jf_primitives::pcs::prelude::UnivariateKzgPCS;
-    use jf_relation::{gadgets::ecc::MultiScalarMultiplicationCircuit, Arithmetization, Circuit};
+    use jf_relation::{
+        gadgets::ecc::{MultiScalarMultiplicationCircuit, Point},
+        BoolVar,
+    };
+    use jf_relation::{Arithmetization, Circuit};
     use jf_utils::fr_to_fq;
     use nf_curves::ed_on_bls_12_377::{
         Ed377Config as TE_377_Config, EdwardsAffine as TE_377, Fr as Fr_TE_377,
@@ -241,13 +249,42 @@ mod test {
         let mut circuit = PlonkCircuit::new_ultra_plonk(8);
 
         let g_comm_var = circuit.create_point_variable(&Point::from(g_comm))?;
+
+        let proof_l_i: Vec<PointVariable> = pcs_info
+            .opening_proof
+            .l_i
+            .iter()
+            .copied()
+            .map(|p| circuit.create_point_variable(&Point::<Fq>::from(p)))
+            .collect::<Result<Vec<PointVariable>, _>>()?;
+
+        let proof_r_i: Vec<PointVariable> = pcs_info
+            .opening_proof
+            .r_i
+            .iter()
+            .copied()
+            .map(|p| circuit.create_point_variable(&Point::<Fq>::from(p)))
+            .collect::<Result<Vec<PointVariable>, _>>()?;
+
+        for point_var in proof_l_i.iter().chain(proof_r_i.iter()) {
+            let is_neutral: BoolVar = circuit.is_neutral_point::<Param377>(point_var)?;
+            circuit.enforce_false(is_neutral.into())?;
+            circuit.enforce_on_curve::<Param377>(point_var)?;
+        }
+
+        let eval_point_var = circuit.create_emulated_variable(pcs_info.u)?;
+        let poly_eval_var = circuit.emulated_zero();
+
         verify_ipa_circuit::<Bls12_377, _, Param377>(
             &mut circuit,
             &open_key,
             &g_comm_var,
-            pcs_info.u,
-            Fr::zero(),
-            pcs_info.opening_proof,
+            eval_point_var,
+            poly_eval_var,
+            proof_l_i,
+            proof_r_i,
+            pcs_info.opening_proof.c,
+            pcs_info.opening_proof.f,
         )
         .unwrap();
         let g_comm_te: Point<Fq> = g_comm.into();

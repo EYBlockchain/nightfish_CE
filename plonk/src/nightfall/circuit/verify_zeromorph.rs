@@ -3,7 +3,7 @@
 use ark_ec::{pairing::Pairing, short_weierstrass::Affine};
 use ark_ff::{Field, PrimeField};
 
-use ark_std::{string::ToString, vec, vec::Vec, One, Zero};
+use ark_std::{string::ToString, vec, vec::Vec, One};
 use jf_primitives::{pcs::StructuredReferenceString, rescue::RescueParameter};
 use jf_relation::{
     errors::CircuitError,
@@ -11,7 +11,7 @@ use jf_relation::{
         ecc::{EmulMultiScalarMultiplicationCircuit, HasTEForm, Point, PointVariable},
         EmulatedVariable, EmulationConfig,
     },
-    Circuit, PlonkCircuit,
+    BoolVar, Circuit, PlonkCircuit,
 };
 
 use crate::{
@@ -210,15 +210,38 @@ where
 
     let batch_comm = EmulMultiScalarMultiplicationCircuit::<F, P>::msm(circuit, &bases, &scalars)?;
 
-    let eval_point = circuit.emulated_witness(&x)?;
+    let proof_l_i: Vec<PointVariable> = proof
+        .degree_check_proof
+        .l_i
+        .iter()
+        .copied()
+        .map(|p| circuit.create_point_variable(&Point::<F>::from(p)))
+        .collect::<Result<Vec<PointVariable>, _>>()?;
+
+    let proof_r_i: Vec<PointVariable> = proof
+        .degree_check_proof
+        .r_i
+        .iter()
+        .copied()
+        .map(|p| circuit.create_point_variable(&Point::<F>::from(p)))
+        .collect::<Result<Vec<PointVariable>, _>>()?;
+
+    for point_var in proof_l_i.iter().chain(proof_r_i.iter()) {
+        let is_neutral: BoolVar = circuit.is_neutral_point::<P>(point_var)?;
+        circuit.enforce_false(is_neutral.into())?;
+        circuit.enforce_on_curve::<P>(point_var)?;
+    }
 
     verify_ipa_circuit(
         circuit,
         verifier_param,
         &batch_comm,
-        eval_point,
-        E::ScalarField::zero(),
-        proof.degree_check_proof,
+        x,
+        zero_var,
+        proof_l_i,
+        proof_r_i,
+        proof.degree_check_proof.c,
+        proof.degree_check_proof.f,
     )
 }
 
@@ -280,14 +303,14 @@ mod tests {
             batch_proof.clone(),
         )?;
 
-        Zeromorph::<UnivariateIpaPCS<E>>::verify(
+        assert!(Zeromorph::<UnivariateIpaPCS<E>>::verify(
             &vk,
             &batch_commitment,
             &point,
             &value,
             &batch_proof,
         )
-        .unwrap();
+        .unwrap());
 
         circuit.check_circuit_satisfiability(&[]).unwrap();
         ark_std::println!(" constraint count: {}", circuit.num_gates());
