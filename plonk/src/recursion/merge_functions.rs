@@ -412,6 +412,27 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         })
         .collect::<Result<Vec<PcsInfo<Kzg>>, PlonkError>>()?;
 
+    for (pcs_info, vk) in pcs_infos.iter().zip(vk_bn254.iter()) {
+        let g_comm = pcs_info
+            .comm_scalars_and_bases
+            .multi_scalar_mul()
+            .into_affine();
+
+        let result = Kzg::verify(
+            &vk.open_key,
+            &g_comm,
+            &pcs_info.u,
+            &Fr254::zero(),
+            &pcs_info.opening_proof,
+        )?;
+
+        if result {
+            ark_std::println!("KZG verification passed");
+        } else {
+            ark_std::println!("KZG verification failed");
+        }
+    }
+
     // Now we merge the transcripts from the two proofs. we do this to avoid having to re-append all the commitments to a new transcript.
     // TODO:  Double check that this still provides adequate security.
 
