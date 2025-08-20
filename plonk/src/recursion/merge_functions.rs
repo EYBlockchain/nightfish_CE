@@ -51,7 +51,7 @@ use crate::{
         },
         FFTPlonk, UnivariateIpaPCS,
     },
-    proof_system::RecursiveOutput,
+    proof_system::{structs::ScalarsAndBases, RecursiveOutput},
     recursion::circuits::{
         challenges::reconstruct_mle_challenges,
         emulated_mle_arithmetic::emulated_combine_mle_proof_scalars,
@@ -487,6 +487,34 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     } else {
         combine_fft_proof_scalars_round_one(&pcs_infos, &r_powers)
     };
+    let mut scalars_and_bases = ScalarsAndBases::<Bn254>::new();
+    for (scalar, base) in scalars.iter().zip(bases.iter()) {
+        scalars_and_bases.push(*scalar, *base);
+    }
+
+    let comm = scalars_and_bases.multi_scalar_mul().into_affine();
+
+    let mut proof_scalars_and_bases = ScalarsAndBases::<Bn254>::new();
+    proof_scalars_and_bases.push(Fr254::one(), pcs_infos[0].opening_proof.proof);
+    proof_scalars_and_bases.push(r, pcs_infos[1].opening_proof.proof);
+
+    let proof_comm = proof_scalars_and_bases.multi_scalar_mul().into_affine();
+
+    let kzg_proof = UnivariateKzgProof::<Bn254> { proof: proof_comm };
+
+    let result = Kzg::verify(
+        &vk_bn254[0].open_key,
+        &comm,
+        &Fr254::zero(),
+        &Fr254::zero(),
+        &kzg_proof,
+    )?;
+
+    if result {
+        ark_std::println!("KZG verification passed");
+    } else {
+        ark_std::println!("KZG verification failed");
+    }
 
     // Append the extra accumulator commitments to `bases` for the atomic accumulation.
     bases.extend_from_slice(
@@ -1018,6 +1046,30 @@ fn combine_fft_proof_scalars_round_one(
     let mut opening_proofs = vec![];
 
     for pcs_info in pcs_infos.iter() {
+        if pcs_info.comm_scalars_and_bases.bases()[10]
+            == pcs_info.comm_scalars_and_bases.bases()[22]
+        {
+            ark_std::println!("bases[10] == bases[22]");
+        } else {
+            ark_std::println!("bases[10] != bases[22]");
+        }
+
+        if pcs_info.comm_scalars_and_bases.bases()[11]
+            == pcs_info.comm_scalars_and_bases.bases()[48]
+        {
+            ark_std::println!("bases[11] == bases[48]");
+        } else {
+            ark_std::println!("bases[11] != bases[48]");
+        }
+
+        if pcs_info.comm_scalars_and_bases.bases()[12]
+            == pcs_info.comm_scalars_and_bases.bases()[47]
+        {
+            ark_std::println!("bases[12] == bases[47]");
+        } else {
+            ark_std::println!("bases[12] != bases[47]");
+        }
+
         let mut real_scalars = pcs_info.comm_scalars_and_bases.scalars[..47].to_vec();
 
         real_scalars[10] += pcs_info.comm_scalars_and_bases.scalars[22];
@@ -1035,6 +1087,7 @@ fn combine_fft_proof_scalars_round_one(
 
     // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
     if scalars_list.is_empty() {
+        ark_std::println!("Surely we're not here!!!");
         (vec![], vec![])
     } else {
         // Unwrap is safe here because we have checked if the vec is empty
