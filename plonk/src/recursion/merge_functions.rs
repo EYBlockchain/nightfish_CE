@@ -446,6 +446,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         transcript.append_curve_point(b"comm", &acc.comm)?;
         transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
     })?;
+
     use ark_ec::bn::Bn;
     use ark_ec::pairing::Pairing;
     use ark_ec::AffineRepr;
@@ -563,9 +564,31 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
     let acc_proof = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
         circuit,
-        &proof_base_vars[1..],
-        &proof_scalar_vars[1..],
+        &proof_base_vars,
+        &proof_scalar_vars,
     )?;
+
+    let comm = Affine::from(circuit.point_witness(&acc_instance)?);
+    let opening_proof = Affine::from(circuit.point_witness(&acc_proof)?);
+    let h = vk_bn254[0].open_key.h;
+    let beta_h = vk_bn254[0].open_key.beta_h;
+    let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
+        opening_proof.into(),
+        (-(comm.into_group())).into_affine().into(),
+    ];
+    let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
+        vec![beta_h.into(), h.into()];
+
+    let res = <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+        .0
+        .is_one();
+    if res {
+        ark_std::println!("New atomic accumulator check passed");
+    } else {
+        return Err(PlonkError::InvalidParameters(
+            "New atomic accumulator check failed".to_string(),
+        ));
+    }
 
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
