@@ -163,81 +163,6 @@ impl GKRProofVar {
 
         Ok(final_evals.to_vec())
     }
-
-    /// Runs the verify procedure on a [`GKRProofVar`] struct.
-    /// The output of this function is the evaluation returned by the deferred check, we assume lambda has been calculated elsewhere.
-    pub fn verify_gkr_proof<P, F, C>(
-        &self,
-        circuit: &mut PlonkCircuit<F>,
-        transcript: &mut C,
-    ) -> Result<Vec<Variable>, CircuitError>
-    where
-        F: PrimeField + RescueParameter,
-        P: HasTEForm<ScalarField = F>,
-        P::BaseField: PrimeField,
-        C: CircuitTranscript<F>,
-    {
-        if self.evals().is_empty() {
-            return Err(CircuitError::ParameterError(
-                "No evaluations to verify".to_string(),
-            ));
-        }
-
-        // Unwrap is safe because we have checked that the proof has evaluations.
-        let first_evals = self.evals().first().unwrap();
-
-        for eval_chunk in first_evals.chunks(4) {
-            let p0 = eval_chunk[0];
-            let p1 = eval_chunk[1];
-            let q0 = eval_chunk[2];
-            let q1 = eval_chunk[3];
-
-            circuit.mul_add_gate(&[p0, q1, p1, q0, circuit.zero()], &[F::one(), F::one()])?;
-            let q_claim = circuit.mul(q0, q1)?;
-            circuit.non_zero_gate(q_claim)?;
-        }
-
-        let mut res = circuit.zero();
-        let mut lambda;
-        let mut lambda_powers = vec![];
-        let mut r = transcript.squeeze_scalar_challenge::<P>(circuit)?;
-        let mut sc_eq_eval = circuit.zero();
-        let mut challenge_point = vec![r];
-        // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
-        // supplied evaluations.
-        for (i, (proof, evals)) in
-            izip!(self.sumcheck_proofs().iter(), self.evals().iter(),).enumerate()
-        {
-            // If its not the first round check that these evaluations line up with the expected evaluation from the previous round.
-            if i != 0 {
-                let sumcheck_eval = sum_check_evaluation(evals, &lambda_powers, circuit)?;
-                circuit.mul_gate(sumcheck_eval, sc_eq_eval, res)?;
-            }
-
-            lambda = transcript.squeeze_scalar_challenge::<P>(circuit)?;
-            let mut tmp_lambda_powers = vec![circuit.one()];
-            for i in 0..first_evals.len() >> 1 {
-                tmp_lambda_powers.push(circuit.mul(tmp_lambda_powers[i], lambda)?);
-            }
-
-            lambda_powers = tmp_lambda_powers;
-
-            // Check that the initial evaluation of the sumcheck is correct.
-            let init_eval = sumcheck_initial_evaluation(evals, &lambda_powers, r, circuit)?;
-            circuit.enforce_equal(init_eval, proof.eval_var)?;
-
-            res = circuit.verify_sum_check::<P, C>(proof, transcript)?;
-            r = transcript.squeeze_scalar_challenge::<P>(circuit)?;
-            sc_eq_eval = eq_x_r_eval_circuit(circuit, &proof.point_var, &challenge_point)?;
-            challenge_point = [proof.point_var.as_slice(), &[r]].concat();
-        }
-
-        let final_evals = self.evals().last().unwrap();
-        let last_eval = sum_check_evaluation(final_evals, &lambda_powers, circuit)?;
-        circuit.mul_gate(last_eval, sc_eq_eval, res)?;
-
-        Ok(final_evals.to_vec())
-    }
 }
 
 fn sum_check_evaluation<F: PrimeField>(
@@ -403,7 +328,13 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         P: HasTEForm<BaseField = F, ScalarField = E>,
         C: CircuitTranscript<F>,
     {
-        // First we extract the initial r challenge.
+        // First we append the first evaluations to the transcript
+        let first_evals = self.evals.first().unwrap();
+        for eval in first_evals {
+            transcript.push_emulated_variable(eval, circuit)?;
+        }
+
+        // Next we extract the initial r challenge.
         let r_0 = transcript.squeeze_scalar_challenge::<P>(circuit)?;
 
         // Now we create vecs to store the r, lambda and sumcheck challenges.
@@ -411,10 +342,17 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         let mut lambda_challenges = vec![];
         let mut sumcheck_challenges = vec![];
 
-        for sumcheck_proof in self.sumcheck_proof_vars.iter() {
+        for (sumcheck_proof, evals) in self
+            .sumcheck_proof_vars
+            .iter()
+            .zip(self.evals.iter().skip(1))
+        {
             let lambda_round = transcript.squeeze_scalar_challenge::<P>(circuit)?;
             let sumcheck_challenges_round =
                 circuit.recover_sumcheck_challenges::<P, C>(sumcheck_proof, transcript)?;
+            for eval in evals {
+                transcript.push_emulated_variable(eval, circuit)?;
+            }
             let r_round = transcript.squeeze_scalar_challenge::<P>(circuit)?;
 
             lambda_challenges.push(lambda_round);
@@ -452,10 +390,22 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         E: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
         P::BaseField: PrimeField + RescueParameter + EmulationConfig<E>,
     {
-        if self.evals().is_empty() {
+        if self.sumcheck_proof_vars.len() != self.challenges.len() {
             return Err(CircuitError::ParameterError(
-                "No evaluations to verify".to_string(),
+                "sumcheck_proof_vars must be the same length as challenges".to_string(),
             ));
+        }
+        if self.evals().len() != self.sumcheck_proof_vars.len() + 1 {
+            return Err(CircuitError::ParameterError(
+                "evals must be one longer than sumcheck_proof_vars".to_string(),
+            ));
+        }
+        for evals in self.evals().iter() {
+            if evals.len() % 4 != 0 {
+                return Err(CircuitError::ParameterError(
+                    "evals[i] must have length divisible by 4".to_string(),
+                ));
+            }
         }
 
         // Unwrap is safe because we have checked that the proof has evaluations.
@@ -474,6 +424,11 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
             let q_eval = circuit.emulated_mul(q0, q1)?;
             let zero_check = circuit.is_emulated_var_zero(&q_eval)?;
             circuit.enforce_false(zero_check.into())?;
+
+            transcript.push_emulated_variable(p0, circuit)?;
+            transcript.push_emulated_variable(p1, circuit)?;
+            transcript.push_emulated_variable(q0, circuit)?;
+            transcript.push_emulated_variable(q1, circuit)?;
         }
 
         let one_var = circuit.emulated_one();
@@ -486,12 +441,20 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         let mut challenge_point = vec![r.clone()];
         // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
         // supplied evaluations.
-        for (i, (proof, evals)) in
-            izip!(self.sumcheck_proofs().iter(), self.evals().iter(),).enumerate()
+
+        for (i, (proof, curr_and_next_evals)) in self
+            .sumcheck_proofs()
+            .iter()
+            .zip(self.evals().windows(2))
+            .enumerate()
         {
             // If its not the first round check that these evaluations line up with the expected evaluation from the previous round.
             if i != 0 {
-                let sumcheck_eval = sum_check_emulated_evaluation(evals, &lambda_powers, circuit)?;
+                let sumcheck_eval = sum_check_emulated_evaluation(
+                    &curr_and_next_evals[0],
+                    &lambda_powers,
+                    circuit,
+                )?;
                 circuit.emulated_mul_gate(&sumcheck_eval, &sc_eq_eval, &res)?;
             }
             let lambda_native = transcript.squeeze_scalar_challenge::<P>(circuit)?;
@@ -505,15 +468,26 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
             lambda_powers = tmp_lambda_powers;
 
             // Check that the initial evaluation of the sumcheck is correct.
-            let init_eval =
-                sumcheck_emulated_initial_evaluation(evals, &lambda_powers, &r, circuit)?;
+            let init_eval = sumcheck_emulated_initial_evaluation(
+                &curr_and_next_evals[0],
+                &lambda_powers,
+                &r,
+                circuit,
+            )?;
             circuit.enforce_emulated_var_equal(&init_eval, &proof.eval_var)?;
 
             res = circuit.verify_emulated_proof::<P>(proof, transcript)?;
-            let r_native = transcript.squeeze_scalar_challenge::<P>(circuit)?;
-            r = circuit.to_emulated_variable(r_native)?;
+            for eval in curr_and_next_evals[1].iter() {
+                transcript.push_emulated_variable(eval, circuit)?;
+            }
             sc_eq_eval = emulated_eq_x_r_eval_circuit(circuit, &proof.point_var, &challenge_point)?;
-            challenge_point = [proof.point_var.as_slice(), &[r.clone()]].concat();
+
+            // If this is the last round, we do need to generate a new challenge point.
+            if i != self.sumcheck_proofs().len() - 1 {
+                let r_native = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+                r = circuit.to_emulated_variable(r_native)?;
+                challenge_point = [proof.point_var.as_slice(), &[r.clone()]].concat();
+            }
         }
 
         let final_evals = self.evals().last().unwrap();
@@ -772,6 +746,11 @@ pub(crate) mod tests {
                     "Claimed values do not match the provided evaluations".to_string(),
                 ));
             }
+
+            transcript.push_message(b"p0", &p0)?;
+            transcript.push_message(b"p1", &p1)?;
+            transcript.push_message(b"q0", &q0)?;
+            transcript.push_message(b"q1", &q1)?;
         }
 
         let mut res = DeferredCheck::default();
@@ -785,15 +764,15 @@ pub(crate) mod tests {
         r_challenges.push(r);
         // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
         // supplied evaluations.
-        for (i, (proof, evals)) in proof
+        for (i, (sumcheck_proof, curr_and_next_evals)) in proof
             .sumcheck_proofs()
             .iter()
-            .zip(proof.evals().iter())
+            .zip(proof.evals().windows(2))
             .enumerate()
         {
             // If its not the first round check that these evaluations line up with the expected evaluation from the previous round.
             if i != 0 {
-                let expected_eval = sc_eval(evals, lambda) * sc_eq_eval;
+                let expected_eval = sc_eval(&curr_and_next_evals[0], lambda) * sc_eq_eval;
                 if expected_eval != res.eval {
                     return Err(PlonkError::InvalidParameters(
                         "Sumcheck evaluation does not match expected value".to_string(),
@@ -804,14 +783,18 @@ pub(crate) mod tests {
             lambda = transcript.squeeze_scalar_challenge::<P>(b"lambda")?;
             lambdas.push(lambda);
             // Check that the initial evaluation of the sumcheck is correct.
-            let initial_eval = sumcheck_intial_evaluation(evals, lambda, r);
-            if proof.eval != initial_eval {
+            let initial_eval = sumcheck_intial_evaluation(&curr_and_next_evals[0], lambda, r);
+            if sumcheck_proof.eval != initial_eval {
                 return Err(PlonkError::InvalidParameters(
                     "Initial sumcheck evaluation does not match expected value".to_string(),
                 ));
             }
 
-            let deferred_check = VPSumCheck::<P>::verify(proof, transcript)?;
+            let deferred_check = VPSumCheck::<P>::verify(sumcheck_proof, transcript)?;
+            for eval in curr_and_next_evals[1].iter() {
+                transcript.push_message(b"eval", eval)?;
+            }
+
             r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
             r_challenges.push(r);
             sc_eq_eval = eq_eval(&deferred_check.point, &challenge_point)?;
