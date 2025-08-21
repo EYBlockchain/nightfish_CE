@@ -3,7 +3,7 @@
 use crate::{alloc::string::ToString, sha256::Sha256Params};
 use ark_ff::PrimeField;
 use ark_std::{vec, vec::Vec, Zero};
-use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
+use jf_relation::{errors::CircuitError, BoolVar, Circuit, PlonkCircuit, Variable};
 use num_bigint::BigUint;
 use num_traits::{Pow, ToPrimitive};
 
@@ -211,11 +211,20 @@ pub trait Sha256HashGadget<F: Sha256Params> {
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Variable, CircuitError>;
 
-    /// Given a vector of 'Variable's representing field elements, we ouput a vector of the appropriate number
+    /// Given a vector of 'Variable's representing field elements, we output a vector of the appropriate number
     /// of 'InitMessBlocksVar's that represent the padded input into the 'prepare_message_schedule' function.
     fn preprocess(
         &mut self,
         input_vars: &[Variable],
+        lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
+    ) -> Result<Vec<InitMessBlocksVar>, CircuitError>;
+
+    /// Given a vector of 'Variable's representing field elements and an "extra" bit, we output a vector of the appropriate
+    /// number of 'InitMessBlocksVar's that represent the padded input into the 'prepare_message_schedule' function.
+    fn preprocess_with_bit(
+        &mut self,
+        input_vars: &[Variable],
+        bit_var: &BoolVar,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<InitMessBlocksVar>, CircuitError>;
 
@@ -252,6 +261,18 @@ pub trait Sha256HashGadget<F: Sha256Params> {
     fn full_shifted_sha256_hash(
         &mut self,
         vars: &[Variable],
+        lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
+    ) -> Result<(Variable, Variable), CircuitError>;
+
+    /// Given a vector of 'Variable's representing field elements and an
+    ///  "extra" bit, we concatenate the "extra" bit to the end of the final
+    /// `Variable` and return a pair of 'Variable's, one representing
+    /// the lower 4 bits and one representing the upper 252 bits of
+    /// the output of the sha256 hash.
+    fn full_shifted_sha256_hash_with_bit(
+        &mut self,
+        vars: &[Variable],
+        bit_var: &BoolVar,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<(Variable, Variable), CircuitError>;
 
@@ -758,6 +779,86 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         Ok(init_mess_blocks_vars)
     }
 
+    fn preprocess_with_bit(
+        &mut self,
+        input_vars: &[Variable],
+        bit_var: &BoolVar,
+        lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
+    ) -> Result<Vec<InitMessBlocksVar>, CircuitError> {
+        let n = input_vars.len();
+        // We must first express the inputs in spread form
+        // This will hold 'Variables' representing the spread
+        // 32-bit chunks of the inputs concatenated together
+        let mut spread_field_vars = Vec::<Variable>::new();
+        for (idx, input_var) in input_vars.iter().enumerate() {
+            let big_uint: BigUint = self.witness(*input_var)?.into();
+            // This stores the 'Variable's representing the non-spread 32-bit chunks of the input
+            let mut non_spread_field_vars = Vec::<Variable>::new();
+            let mut u32digits = big_uint.to_u32_digits();
+            u32digits.resize(8, 0u32);
+            for (i, j) in u32digits.into_iter().rev().enumerate() {
+                let field_var = self.create_variable(F::from(j))?;
+                let (_, spread_field_chunks_var) =
+                    self.non_spread_to_field_chunks(&field_var, true, lookup_vars)?;
+                non_spread_field_vars.push(field_var);
+                if i == 0 && idx == input_vars.len() - 1 {
+                    // When we are dealing with the most significant chunk,
+                    // we need to add the bit_var to the linear combination.
+                    spread_field_vars.push(self.lin_comb(
+                        &[
+                            F::one(),
+                            F::from(4194304_u32),
+                            F::from(17592186044416_u64),
+                            F::from(4611686018427387904_u64),
+                        ],
+                        &F::zero(),
+                        &[spread_field_chunks_var.to_vec(), [bit_var.0].to_vec()].concat(),
+                    )?);
+                } else {
+                    spread_field_vars.push(self.lin_comb(
+                        &[F::one(), F::from(4194304_u32), F::from(17592186044416_u64)],
+                        &F::zero(),
+                        &spread_field_chunks_var,
+                    )?);
+                }
+            }
+            let coeffs = (0..8)
+                .rev()
+                .map(|i| F::from(BigUint::from(1u32) << (32 * i)))
+                .collect::<Vec<F>>();
+
+            // We must verify that the input is the appropriate linear combination of chunks
+            self.lin_comb_gate(&coeffs, &F::zero(), &non_spread_field_vars, input_var)?;
+        }
+        // We put the spread 32-bit chunks into the message blocks in chunks of 16.
+        // So each message block represents 2 field inputs.
+        let mut init_mess_blocks_vars = Vec::<InitMessBlocksVar>::new();
+        for spread_field_vec_var in spread_field_vars.chunks(16) {
+            let mut init_mess_blocks_var = InitMessBlocksVar::default();
+            for (i, spread_field_var) in spread_field_vec_var.iter().enumerate() {
+                init_mess_blocks_var[i] = *spread_field_var;
+            }
+            init_mess_blocks_vars.push(init_mess_blocks_var);
+        }
+        // This is the length of the input needed for the padding of the message
+        let spread_length_val = big_field_to_spread_field::<F>(256u32 * n as u32);
+        // We put a 1 after all the inputs have been inserted into the message blocks.
+        // The last few bits are then used to reprsent the length of the imput message.
+        if n % 2 == 0 {
+            let mut init_mess_blocks_var = InitMessBlocksVar::default();
+            init_mess_blocks_var[0] =
+                self.create_constant_variable(F::from(4611686018427387904_u64))?; // 2^{62}
+            init_mess_blocks_var[15] = self.create_constant_variable(spread_length_val)?;
+            init_mess_blocks_vars.push(init_mess_blocks_var);
+        } else {
+            init_mess_blocks_vars[n / 2][8] =
+                self.create_constant_variable(F::from(4611686018427387904_u64))?; // 2^{62}
+            init_mess_blocks_vars[n / 2][15] = self.create_constant_variable(spread_length_val)?;
+        }
+
+        Ok(init_mess_blocks_vars)
+    }
+
     fn prepare_message_schedule(
         &mut self,
         init_mess_blocks_var: &InitMessBlocksVar,
@@ -929,6 +1030,31 @@ impl<F: Sha256Params> Sha256HashGadget<F> for PlonkCircuit<F> {
         self.hash_to_shifted_outputs(&comp_output_var, lookup_vars)
     }
 
+    fn full_shifted_sha256_hash_with_bit(
+        &mut self,
+        input_vars: &[Variable],
+        bit_var: &BoolVar,
+        lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
+    ) -> Result<(Variable, Variable), CircuitError> {
+        let init_mess_blocks_var = self.preprocess_with_bit(input_vars, bit_var, lookup_vars)?;
+
+        let (h_constants, k_constants) = F::params().map_err(|_| {
+            CircuitError::ParameterError("Could not retrieve sha256 constants".to_string())
+        })?;
+        let mut comp_output_var = CompOutputVar::default();
+        for i in 0..8 {
+            comp_output_var[i] = self.create_constant_variable(h_constants[i])?;
+        }
+
+        for blocks_var in init_mess_blocks_var {
+            let mess_sched_var = self.prepare_message_schedule(&blocks_var, lookup_vars)?;
+
+            comp_output_var =
+                self.iter_comp_func(&mess_sched_var, &comp_output_var, &k_constants, lookup_vars)?;
+        }
+        self.hash_to_shifted_outputs(&comp_output_var, lookup_vars)
+    }
+
     fn finalize_for_sha256_hash(
         &mut self,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
@@ -976,7 +1102,7 @@ mod tests {
     use super::*;
     use ark_bn254::Fr as Fr254;
     use ark_std::UniformRand;
-    use ark_std::Zero;
+    use ark_std::{One, Zero};
     use digest::Digest;
     use jf_utils::test_rng;
     use sha2::Sha256;
@@ -1331,6 +1457,116 @@ mod tests {
 
         let (non_spread_lower_var, non_spread_upper_var) =
             circuit.full_shifted_sha256_hash(&field_vars, &mut lookup_vars)?;
+
+        let lower_big_uint: BigUint = circuit.witness(non_spread_lower_var)?.into_bigint().into();
+        let upper_big_uint: BigUint = circuit.witness(non_spread_upper_var)?.into_bigint().into();
+        let big_uint_output = lower_big_uint + BigUint::from(16_u8) * upper_big_uint;
+
+        let mut bytes_output = big_uint_output.to_bytes_be();
+        while bytes_output.len() < 32 {
+            bytes_output.insert(0, 0_u8);
+        }
+
+        circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
+        circuit.check_circuit_satisfiability(&[])?;
+
+        for i in 0..32 {
+            assert_eq!(bytes_output[i], exp_hash_val[i]);
+        }
+        Ok(())
+    }
+
+    #[test]
+    //testing the sha256 hash.
+    fn full_hash_with_bit_test() -> Result<(), CircuitError> {
+        let rng = &mut test_rng();
+        for _ in 0..30 {
+            let mut circuit: PlonkCircuit<Fr254> = PlonkCircuit::new_ultra_plonk(4);
+            let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
+            let num_field_elems = (usize::rand(rng) % 12) + 1;
+
+            let mut field_vals = Vec::<Fr254>::new();
+            let mut field_vars = Vec::<Variable>::new();
+            for _ in 0..num_field_elems {
+                let val = Fr254::rand(rng);
+                field_vals.push(val);
+                field_vars.push(circuit.create_variable(val)?);
+            }
+            let bit_var = circuit.create_boolean_variable(usize::rand(rng) % 2 == 0)?;
+
+            let mut field_bytes = Vec::<u8>::new();
+            for (i, val) in field_vals.iter().enumerate() {
+                let big_uint: BigUint = val.into_bigint().into();
+                let mut bytes_vec = big_uint.to_bytes_be();
+                while bytes_vec.len() < 32 {
+                    bytes_vec.insert(0, 0_u8);
+                }
+                if i == num_field_elems - 1 && circuit.witness(bit_var.0)? == Fr254::one() {
+                    // If the bit is set, we add a 1 at the end of the last field element
+                    bytes_vec[0] += 1u8 << 7; // Set the highest bit
+                }
+                field_bytes.extend_from_slice(&bytes_vec);
+            }
+
+            let mut hasher = Sha256::new();
+            hasher.update(field_bytes);
+            let exp_hash_val = hasher.finalize();
+
+            let (non_spread_lower_var, non_spread_upper_var) = circuit
+                .full_shifted_sha256_hash_with_bit(&field_vars, &bit_var, &mut lookup_vars)?;
+
+            let lower_big_uint: BigUint =
+                circuit.witness(non_spread_lower_var)?.into_bigint().into();
+            let upper_big_uint: BigUint =
+                circuit.witness(non_spread_upper_var)?.into_bigint().into();
+            let big_uint_output = lower_big_uint + BigUint::from(16_u8) * upper_big_uint;
+
+            let mut bytes_output = big_uint_output.to_bytes_be();
+            while bytes_output.len() < 32 {
+                bytes_output.insert(0, 0_u8);
+            }
+
+            circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
+            circuit.check_circuit_satisfiability(&[])?;
+
+            for i in 0..32 {
+                assert_eq!(bytes_output[i], exp_hash_val[i]);
+            }
+        }
+
+        let mut circuit: PlonkCircuit<Fr254> = PlonkCircuit::new_ultra_plonk(4);
+        let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
+        let num_field_elems = 12;
+
+        let mut field_vals = Vec::<Fr254>::new();
+        let mut field_vars = Vec::<Variable>::new();
+        for _ in 0..num_field_elems {
+            let val = Fr254::from(0u8);
+            field_vals.push(val);
+            field_vars.push(circuit.create_variable(val)?);
+        }
+        let bit_var = circuit.create_boolean_variable(usize::rand(rng) % 2 == 0)?;
+
+        let mut field_bytes = Vec::<u8>::new();
+        for (i, val) in field_vals.iter().enumerate() {
+            let big_uint: BigUint = val.into_bigint().into();
+            let mut bytes_vec = big_uint.to_bytes_be();
+            while bytes_vec.len() < 32 {
+                bytes_vec.insert(0, 0_u8);
+            }
+            if i == num_field_elems - 1 && circuit.witness(bit_var.0)? == Fr254::one() {
+                // If the bit is set, we add a 1 at the end of the last field element
+                bytes_vec[0] += 1u8 << 7; // Set the highest bit
+            }
+            field_bytes.extend_from_slice(&bytes_vec);
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(field_bytes);
+        let exp_hash_val = hasher.finalize();
+
+        let (non_spread_lower_var, non_spread_upper_var) =
+            circuit.full_shifted_sha256_hash_with_bit(&field_vars, &bit_var, &mut lookup_vars)?;
 
         let lower_big_uint: BigUint = circuit.witness(non_spread_lower_var)?.into_bigint().into();
         let upper_big_uint: BigUint = circuit.witness(non_spread_upper_var)?.into_bigint().into();
