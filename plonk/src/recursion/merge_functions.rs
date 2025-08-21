@@ -432,31 +432,57 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .take(6)
         .collect::<Vec<Fr254>>();
 
-    let (scalars, mut bases) = if !IS_FIRST_ROUND {
+    let (scalars, bases) = if !IS_FIRST_ROUND {
         combine_fft_proof_scalars(&pcs_infos, &r_powers)
     } else {
         combine_fft_proof_scalars_round_one(&pcs_infos, &r_powers)
     };
 
-    // Append the extra accumulator commitments to `bases` for the atomic accumulation.
-    bases.extend_from_slice(
-        &bn254info
+    let old_accumulators_commitments_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
+        bn254info
             .old_accumulators
             .iter()
-            .map(|acc| acc.comm)
-            .collect::<Vec<_>>(),
-    );
+            .map(|a| circuit.create_constant_point_variable(&Point::<Fq254>::from(a.comm)))
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    } else {
+        bn254info
+            .old_accumulators
+            .iter()
+            .map(|a| circuit.create_point_variable(&Point::<Fq254>::from(a.comm)))
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    }?;
 
-    let proof_bases = outputs
+    let old_accumulators_proof_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
+        bn254info
+            .old_accumulators
+            .iter()
+            .map(|a| {
+                circuit.create_constant_point_variable(&Point::<Fq254>::from(a.opening_proof.proof))
+            })
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    } else {
+        bn254info
+            .old_accumulators
+            .iter()
+            .map(|a| circuit.create_point_variable(&Point::<Fq254>::from(a.opening_proof.proof)))
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    }?;
+
+    // Append the extra accumulator commitments to `bases` for the atomic accumulation.
+    let mut instance_base_vars = bases
         .iter()
-        .map(|output| output.proof.opening_proof.proof)
-        .chain(
-            bn254info
-                .old_accumulators
-                .iter()
-                .map(|acc| acc.opening_proof.proof),
-        )
-        .collect::<Vec<_>>();
+        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
+        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+    instance_base_vars.extend_from_slice(&old_accumulators_commitments_vars);
+
+    let mut proof_base_vars = outputs
+        .iter()
+        .map(|output| {
+            circuit.create_point_variable(&Point::<Fq254>::from(output.proof.opening_proof.proof))
+        })
+        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+    proof_base_vars.extend(old_accumulators_proof_vars.clone());
+
     // Now perform the MSM for the accumulation, we only do this in the circuit as the procedure for proving and verifying is identical.
     let scalar_vars = scalars
         .iter()
@@ -467,15 +493,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .map(|s| circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(s)))
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
     let instance_scalar_vars = [scalar_vars.as_slice(), &proof_scalar_vars[2..]].concat();
-
-    let instance_base_vars = bases
-        .iter()
-        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
-    let proof_base_vars = proof_bases
-        .iter()
-        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
 
     let acc_instance = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
         circuit,
@@ -541,46 +558,14 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_acc_vars = bn254info
-            .old_accumulators
-            .chunks_exact(2)
-            .map(|acc_pair| {
-                Ok(acc_pair
-                    .iter()
-                    .map(|acc| {
-                        let x = bytes_to_field_elements::<_, Fq254>(
-                            acc.comm.x.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let y = bytes_to_field_elements::<_, Fq254>(
-                            acc.comm.y.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let proof_x = bytes_to_field_elements::<_, Fq254>(
-                            acc.opening_proof.proof.x.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let proof_y = bytes_to_field_elements::<_, Fq254>(
-                            acc.opening_proof.proof.y.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        x.into_iter()
-                            .chain(y)
-                            .chain(proof_x)
-                            .chain(proof_y)
-                            .map(|x| circuit.create_variable(x))
-                            .collect::<Result<Vec<Variable>, CircuitError>>()
-                    })
-                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Variable>>())
-            })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+        let old_acc_vars = old_accumulators_commitments_vars
+            .into_iter()
+            .zip(old_accumulators_proof_vars)
+            .map(|(comm, proof)| [comm.get_x(), comm.get_y(), proof.get_x(), proof.get_y()])
+            .collect::<Vec<[Variable; 4]>>()
+            .chunks(2)
+            .map(|c| c.concat())
+            .collect::<Vec<Vec<Variable>>>();
 
         let forwarded_accs: Vec<Vec<Variable>> = bn254info
             .forwarded_acumulators
