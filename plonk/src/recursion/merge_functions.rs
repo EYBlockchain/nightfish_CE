@@ -1428,12 +1428,19 @@ pub fn decider_circuit(
         let opening_proof = acc.opening_proof.proof;
         let h = vk_bn254.open_key.h;
         let beta_h = vk_bn254.open_key.beta_h;
+
+        ark_std::println!("comm:{}", comm);
+        ark_std::println!("opening_proof:{}", opening_proof);
+        ark_std::println!("h:{}", h);
+        ark_std::println!("beta_h:{}", beta_h);
         let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
             opening_proof.into(),
             (-(comm.into_group())).into_affine().into(),
         ];
         let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
             vec![beta_h.into(), h.into()];
+        ark_std::println!("pairing_inputs_l:{:?}", pairing_inputs_l);
+        ark_std::println!("pairing_inputs_r:{:?}", pairing_inputs_r);
 
         let res =
             <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
