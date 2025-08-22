@@ -72,13 +72,6 @@ where
     ) -> Result<(), CircuitError> {
         let mut transcript = RescueTranscriptVar::new_transcript(self);
 
-        for instance in old_instances.iter() {
-            transcript.append_point_variable(&instance.comm, self)?;
-            transcript.push_emulated_variable(&instance.point, self)?;
-            transcript.push_emulated_variable(&instance.value, self)?;
-            transcript.append_point_variable(&instance.opening_proof, self)?;
-        }
-
         let r = transcript.squeeze_scalar_challenge::<E>(self)?;
         let r = self.to_emulated_variable(r)?;
         let zero = self.emulated_zero();
@@ -151,13 +144,6 @@ where
         proof_scalars: &[EmulatedVariable<E::ScalarField>],
     ) -> Result<(), CircuitError> {
         let mut transcript = RescueTranscriptVar::new_transcript(self);
-
-        for instance in old_instances.iter() {
-            transcript.append_point_variable(&instance.comm, self)?;
-            transcript.push_emulated_variable(&instance.point, self)?;
-            transcript.push_emulated_variable(&instance.value, self)?;
-            transcript.append_point_variable(&instance.opening_proof, self)?;
-        }
 
         let r = transcript.squeeze_scalar_challenge::<E>(self)?;
 
@@ -349,33 +335,6 @@ mod tests {
 
         let mut transcript = <RescueTranscript<FqBn254> as Transcript>::new_transcript(b"test");
 
-        for instance in kzg_atomic_accumulator.instances.iter() {
-            <RescueTranscript<FqBn254> as Transcript>::append_curve_point(
-                &mut transcript,
-                b"commitment",
-                &instance.comm,
-            )
-            .unwrap();
-            <RescueTranscript<FqBn254> as Transcript>::push_message(
-                &mut transcript,
-                b"point",
-                &instance.point,
-            )
-            .unwrap();
-            <RescueTranscript<FqBn254> as Transcript>::push_message(
-                &mut transcript,
-                b"value",
-                &instance.value,
-            )
-            .unwrap();
-            <RescueTranscript<FqBn254> as Transcript>::append_curve_point(
-                &mut transcript,
-                b"opening_proof",
-                &instance.opening_proof.proof,
-            )
-            .unwrap();
-        }
-
         let r = transcript
             .squeeze_scalar_challenge::<G1Config>(b"r")
             .unwrap();
@@ -491,33 +450,6 @@ mod tests {
             .unwrap();
 
         let mut transcript = <RescueTranscript<FqBn254> as Transcript>::new_transcript(b"test");
-
-        for instance in kzg_atomic_accumulator.instances.iter() {
-            <RescueTranscript<FqBn254> as Transcript>::append_curve_point(
-                &mut transcript,
-                b"commitment",
-                &instance.comm,
-            )
-            .unwrap();
-            <RescueTranscript<FqBn254> as Transcript>::push_message(
-                &mut transcript,
-                b"point",
-                &instance.point,
-            )
-            .unwrap();
-            <RescueTranscript<FqBn254> as Transcript>::push_message(
-                &mut transcript,
-                b"value",
-                &instance.value,
-            )
-            .unwrap();
-            <RescueTranscript<FqBn254> as Transcript>::append_curve_point(
-                &mut transcript,
-                b"opening_proof",
-                &instance.opening_proof.proof,
-            )
-            .unwrap();
-        }
 
         let r = transcript
             .squeeze_scalar_challenge::<G1Config>(b"r")
