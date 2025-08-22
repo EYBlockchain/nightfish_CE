@@ -483,11 +483,23 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         &instance_scalar_vars,
     )?;
 
-    let acc_proof = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
-        circuit,
-        &proof_base_vars[1..],
-        &proof_scalar_vars[1..],
-    )?;
+    // If this is the first round the first term in the MSM is potentially neutral.
+    // We, therefore, add it manually after the MSM.
+    let acc_proof = if IS_FIRST_ROUND {
+        let acc_proof = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
+            circuit,
+            &proof_base_vars[1..],
+            &proof_scalar_vars[1..],
+        )
+        .map_err(|_| PlonkError::InvalidParameters("Failed to create MSM for proof".to_string()))?;
+        circuit.ecc_add::<BnConfig>(&acc_proof, &proof_base_vars[0])
+    } else {
+        MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
+            circuit,
+            &proof_base_vars,
+            &proof_scalar_vars,
+        )
+    }?;
 
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
