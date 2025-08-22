@@ -1417,6 +1417,43 @@ pub fn decider_circuit(
 
     let mut bn254_acc_vars = vec![];
 
+    //===================== verify the acc
+    use ark_ec::bn::Bn;
+    use ark_ec::pairing::Pairing;
+    use ark_ec::AffineRepr;
+    use ark_ec::CurveGroup;
+
+    for acc in grumpkin_info.forwarded_acumulators.iter() {
+        let comm = acc.comm;
+        let opening_proof = acc.opening_proof.proof;
+        let h = vk_bn254.open_key.h;
+        let beta_h = vk_bn254.open_key.beta_h;
+
+        ark_std::println!("comm:{}", comm);
+        ark_std::println!("opening_proof:{}", opening_proof);
+        ark_std::println!("h:{}", h);
+        ark_std::println!("beta_h:{}", beta_h);
+        let pairing_inputs_l: Vec<<Bn<ark_bn254::Config> as Pairing>::G1Prepared> = vec![
+            opening_proof.into(),
+            (-(comm.into_group())).into_affine().into(),
+        ];
+        let pairing_inputs_r: Vec<<Bn<ark_bn254::Config> as Pairing>::G2Prepared> =
+            vec![beta_h.into(), h.into()];
+        ark_std::println!("pairing_inputs_l:{:?}", pairing_inputs_l);
+        ark_std::println!("pairing_inputs_r:{:?}", pairing_inputs_r);
+
+        let res =
+            <Bn<ark_bn254::Config> as Pairing>::multi_pairing(pairing_inputs_l, pairing_inputs_r)
+                .0
+                .is_one();
+        if res {
+            ark_std::println!("Atomic accumulator check passed in decider circuit!");
+        } else {
+            ark_std::println!("Atomic accumulator check failed in decider circuit!");
+        }
+    }
+    //=====================
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
         grumpkin_info.bn254_outputs.chunks_exact(2),
