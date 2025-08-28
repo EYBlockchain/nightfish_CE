@@ -786,7 +786,8 @@ mod tests {
         let max_num_vars = 12;
         for _ in 0..10 {
             let num_vars = (usize::rand(rng) % (max_num_vars - 5)) + 5;
-            let pp = UnivariateIpaPCS::<E>::load_srs_from_file((1 << num_vars) - 1, None)?;
+            let pp =
+                UnivariateIpaPCS::<E>::load_srs_from_file_for_testing((1 << num_vars) - 1, None)?;
             let (ck, vk) = Zeromorph::<UnivariateIpaPCS<E>>::trim(&pp, 0, Some(num_vars))?;
 
             let mle = Arc::new(DenseMultilinearExtension::<E::ScalarField>::rand(
@@ -818,7 +819,10 @@ mod tests {
         let rng = &mut test_rng();
         let max_num_vars = 10;
         for _ in 0..10 {
-            let pp = UnivariateIpaPCS::<E>::load_srs_from_file((1 << max_num_vars) - 1, None)?;
+            let pp = UnivariateIpaPCS::<E>::load_srs_from_file_for_testing(
+                (1 << max_num_vars) - 1,
+                None,
+            )?;
             let (ck, vk) = Zeromorph::<UnivariateIpaPCS<E>>::trim(&pp, 0, Some(max_num_vars))?;
             let mut polys = Vec::new();
             let mut points = Vec::new();

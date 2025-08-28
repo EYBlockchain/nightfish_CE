@@ -147,7 +147,7 @@ where
         Ok(())
     }
 
-    fn load_srs_from_file(
+    fn load_srs_from_file_for_testing(
         supported_degree: usize,
         _file: Option<&str>,
     ) -> Result<Self, jf_primitives::pcs::prelude::PCSError> {

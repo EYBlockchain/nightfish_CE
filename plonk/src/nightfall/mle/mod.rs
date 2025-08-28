@@ -9,8 +9,8 @@ pub mod zeromorph;
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
-use ark_std::rand::{CryptoRng, RngCore};
-use ark_std::{sync::Arc, vec::Vec};
+use ark_std::rand::{rngs::OsRng, CryptoRng, RngCore, SeedableRng};
+use ark_std::{format, sync::Arc, vec::Vec};
 #[cfg(any(test, feature = "test-srs"))]
 use jf_primitives::pcs::StructuredReferenceString;
 use jf_primitives::{
@@ -21,7 +21,7 @@ use jf_relation::{
     gadgets::{ecc::HasTEForm, EmulationConfig},
     Arithmetization,
 };
-use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
+use rand_chacha::ChaCha20Rng;
 pub use snark::MLEPlonk;
 
 use crate::proof_system::RecursiveOutput;
@@ -120,8 +120,9 @@ where
         proof: &Self::Proof,
         _extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<(), Self::Error> {
-        // The rng is not actually used so we just use some test rng.
-        let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
+        let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+            PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
+        })?;
         if !Self::verify::<_, _, _, T>(proof, verify_key, public_input, &mut rng)? {
             return Err(PlonkError::WrongProof);
         }
