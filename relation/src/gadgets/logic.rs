@@ -168,6 +168,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
     /// Obtain a variable that equals `x_0` if `b` is zero, or `x_1` if `b` is
     /// one. Return error if variables are invalid.
+    /// Note that `b` must already be constrained to be a boolean variable.
     pub fn conditional_select(
         &mut self,
         b: BoolVar,
@@ -178,10 +179,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
         self.check_var_bound(x_0)?;
         self.check_var_bound(x_1)?;
 
-        // y = x_bit
-        let y = if self.witness(b.into())? == F::zero() {
+        // y = x_b
+        let bw = self.witness(b.into())?;
+        let y = if bw == F::zero() {
             self.create_variable(self.witness(x_0)?)?
-        } else if self.witness(b.into())? == F::one() {
+        } else if bw == F::one() {
             self.create_variable(self.witness(x_1)?)?
         } else {
             return Err(CircuitError::ParameterError(
@@ -195,6 +197,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
     /// Constrain a variable `y` to equal `f_0` if `b` is zero, or `f_1` if `b` is
     /// one. Return error if variables are invalid.
+    /// Note that `b` must already be constrained to be a boolean variable.
     pub fn const_conditional_select_gate(
         &mut self,
         b: BoolVar,
@@ -205,6 +208,13 @@ impl<F: PrimeField> PlonkCircuit<F> {
         self.check_var_bound(b.into())?;
         self.check_var_bound(y)?;
 
+        let bw = self.witness(b.into())?;
+        if bw != F::zero() && bw != F::one() {
+            return Err(CircuitError::ParameterError(
+                "b in Constant Conditional Selection Gate is not a boolean variable".to_string(),
+            ));
+        }
+
         let wire_vars = [b.into(), self.zero(), self.zero(), self.zero(), y];
         self.insert_gate(&wire_vars, Box::new(ConstCondSelectGate { f_0, f_1 }))?;
         Ok(y)
@@ -212,6 +222,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
     /// Obtain a variable that equals `f_0` if `b` is zero, or `f_1` if `b` is
     /// one. Return error if variables are invalid.
+    /// Note that `b` must already be constrained to be a boolean variable.
     pub fn const_conditional_select(
         &mut self,
         b: BoolVar,
@@ -220,10 +231,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
     ) -> Result<Variable, CircuitError> {
         self.check_var_bound(b.into())?;
 
-        // y = x_bit
-        let y = if self.witness(b.into())? == F::zero() {
+        // y = x_b
+        let bw = self.witness(b.into())?;
+        let y = if bw == F::zero() {
             self.create_variable(f_0)?
-        } else if self.witness(b.into())? == F::one() {
+        } else if bw == F::one() {
             self.create_variable(f_1)?
         } else {
             return Err(CircuitError::ParameterError(
