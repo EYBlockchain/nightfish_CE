@@ -193,6 +193,23 @@ impl<F: PrimeField> PlonkCircuit<F> {
         Ok(y)
     }
 
+    /// Constrain a variable `y` to equal `f_0` if `b` is zero, or `f_1` if `b` is
+    /// one. Return error if variables are invalid.
+    pub fn const_conditional_select_gate(
+        &mut self,
+        b: BoolVar,
+        y: Variable,
+        f_0: F,
+        f_1: F,
+    ) -> Result<Variable, CircuitError> {
+        self.check_var_bound(b.into())?;
+        self.check_var_bound(y)?;
+
+        let wire_vars = [b.into(), self.zero(), self.zero(), self.zero(), y];
+        self.insert_gate(&wire_vars, Box::new(ConstCondSelectGate { f_0, f_1 }))?;
+        Ok(y)
+    }
+
     /// Obtain a variable that equals `f_0` if `b` is zero, or `f_1` if `b` is
     /// one. Return error if variables are invalid.
     pub fn const_conditional_select(
@@ -213,8 +230,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
                 "b in Constant Conditional Selection gate is not a boolean variable".to_string(),
             ));
         };
-        let wire_vars = [b.into(), self.zero(), self.zero(), self.zero(), y];
-        self.insert_gate(&wire_vars, Box::new(ConstCondSelectGate { f_0, f_1 }))?;
+        self.const_conditional_select_gate(b, y, f_0, f_1)?;
         Ok(y)
     }
 }
