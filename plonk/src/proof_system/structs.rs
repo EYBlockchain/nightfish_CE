@@ -961,6 +961,18 @@ where
         let mut hasher = Keccak256::new();
 
         let mut bytes = Vec::new();
+        // hash order:
+        //    vk.domain_size
+        //    vk.sigma_comms,
+        //    vk.selector_comms,
+        //    vk.ks,
+        //    vk.range_table_comm,
+        //    vk.key_table_comm,
+        //    vk.table_dom_sep_comm,
+        //    vk.q_dom_sep_comm,
+
+        bytes.extend_from_slice(&self.domain_size.to_be_bytes());
+
         for com in self.sigma_comms.iter() {
             let point = Point::<E::BaseField>::from(*com);
             bytes.extend_from_slice(&point.get_x().into_bigint().to_bytes_be());
@@ -971,6 +983,10 @@ where
             let point = Point::<E::BaseField>::from(*com);
             bytes.extend_from_slice(&point.get_x().into_bigint().to_bytes_be());
             bytes.extend_from_slice(&point.get_y().into_bigint().to_bytes_be());
+        }
+
+        for k in self.k.iter() {
+            bytes.extend_from_slice(&k.into_bigint().to_bytes_be());
         }
 
         if let Some(plookup_vk) = self.plookup_vk.as_ref() {
