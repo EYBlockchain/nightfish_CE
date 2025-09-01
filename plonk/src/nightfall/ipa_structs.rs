@@ -261,6 +261,8 @@ where
         let mut hasher = Keccak256::new();
 
         let mut bytes = Vec::new();
+        bytes.extend_from_slice(&to_bytes!(&self.domain_size).unwrap());
+
         for com in self.sigma_comms.iter() {
             bytes.extend_from_slice(&to_bytes!(com).unwrap());
         }
@@ -268,6 +270,12 @@ where
         for com in self.selector_comms.iter() {
             bytes.extend_from_slice(&to_bytes!(com).unwrap());
         }
+
+        for k in self.k.iter() {
+            bytes.extend_from_slice(&to_bytes!(k).unwrap());
+        }
+
+        bytes.extend_from_slice(&to_bytes!(&self.open_key).unwrap());
 
         if let Some(plookup_vk) = self.plookup_vk.as_ref() {
             bytes.extend_from_slice(&to_bytes!(&plookup_vk.range_table_comm).unwrap());
