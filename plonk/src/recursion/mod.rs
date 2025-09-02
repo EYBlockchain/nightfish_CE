@@ -36,7 +36,7 @@ use crate::{
     errors::PlonkError,
     nightfall::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
-        ipa_structs::{ProvingKey, VerifyingKey, VK},
+        ipa_structs::{ProvingKey, VerifyingKey},
         mle::{
             mle_structs::{GateInfo, MLEProvingKey, MLEVerifyingKey},
             MLEPlonk,
@@ -99,8 +99,8 @@ pub trait RecursiveProver {
         circuit: &mut PlonkCircuit<Fr254>,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>;
-    /// Retrieve the list of acceptable verification key hashes
-    fn get_vk_hash_list() -> Vec<Fr254>;
+    /// Retrieve the list of acceptable verification keys.
+    fn get_vk_list() -> Vec<VerifyingKey<Kzg>>;
     /// Retrieves the base Grumpkin proving key.
     fn get_base_grumpkin_pk() -> MLEProvingKey<Zmorph>;
     /// Retrieves the base Bn254 proving key.
@@ -230,10 +230,7 @@ pub trait RecursiveProver {
         grumpkin_info.old_accumulators = old_accumulators;
         let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(12);
 
-        let hash_list = Self::get_vk_hash_list();
-        for vk in input_vks.iter() {
-            Self::generate_vk_check_constraint(vk.hash(), &hash_list, &mut circuit)?;
-        }
+        let _vk_list = Self::get_vk_list();
         // Perform any extra checks that only happen at base level.
         let extra_checks_pi = extra_base_info
             .iter()
@@ -1187,10 +1184,10 @@ mod tests {
         KEY_STORE.get_or_init(|| RwLock::new(HashMap::<String, Key>::new()))
     }
 
-    /// This function is used so that we can work with one hash list.
-    fn get_hash_list() -> &'static RwLock<Vec<Fr254>> {
-        static HASH_LIST: OnceLock<RwLock<Vec<Fr254>>> = OnceLock::new();
-        HASH_LIST.get_or_init(|| RwLock::new(Vec::new()))
+    /// This function is used so that we can work with one vk list.
+    fn get_test_vk_list() -> &'static RwLock<Vec<VerifyingKey<Kzg>>> {
+        static VK_LIST: OnceLock<RwLock<Vec<VerifyingKey<Kzg>>>> = OnceLock::new();
+        VK_LIST.get_or_init(|| RwLock::new(Vec::new()))
     }
     #[test]
     #[ignore = "Only run this test on powerful machines"]
@@ -1234,10 +1231,10 @@ mod tests {
         ark_std::println!("Made proving key in: {:?}", now.elapsed());
         // Scope the lock
         {
-            let mut hash_list = get_hash_list().write().unwrap();
-            hash_list.push(input_vk_one.hash());
-            hash_list.push(input_vk_two.hash());
-            ark_std::println!("hash list: {:?}", hash_list);
+            let mut vk_list = get_test_vk_list().write().unwrap();
+            vk_list.push(input_vk_one);
+            vk_list.push(input_vk_two);
+            ark_std::println!("vk list: {:?}", vk_list);
         }
         let now = ark_std::time::Instant::now();
         let input_outputs = cfg_iter!(circuits)
@@ -1319,8 +1316,8 @@ mod tests {
                 Ok(vec![])
             }
 
-            fn get_vk_hash_list() -> Vec<Fr254> {
-                get_hash_list().read().unwrap().clone()
+            fn get_vk_list() -> Vec<VerifyingKey<Kzg>> {
+                get_test_vk_list().read().unwrap().clone()
             }
 
             fn get_base_grumpkin_pk() -> MLEProvingKey<Zmorph> {
