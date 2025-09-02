@@ -4,8 +4,13 @@ use ark_bn254::{Bn254, Fq as Fq254, Fr as Fr254};
 use ark_poly::DenseMultilinearExtension;
 
 use ark_std::{
-    cfg_chunks, cfg_into_iter, format, rand::SeedableRng, string::ToString, sync::Arc, vec,
-    vec::Vec, One, Zero,
+    cfg_chunks, cfg_into_iter, format,
+    rand::{rngs::OsRng, SeedableRng},
+    string::ToString,
+    sync::Arc,
+    vec,
+    vec::Vec,
+    One, Zero,
 };
 
 use itertools::Itertools;
@@ -185,8 +190,12 @@ pub trait RecursiveProver {
             })?;
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
             .map(|circuit| {
-                let rng = &mut jf_utils::test_rng();
-                MLEPlonk::<Zmorph>::recursive_prove(rng, &circuit, base_grumpkin_pk, None)
+                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+                    PlonkError::InvalidParameters(format!(
+                        "ChaCha20Rng initialization failure: {e}"
+                    ))
+                })?;
+                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, base_grumpkin_pk, None)
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -291,8 +300,12 @@ pub trait RecursiveProver {
         let bn254_outputs: [Bn254Output; 2] = circuits
             .into_iter()
             .map(|circuit| {
-                let rng = &mut jf_utils::test_rng();
-                FFTPlonk::<Kzg>::recursive_prove(rng, &circuit, base_bn254_pk, None)
+                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+                    PlonkError::InvalidParameters(format!(
+                        "ChaCha20Rng initialization failure: {e}"
+                    ))
+                })?;
+                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None)
             })
             .collect::<Result<Vec<Bn254Output>, PlonkError>>()?
             .try_into()
@@ -353,8 +366,12 @@ pub trait RecursiveProver {
             })?;
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
             .map(|circuit| {
-                let rng = &mut jf_utils::test_rng();
-                MLEPlonk::<Zmorph>::recursive_prove(rng, &circuit, merge_grumpkin_pk, None)
+                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+                    PlonkError::InvalidParameters(format!(
+                        "ChaCha20Rng initialization failure: {e}"
+                    ))
+                })?;
+                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -414,8 +431,12 @@ pub trait RecursiveProver {
             })?;
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
             .map(|circuit| {
-                let rng = &mut jf_utils::test_rng();
-                MLEPlonk::<Zmorph>::recursive_prove(rng, &circuit, merge_grumpkin_pk, None)
+                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+                    PlonkError::InvalidParameters(format!(
+                        "ChaCha20Rng initialization failure: {e}"
+                    ))
+                })?;
+                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -918,11 +939,9 @@ pub trait RecursiveProver {
             &current_bn254_pk,
         )?;
 
-        let seed = ark_std::time::SystemTime::now()
-            .duration_since(ark_std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+            PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
+        })?;
         let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
             &mut rng,
             &circuit,

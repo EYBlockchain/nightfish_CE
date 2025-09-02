@@ -100,11 +100,11 @@ pub trait PolynomialCommitmentScheme: Clone + Default {
     /// implemented else where. We only load them into memory here.
     ///
     /// If `file=None`, we load the default choice of SRS.
-    fn load_srs_from_file(
+    fn load_srs_from_file_for_testing(
         supported_degree: usize,
         file: Option<&str>,
     ) -> Result<Self::SRS, PCSError> {
-        Self::SRS::load_srs_from_file(supported_degree, file)
+        Self::SRS::load_srs_from_file_for_testing(supported_degree, file)
     }
 
     /// Trim the universal parameters to specialize the public parameters.
@@ -281,7 +281,10 @@ pub trait StructuredReferenceString: Sized {
     /// implemented else where. We only load them into memory here.
     ///
     /// If `file=None`, we load the default choice of SRS.
-    fn load_srs_from_file(_supported_degree: usize, _file: Option<&str>) -> Result<Self, PCSError> {
+    fn load_srs_from_file_for_testing(
+        _supported_degree: usize,
+        _file: Option<&str>,
+    ) -> Result<Self, PCSError> {
         unimplemented!("TODO: implement loading SRS from files");
     }
 }

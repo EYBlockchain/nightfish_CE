@@ -12,6 +12,7 @@ use ark_std::{
     hash::Hash,
     marker::PhantomData,
     ops::{Add, AddAssign, Div, Mul, Neg},
+    rand::{rngs::OsRng, SeedableRng},
     string::ToString,
     vec,
     vec::Vec,
@@ -24,7 +25,7 @@ use jf_primitives::{
     },
     rescue::RescueParameter,
 };
-use rand_chacha::{rand_core::SeedableRng, ChaCha20Rng};
+use rand_chacha::ChaCha20Rng;
 use rayon::prelude::*;
 
 use crate::transcript::{RescueTranscript, Transcript};
@@ -174,7 +175,9 @@ where
     ) -> Result<(Self::Proof, Self::Evaluation), PCSError> {
         let prover_param: &UnivariateUniversalIpaParams<E> = prover_param.borrow();
         let p_poly = polynomial;
-        let mut rng = ChaCha20Rng::from_seed([0; 32]);
+        let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|_| {
+            PCSError::InvalidParameters("ChaCha20Rng initialization failure".to_string())
+        })?;
         let poly_commit = Self::commit(prover_param, p_poly)?;
 
         // We begin by initiating a new transcript that uses Jellyfish's sponge based rescue hash.
@@ -803,7 +806,7 @@ mod tests {
             while degree <= 1 {
                 degree = usize::rand(rng) % 20;
             }
-            let pp = <UnivariateIpaPCS<E> as PolynomialCommitmentScheme>::load_srs_from_file(
+            let pp = <UnivariateIpaPCS<E> as PolynomialCommitmentScheme>::load_srs_from_file_for_testing(
                 degree, None,
             )?;
             let (ck, vk) = pp.trim(degree)?;
@@ -837,7 +840,7 @@ mod tests {
         for _ in 0..100 {
             let degree = 50;
 
-            let pp = UnivariateIpaPCS::<E>::load_srs_from_file(degree, None)?;
+            let pp = UnivariateIpaPCS::<E>::load_srs_from_file_for_testing(degree, None)?;
             let (ck, vk) = pp.trim(degree)?;
             let commit_in = <DensePolynomial<E::ScalarField> as DenseUVPolynomial<
                 E::ScalarField,
@@ -882,7 +885,7 @@ mod tests {
                     degree = usize::rand(rng) % 20;
                 }
 
-                let pp = UnivariateIpaPCS::<E>::load_srs_from_file(degree, Some(path))?;
+                let pp = UnivariateIpaPCS::<E>::load_srs_from_file_for_testing(degree, Some(path))?;
                 let (ck, vk) = pp.trim(degree)?;
                 let commit_in = <DensePolynomial<E::ScalarField> as DenseUVPolynomial<
                     E::ScalarField,
@@ -913,7 +916,7 @@ mod tests {
         let rng = &mut test_rng();
         let max_degree = 30;
         for _ in 0..10 {
-            let pp = UnivariateIpaPCS::<E>::load_srs_from_file(max_degree, None)?;
+            let pp = UnivariateIpaPCS::<E>::load_srs_from_file_for_testing(max_degree, None)?;
             let (ck, vk) = UnivariateIpaPCS::<E>::trim(&pp, max_degree, None)?;
             let mut polys = Vec::new();
             let mut points = Vec::new();

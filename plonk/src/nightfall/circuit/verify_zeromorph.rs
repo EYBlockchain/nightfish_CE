@@ -271,7 +271,9 @@ mod tests {
         let rng = &mut ark_std::test_rng();
         let max_num_vars = 10;
 
-        let pp = UnivariateIpaPCS::<E>::load_srs_from_file((1 << max_num_vars) - 1, None).unwrap();
+        let pp =
+            UnivariateIpaPCS::<E>::load_srs_from_file_for_testing((1 << max_num_vars) - 1, None)
+                .unwrap();
         let (ck, vk) = Zeromorph::<UnivariateIpaPCS<E>>::trim(&pp, 0, Some(max_num_vars)).unwrap();
 
         let num_vars = (usize::rand(rng) % (max_num_vars - 5)) + 5;
