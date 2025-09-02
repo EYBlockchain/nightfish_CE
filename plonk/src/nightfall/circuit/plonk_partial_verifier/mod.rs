@@ -12,7 +12,7 @@ use crate::{
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
-use ark_std::{vec, vec::Vec};
+use ark_std::{string::ToString, vec, vec::Vec};
 use jf_primitives::{
     pcs::{PolynomialCommitmentScheme, StructuredReferenceString},
     rescue::RescueParameter,
@@ -21,9 +21,9 @@ use jf_relation::{
     errors::CircuitError,
     gadgets::{
         ecc::{HasTEForm, Point, PointVariable},
-        EmulatedVariable, EmulationConfig,
+        EmulationConfig,
     },
-    PlonkCircuit, Variable,
+    Circuit, PlonkCircuit, Variable,
 };
 
 mod gadgets;
@@ -62,8 +62,9 @@ pub struct VerifyingKeyVar<PCS: PolynomialCommitmentScheme> {
     /// disjoint.
     k: Vec<PCS::Evaluation>,
 
-    /// The hash of the verification key.
-    hash: EmulatedVariable<PCS::Evaluation>,
+    /// Used for client verification keys to distinguish between
+    /// transfer/withdrawal and deposit.
+    id: Option<Variable>,
 }
 
 impl<T, F, PCS> CircuitTranscriptVisitor<T, F> for VerifyingKeyVar<PCS>
@@ -77,9 +78,16 @@ where
     fn append_to_transcript(
         &self,
         transcript: &mut T,
-        circuit: &mut PlonkCircuit<F>,
+        _circuit: &mut PlonkCircuit<F>,
     ) -> Result<(), CircuitError> {
-        transcript.push_emulated_variable(&self.hash, circuit)
+        let id = if let Some(id) = self.id {
+            Ok(id)
+        } else {
+            Err(CircuitError::ParameterError(
+                "Verifying key has no id".to_string(),
+            ))
+        }?;
+        transcript.push_variable(&id)
     }
 }
 
@@ -197,7 +205,11 @@ where
             None
         };
 
-        let hash = circuit.create_emulated_variable(verify_key.hash())?;
+        let id = if let Some(id) = verify_key.id() {
+            Some(circuit.create_variable(F::from(id as u8))?)
+        } else {
+            None
+        };
         Ok(Self {
             sigma_comms,
             selector_comms,
@@ -206,7 +218,7 @@ where
             domain_size: verify_key.domain_size(),
             num_inputs: verify_key.num_inputs(),
             k: verify_key.k().to_vec(),
-            hash,
+            id,
         })
     }
 
@@ -233,7 +245,9 @@ where
             res.push(plookup_vk.q_dom_sep_comm.get_x());
             res.push(plookup_vk.q_dom_sep_comm.get_y());
         }
-        res.extend_from_slice(&self.hash.to_vec());
+        if self.id.is_some() {
+            res.push(self.id.unwrap());
+        }
         res
     }
 
