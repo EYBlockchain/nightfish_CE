@@ -177,7 +177,11 @@ where
             transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, &msg)?;
         }
 
-        transcript.append_visitor(&prove_keys.vk)?;
+        // For FFTPlonk we only add the vk ID in the non-merged case.
+        if prove_keys.vk.id.is_some() {
+            transcript.append_visitor(&prove_keys.vk)?;
+        }
+
         for pub_in in circuits.public_input()?.iter() {
             transcript.push_message(b"public_input", pub_in)?;
         }
@@ -397,8 +401,11 @@ where
         let mut online_oracles = Oracles::default();
         let prover = FFTProver::<PCS>::new(n, num_wire_types)?;
 
+        // For FFTPlonk we only add the vk ID in the non-merged case.
+        if prove_keys.vk.is_merged {
+            transcript.append_visitor(&prove_keys.vk)?;
+        }
         // In the recursive setting we know that the public inputs have length 1.
-        transcript.append_visitor(&prove_keys.vk)?;
         transcript.push_message(b"public_input", &circuits.public_input()?[0])?;
 
         // Round 1
@@ -684,6 +691,7 @@ where
             open_key,
             plookup_vk,
             is_merged: false,
+            id: None,
         };
 
         // Compute ProvingKey (which includes the VerifyingKey)

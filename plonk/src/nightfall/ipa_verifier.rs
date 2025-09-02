@@ -410,7 +410,9 @@ where
             transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
         }
 
-        transcript.append_visitor(verify_key)?;
+        if verify_key.id.is_some() {
+            transcript.append_visitor(verify_key)?;
+        }
 
         for pub_input in public_inputs.iter() {
             transcript.push_message(b"public_input", pub_input)?;

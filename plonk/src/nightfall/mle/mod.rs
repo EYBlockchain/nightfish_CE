@@ -9,8 +9,12 @@ pub mod zeromorph;
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
-use ark_std::rand::{rngs::OsRng, CryptoRng, RngCore, SeedableRng};
-use ark_std::{format, sync::Arc, vec::Vec};
+use ark_std::{
+    format,
+    rand::{rngs::OsRng, CryptoRng, RngCore, SeedableRng},
+    sync::Arc,
+    vec::Vec,
+};
 #[cfg(any(test, feature = "test-srs"))]
 use jf_primitives::pcs::StructuredReferenceString;
 use jf_primitives::{
