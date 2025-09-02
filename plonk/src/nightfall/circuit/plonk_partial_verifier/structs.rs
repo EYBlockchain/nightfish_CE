@@ -29,9 +29,7 @@ use crate::{
             sumcheck::SumCheckGadget,
         },
         hops::srs::UnivariateUniversalIpaParams,
-        ipa_structs::{
-            Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VerifyingKey, VK,
-        },
+        ipa_structs::{Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VK},
         mle::mle_structs::{
             MLEChallenges, MLELookupEvals, MLELookupProof, MLEProofEvals, MLEVerifyingKey,
             SAMLEProof,
@@ -107,7 +105,7 @@ impl ChallengesVar {
     /// Computes challenges from a proof.
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
-        vk: &VerifyingKey<PCS>,
+        vk_id: Option<Variable>,
         pi: &Variable,
         proof: &ProofVarNative<P>,
         transcript: &mut C,
@@ -120,8 +118,9 @@ impl ChallengesVar {
         F: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
         C: CircuitTranscript<F>,
     {
-        let vk_hash = circuit.create_variable(vk.hash())?;
-        transcript.push_variable(&vk_hash)?;
+        if let Some(id) = vk_id {
+            transcript.push_variable(&id)?;
+        }
 
         transcript.push_variable(pi)?;
 

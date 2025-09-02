@@ -27,6 +27,7 @@ use jf_relation::{
     gadgets::ecc::HasTEForm,
 };
 use jf_utils::to_bytes;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use sha3::{Digest, Keccak256};
 use tagged_base64::tagged;
 
@@ -195,6 +196,10 @@ where
 
     /// Plookup verifying key, None if not support lookup.
     pub(crate) plookup_vk: Option<PlookupVerifyingKey<PCS>>,
+
+    /// Used for client verification keys to distinguish between
+    /// transfer/withdrawal and deposit.
+    pub(crate) id: Option<VerificationKeyId>,
 }
 /// APIs for generic plonk verifying key.
 pub trait VK<PCS: PolynomialCommitmentScheme> {
@@ -219,6 +224,9 @@ pub trait VK<PCS: PolynomialCommitmentScheme> {
 
     /// Plookup verifying key, None if not support lookup.
     fn plookup_vk(&self) -> Option<&PlookupVerifyingKey<PCS>>;
+
+    /// Get the id of the verifying key.
+    fn id(&self) -> Option<VerificationKeyId>;
 
     /// Get the hash of the verifying key.
     fn hash(&self) -> PCS::Evaluation;
@@ -255,6 +263,10 @@ where
 
     fn plookup_vk(&self) -> Option<&PlookupVerifyingKey<PCS>> {
         self.plookup_vk.as_ref()
+    }
+
+    fn id(&self) -> Option<VerificationKeyId> {
+        self.id
     }
 
     fn hash(&self) -> <PCS as PolynomialCommitmentScheme>::Evaluation {
@@ -307,7 +319,15 @@ where
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
 {
     fn append_to_transcript<T: Transcript>(&self, transcript: &mut T) -> Result<(), PlonkError> {
-        transcript.push_message(b"verifying key", &<Self as VK<PCS>>::hash(self))?;
+        let id_field = if let Some(id) = self.id {
+            Ok(PCS::Evaluation::from(id as u8))
+        } else {
+            Err(PlonkError::InvalidParameters(
+                "Verifying key has no id".to_string(),
+            ))
+        }?;
+
+        transcript.push_message(b"verifying key id", &id_field)?;
         Ok(())
     }
 }
@@ -334,6 +354,51 @@ where
     pub(crate) q_dom_sep_comm: PCS::Commitment,
 }
 
+/// An enum to identify different client verification keys.
+/// Client means transfer or withdrawal.
+/// These will not be used for merge verification keys.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+pub enum VerificationKeyId {
+    /// Transfer or Withdrawal
+    Client = 0,
+    /// Deposit
+    Deposit = 1,
+}
+
+// --- Serialize the enum as exactly one byte ---
+impl CanonicalSerialize for VerificationKeyId {
+    fn serialize_with_mode<W: Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
+        let b: u8 = (*self).into();
+        b.serialize_with_mode(&mut writer, compress)
+    }
+
+    fn serialized_size(&self, _compress: Compress) -> usize {
+        1
+    }
+}
+
+impl CanonicalDeserialize for VerificationKeyId {
+    fn deserialize_with_mode<R: Read>(
+        mut reader: R,
+        compress: Compress,
+        validate: Validate,
+    ) -> Result<Self, SerializationError> {
+        let b = u8::deserialize_with_mode(&mut reader, compress, validate)?;
+        VerificationKeyId::try_from(b).map_err(|_| SerializationError::InvalidData)
+    }
+}
+
+impl Valid for VerificationKeyId {
+    fn check(&self) -> Result<(), SerializationError> {
+        Ok(())
+    }
+}
+
 impl<PCS> VerifyingKey<PCS>
 where
     PCS: PolynomialCommitmentScheme,
@@ -351,6 +416,7 @@ where
             open_key: <PCS::SRS as StructuredReferenceString>::VerifierParam::default(),
             is_merged: false,
             plookup_vk: None,
+            id: None,
         }
     }
 

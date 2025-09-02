@@ -19,6 +19,7 @@ use crate::{
     proof_system::RecursiveOutput,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript},
 };
+use jf_relation::{errors::CircuitError, gadgets::ecc::Point, Circuit, PlonkCircuit, Variable};
 
 use super::Kzg;
 
@@ -86,9 +87,20 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
 
+    let vk_id = if let Some(id) = vk.id {
+        Some(circuit.create_variable(Fr254::from(id as u8))?)
+    } else {
+        None
+    };
+
     // Generate the challenges
-    let challenges =
-        ChallengesVar::compute_challenges(circuit, vk, &pi_hash, &proof, &mut transcript)?;
+    let challenges = ChallengesVar::compute_challenges::<Kzg, _, _, _>(
+        circuit,
+        vk_id,
+        &pi_hash,
+        &proof,
+        &mut transcript,
+    )?;
 
     // Output the scalars
     let vk_k =
