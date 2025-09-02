@@ -254,7 +254,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let mut gkr_q_polys = vec![perm_q_poly];
 
         // Run the lookup related subroutines if support lookup.
-        let (m_poly, m_commit, [alpha, beta, delta, epsilon]) = if pk.lookup_proving_key.is_some() {
+        let (m_poly, m_commit, [alpha, beta]) = if pk.lookup_proving_key.is_some() {
             let lookup_table = circuit.compute_merged_lookup_table_mle(tau)?;
             let lookup_wire = circuit.compute_lookup_sorted_vec_mles(tau, &lookup_table)?;
             let table = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
@@ -266,8 +266,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             let m_commit = PCS::commit(&pk.pcs_prover_params, &m_poly)?;
 
             transcript.append_curve_point(b"m_commit", &m_commit)?;
-            let [alpha, beta, delta, epsilon]: [P::ScalarField; 4] = transcript
-                .squeeze_scalar_challenges::<P>(b"alpha beta delta epsilon", 4)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
@@ -280,17 +280,17 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
             gkr_p_polys.push(prepped_items.p_poly);
             gkr_q_polys.push(prepped_items.q_poly);
-            (Some(m_poly), Some(m_commit), [alpha, beta, delta, epsilon])
+            (Some(m_poly), Some(m_commit), [alpha, beta])
         } else {
-            let [alpha, beta, delta, epsilon]: [P::ScalarField; 4] = transcript
-                .squeeze_scalar_challenges::<P>(b"alpha beta delta epsilon", 4)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 4)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
                         "Couldn't convert to fixed length array".to_string(),
                     )
                 })?;
-            (None, None, [alpha, beta, delta, epsilon])
+            (None, None, [alpha, beta])
         };
         let gkr_proof = batch_prove_gkr::<P, _>(&gkr_p_polys, &gkr_q_polys, &mut transcript)?;
         // Now we have done the GKR proof we run a final zero check on the underlying products of MLEs.
@@ -298,6 +298,13 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // Since we return the individual multilinear extension evaluations when we verify the GKR proof we need only use the SumCheck
         // to check the evaluation claims for the numerator and denominator polynomials in th epermutation and the lookup wire and table.
         let gkr_point = &gkr_proof.sumcheck_proofs.last().as_ref().unwrap().point;
+
+        let [delta, epsilon]: [P::ScalarField; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"delta epsilon", 2)?
+            .try_into()
+            .map_err(|_| {
+                PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
+            })?;
 
         let eq_poly = Arc::new(build_eq_x_r(gkr_point));
         let challenges = MLEChallenges {
@@ -620,7 +627,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let mut gkr_q_polys = vec![perm_q_poly.clone()];
 
         // Run the lookup related subroutines if support lookup.
-        let (m_poly, m_commit, [alpha, beta, delta, epsilon]) = if pk.lookup_proving_key.is_some() {
+        let (m_poly, m_commit, [alpha, beta]) = if pk.lookup_proving_key.is_some() {
             let lookup_table = circuit.compute_merged_lookup_table_mle(tau)?;
             let lookup_wire = circuit.compute_lookup_sorted_vec_mles(tau, &lookup_table)?;
             let table = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
@@ -632,8 +639,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             let m_commit = PCS::commit(&pk.pcs_prover_params, &m_poly)?;
 
             transcript.append_curve_point(b"m_commit", &m_commit)?;
-            let [alpha, beta, delta, epsilon]: [P::ScalarField; 4] = transcript
-                .squeeze_scalar_challenges::<P>(b"alpha beta delta epsilon", 4)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
@@ -646,23 +653,30 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
             gkr_p_polys.push(prepped_items.p_poly);
             gkr_q_polys.push(prepped_items.q_poly);
-            (Some(m_poly), Some(m_commit), [alpha, beta, delta, epsilon])
+            (Some(m_poly), Some(m_commit), [alpha, beta])
         } else {
-            let [alpha, beta, delta, epsilon]: [P::ScalarField; 4] = transcript
-                .squeeze_scalar_challenges::<P>(b"alpha beta delta epsilon", 4)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
                         "Couldn't convert to fixed length array".to_string(),
                     )
                 })?;
-            (None, None, [alpha, beta, delta, epsilon])
+            (None, None, [alpha, beta])
         };
 
         let gkr_proof = batch_prove_gkr::<P, _>(&gkr_p_polys, &gkr_q_polys, &mut transcript)?;
 
         // Now we have done the GKR proof we run a final zero check on the underlying products of MLEs.
         let gkr_point = &gkr_proof.sumcheck_proofs.last().as_ref().unwrap().point;
+
+        let [delta, epsilon]: [P::ScalarField; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"delta epsilon", 2)?
+            .try_into()
+            .map_err(|_| {
+                PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
+            })?;
 
         let eq_poly = Arc::new(build_eq_x_r(gkr_point));
         let challenges = MLEChallenges {
