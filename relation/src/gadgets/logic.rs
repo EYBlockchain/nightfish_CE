@@ -8,7 +8,7 @@
 
 use crate::{
     errors::CircuitError,
-    gates::{CondSelectGate, LogicOrGate, LogicOrOutputGate},
+    gates::{CondSelectGate, ConstCondSelectGate, LogicOrGate, LogicOrOutputGate},
     BoolVar, Circuit, PlonkCircuit, Variable,
 };
 use ark_ff::PrimeField;
@@ -168,6 +168,7 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
     /// Obtain a variable that equals `x_0` if `b` is zero, or `x_1` if `b` is
     /// one. Return error if variables are invalid.
+    /// Note that `b` must already be constrained to be a boolean variable.
     pub fn conditional_select(
         &mut self,
         b: BoolVar,
@@ -178,10 +179,11 @@ impl<F: PrimeField> PlonkCircuit<F> {
         self.check_var_bound(x_0)?;
         self.check_var_bound(x_1)?;
 
-        // y = x_bit
-        let y = if self.witness(b.into())? == F::zero() {
+        // y = x_b
+        let bw = self.witness(b.into())?;
+        let y = if bw == F::zero() {
             self.create_variable(self.witness(x_0)?)?
-        } else if self.witness(b.into())? == F::one() {
+        } else if bw == F::one() {
             self.create_variable(self.witness(x_1)?)?
         } else {
             return Err(CircuitError::ParameterError(
@@ -190,6 +192,57 @@ impl<F: PrimeField> PlonkCircuit<F> {
         };
         let wire_vars = [b.into(), x_0, b.into(), x_1, y];
         self.insert_gate(&wire_vars, Box::new(CondSelectGate))?;
+        Ok(y)
+    }
+
+    /// Constrain a variable `y` to equal `f_0` if `b` is zero, or `f_1` if `b` is
+    /// one. Return error if variables are invalid.
+    /// Note that `b` must already be constrained to be a boolean variable.
+    pub fn const_conditional_select_gate(
+        &mut self,
+        b: BoolVar,
+        y: Variable,
+        f_0: F,
+        f_1: F,
+    ) -> Result<Variable, CircuitError> {
+        self.check_var_bound(b.into())?;
+        self.check_var_bound(y)?;
+
+        let bw = self.witness(b.into())?;
+        if bw != F::zero() && bw != F::one() {
+            return Err(CircuitError::ParameterError(
+                "b in Constant Conditional Selection Gate is not a boolean variable".to_string(),
+            ));
+        }
+
+        let wire_vars = [b.into(), self.zero(), self.zero(), self.zero(), y];
+        self.insert_gate(&wire_vars, Box::new(ConstCondSelectGate { f_0, f_1 }))?;
+        Ok(y)
+    }
+
+    /// Obtain a variable that equals `f_0` if `b` is zero, or `f_1` if `b` is
+    /// one. Return error if variables are invalid.
+    /// Note that `b` must already be constrained to be a boolean variable.
+    pub fn const_conditional_select(
+        &mut self,
+        b: BoolVar,
+        f_0: F,
+        f_1: F,
+    ) -> Result<Variable, CircuitError> {
+        self.check_var_bound(b.into())?;
+
+        // y = x_b
+        let bw = self.witness(b.into())?;
+        let y = if bw == F::zero() {
+            self.create_variable(f_0)?
+        } else if bw == F::one() {
+            self.create_variable(f_1)?
+        } else {
+            return Err(CircuitError::ParameterError(
+                "b in Constant Conditional Selection gate is not a boolean variable".to_string(),
+            ));
+        };
+        self.const_conditional_select_gate(b, y, f_0, f_1)?;
         Ok(y)
     }
 }
@@ -451,6 +504,55 @@ mod test {
         let x_0_var = circuit.create_variable(x_0)?;
         let x_1_var = circuit.create_variable(x_1)?;
         circuit.conditional_select(bit_var, x_0_var, x_1_var)?;
+        circuit.finalize_for_arithmetization()?;
+        Ok(circuit)
+    }
+
+    #[test]
+    fn test_const_conditional_select() -> Result<(), CircuitError> {
+        test_const_conditional_select_helper::<FqEd254>()?;
+        test_const_conditional_select_helper::<FqEd377>()?;
+        test_const_conditional_select_helper::<FqEd381>()?;
+        test_const_conditional_select_helper::<Fq377>()
+    }
+
+    fn test_const_conditional_select_helper<F: PrimeField>() -> Result<(), CircuitError> {
+        let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
+        let bit_true = circuit.true_var();
+        let bit_false = circuit.false_var();
+
+        let f_0 = F::from(23u32);
+        let f_1 = F::from(24u32);
+        let select_true = circuit.const_conditional_select(bit_true, f_0, f_1)?;
+        let select_false = circuit.const_conditional_select(bit_false, f_0, f_1)?;
+
+        assert_eq!(circuit.witness(select_true)?, f_1);
+        assert_eq!(circuit.witness(select_false)?, f_0);
+        assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+
+        // if mess up the wire value, should fail
+        *circuit.witness_mut(bit_false.into()) = F::one();
+        assert!(circuit.check_circuit_satisfiability(&[]).is_err());
+
+        // build two fixed circuits with different variable assignments, checking that
+        // the arithmetized extended permutation polynomial is variable
+        // independent
+        let circuit_1 =
+            build_const_conditional_select_circuit(true, F::from(23u32), F::from(24u32))?;
+        let circuit_2 =
+            build_const_conditional_select_circuit(false, F::from(99u32), F::from(98u32))?;
+        test_variable_independence_for_circuit(circuit_1, circuit_2)?;
+        Ok(())
+    }
+
+    fn build_const_conditional_select_circuit<F: PrimeField>(
+        bit: bool,
+        f_0: F,
+        f_1: F,
+    ) -> Result<PlonkCircuit<F>, CircuitError> {
+        let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
+        let bit_var = circuit.create_boolean_variable(bit)?;
+        circuit.const_conditional_select(bit_var, f_0, f_1)?;
         circuit.finalize_for_arithmetization()?;
         Ok(circuit)
     }

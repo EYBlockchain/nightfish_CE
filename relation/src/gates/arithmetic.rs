@@ -358,3 +358,29 @@ where
         F::one()
     }
 }
+
+/// A gate for constant conditional selection.
+/// Select between two constants based on a boolean variable.
+#[derive(Clone)]
+pub struct ConstCondSelectGate<F: Field> {
+    pub(crate) f_0: F,
+    pub(crate) f_1: F,
+}
+
+impl<F> Gate<F> for ConstCondSelectGate<F>
+where
+    F: Field,
+{
+    fn name(&self) -> &'static str {
+        "Constant Conditional Selection Gate"
+    }
+    fn q_c(&self) -> F {
+        self.f_0
+    }
+    fn q_lc(&self) -> [F; GATE_WIDTH] {
+        [self.f_1 - self.f_0, F::zero(), F::zero(), F::zero()]
+    }
+    fn q_o(&self) -> F {
+        F::one()
+    }
+}
