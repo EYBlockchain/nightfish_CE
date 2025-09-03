@@ -12,6 +12,7 @@ use ark_poly::DenseMultilinearExtension;
 use ark_std::{
     format,
     rand::{rngs::OsRng, CryptoRng, RngCore, SeedableRng},
+    string::ToString,
     sync::Arc,
     vec::Vec,
 };
@@ -79,9 +80,14 @@ where
 
     fn preprocess<C: Arithmetization<P::ScalarField>>(
         srs: &Self::UniversalSRS,
-        _vk_id: Option<VerificationKeyId>,
+        vk_id: Option<VerificationKeyId>,
         circuit: &C,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if vk_id.is_some() {
+            return Err(PlonkError::InvalidParameters(
+                "MLEPlonk verification keys do not have an ID".to_string(),
+            ));
+        }
         Self::preprocess_helper(circuit, srs)
     }
 

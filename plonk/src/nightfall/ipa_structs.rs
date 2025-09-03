@@ -628,28 +628,29 @@ mod test {
     }
     #[test]
     fn test_serde_kzg() -> Result<(), PlonkError> {
-        // merlin transcripts
-        test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-        test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-        test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-        test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(PlonkType::UltraPlonk)?;
-
-        // Solidity-friendly keccak256 transcript
-        test_serde_helper::<Bls12_381, Fq381, _, SolidityTranscript>(PlonkType::TurboPlonk)?;
+        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip([
+            None,
+            Some(VerificationKeyId::Client),
+            Some(VerificationKeyId::Deposit),
+        ]) {
+            // merlin transcripts
+            test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(*plonk_type, vk_id)?;
+            // rescue transcripts
+            test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(*plonk_type, vk_id)?;
+            // Solidity-friendly keccak256 transcript
+            test_serde_helper::<Bls12_381, Fq381, _, SolidityTranscript>(*plonk_type, vk_id)?;
+        }
 
         Ok(())
     }
 
-    fn test_serde_helper<E, F, P, T>(plonk_type: PlonkType) -> Result<(), PlonkError>
+    fn test_serde_helper<E, F, P, T>(
+        plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
+    ) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
         F: RescueParameter + PrimeField,
@@ -664,7 +665,7 @@ mod test {
         let _max_degree = 80;
         let srs =
             FFTPlonk::<UnivariateKzgPCS<E>>::universal_setup_for_testing(srs_size, rng).unwrap();
-        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, None, &circuit).unwrap();
+        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit).unwrap();
         let proof = FFTPlonk::<UnivariateKzgPCS<E>>::prove::<_, _, T>(rng, &circuit, &pk, None)?;
         let public_inputs = circuit.public_input().unwrap();
         let public_inputs1 = public_inputs.as_slice();
