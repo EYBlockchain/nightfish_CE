@@ -22,7 +22,7 @@ pub(crate) mod prover;
 pub(crate) mod snark;
 pub mod structs;
 pub(crate) mod verifier;
-use crate::transcript::Transcript;
+use crate::{nightfall::ipa_structs::VerificationKeyId, transcript::Transcript};
 pub use snark::PlonkKzgSnark;
 
 // TODO: (alex) should we name it `PlonkishSNARK` instead? since we use
@@ -78,6 +78,7 @@ where
     /// Circuit-specific preprocessing to compute the proving/verifying keys.
     fn preprocess<C: Arithmetization<<PCS::Commitment as AffineRepr>::ScalarField>>(
         srs: &Self::UniversalSRS,
+        vk_id: Option<VerificationKeyId>,
         circuit: &C,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error>;
 

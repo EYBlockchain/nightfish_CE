@@ -419,7 +419,7 @@ mod tests {
             let srs_size = circuit.srs_size()?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
                 rng, &circuit, &pk, None,
@@ -474,7 +474,7 @@ mod tests {
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, &circuit_one)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit_one)?;
 
             let circuits = [circuit_one, circuit_two];
             let pis = [pi_one, pi_two];
