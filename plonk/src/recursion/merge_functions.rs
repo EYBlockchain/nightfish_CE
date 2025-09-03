@@ -39,7 +39,7 @@ use crate::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
         circuit::{
             plonk_partial_verifier::{
-                MLEVerifyingKeyVar, PcsInfoBasesVar, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
+                Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
@@ -395,7 +395,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
     // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
-    let _vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
+    let vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
         // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
         // to correspond to be one of `client_vk_list`.
         let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
@@ -428,27 +428,44 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     }?;
 
     // Next we prepare the relevant info from each of the proofs.
-    let outputs = &bn254info.bn254_outputs;
-    let pcs_infos = cfg_iter!(outputs)
-        .zip(cfg_iter!(vk_bn254))
+    let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = cfg_iter!(bn254info.bn254_outputs)
+        .zip(cfg_iter!(vk_bases_var))
         .map(|(output, vk)| {
             let verifier = Verifier::new(vk.domain_size)?;
-            verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
+            verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                 vk,
                 &[output.pi_hash],
-                &output.proof,
+                &output,
                 &None,
+                circuit,
             )
         })
-        .collect::<Result<Vec<PcsInfo<Kzg>>, PlonkError>>()?;
+        .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
+        .try_into()
+        .map_err(|_| PlonkError::InvalidParameters("bn254_outputs must have length 2".to_string()))?;
+
+    let output_vars = output_pcs_info_var_pair
+        .iter()
+        .map(|(output, _)| *output)
+        .collect::<Vec<Bn254OutputScalarsAndBasesVar>>();
+    let pcs_info_vars = output_pcs_info_var_pair
+        .iter()
+        .map(|(_, pcs_info)| *pcs_info)
+        .collect::<Vec<PcsInfoBasesVar<Kzg>>>();
 
     // Now we merge the transcripts from the two proofs. we do this to avoid having to re-append all the commitments to a new transcript.
     // TODO:  Double check that this still provides adequate security.
 
     // Unwrap is safe here because we checked tht the slice was non-empty at the beginning.
-    let transcript = &mut outputs[0].transcript.clone();
+    let transcript = &mut output_vars[0].transcript.clone();
 
-    transcript.merge(&outputs[1].transcript)?;
+    transcript.merge(&output_vars[1].transcript)?;
+
+    // Append the old bn254 accumulators to the transcript.
+    bn254info.old_accumulators.iter().try_for_each(|acc| {
+        transcript.append_curve_point(b"comm", &acc.comm)?;
+        transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
+    })?;
 
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
@@ -457,10 +474,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .take(6)
         .collect::<Vec<Fr254>>();
 
-    let (scalars, bases) = if !IS_FIRST_ROUND {
-        combine_fft_proof_scalars(&pcs_infos, &r_powers)
+    let (scalars, mut point_vars) = if !IS_FIRST_ROUND {
+        combine_fft_proof_scalars(&pcs_info_vars, &r_powers)
     } else {
-        combine_fft_proof_scalars_round_one(&pcs_infos, &r_powers)
+        combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers)
     };
 
     let old_accumulators_commitments_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
