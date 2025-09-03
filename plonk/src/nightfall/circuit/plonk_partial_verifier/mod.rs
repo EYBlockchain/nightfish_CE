@@ -6,13 +6,16 @@
 
 //! Circuits for Plonk verifiers.
 use crate::{
-    nightfall::ipa_structs::{PlookupVerifyingKey, VK},
+    nightfall::ipa_structs::{PlookupVerifyingKey, VerificationKeyId, VerifyingKey, VK},
+    recursion::circuits::Kzg,
     transcript::*,
 };
+use ark_bn254::Fq as Fq254;
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
-use ark_std::{string::ToString, vec, vec::Vec};
+use ark_std::{marker::PhantomData, string::ToString, vec, vec::Vec};
+use itertools::izip;
 use jf_primitives::{
     pcs::{PolynomialCommitmentScheme, StructuredReferenceString},
     rescue::RescueParameter,
@@ -40,8 +43,30 @@ pub use structs::*;
 pub(crate) const TRANSFER_DOMAIN_SIZE: usize = 1 << 15;
 pub(crate) const DEPOSIT_DOMAIN_SIZE: usize = 1 << 18;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+/*/// A struct used to represent KZG verification parameters as variables.
+#[derive(Debug, Clone)]
+struct KzgVerificatinParamsVar {
+    /// The generator of G1.
+    g: PointVariable,
+    /// The generator of G2.
+    h: PointVariable,
+    /// beta times the above generator of G2.
+    beta_h: PointVariable,
+}
+
+impl KzgVerificatinParamsVar {
+    /// Create a new `KzgVerificationParamsVar`.
+    /// We constrain these to be constants, as our KZG SRS is fixed across nightfall.
+    pub fn new_constant(vk_param: UnivariateVerifierParam<Bn254>, circuit: &mut PlonkCircuit<Fq254>) -> Result<Self, CircuitError> {
+        let g = circuit.create_constant_point_variable(&Point::from(vk_param.g))?;
+        let h = circuit.create_constant_point_variable(&Point::from(vk_param.h))?;
+        let beta_h = circuit.create_constant_point_variable(&Point::from(vk_param.beta_h))?;
+        Self { g, h, beta_h }
+    }
+}*/
+
 /// Represent variable of a Plonk verifying key.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct VerifyingKeyVar<PCS: PolynomialCommitmentScheme> {
     /// The variables for the permutation polynomial commitments.
     pub(crate) sigma_comms: Vec<PointVariable>,
@@ -62,9 +87,9 @@ pub struct VerifyingKeyVar<PCS: PolynomialCommitmentScheme> {
     /// disjoint.
     k: Vec<PCS::Evaluation>,
 
-    /// Used for client verification keys to distinguish between
+    /// Used for client verification keys to identify distinguish between
     /// transfer/withdrawal and deposit.
-    id: Option<Variable>,
+    pub(crate) id: Option<Variable>,
 }
 
 impl<T, F, PCS> CircuitTranscriptVisitor<T, F> for VerifyingKeyVar<PCS>
@@ -147,6 +172,32 @@ impl PlookupVerifyingKeyVar {
             q_dom_sep_comm,
         ))
     }
+
+    /// Create a new constant [`PlookupVerifyingKeyVar`] from a [`PlookupVerifyingKey`].
+    pub fn constant_from_struct<PCS, P>(
+        vk: &PlookupVerifyingKey<PCS>,
+        circuit: &mut PlonkCircuit<P::BaseField>,
+    ) -> Result<Self, CircuitError>
+    where
+        PCS: PolynomialCommitmentScheme<Commitment = Affine<P>>,
+        P: HasTEForm,
+        P::BaseField: PrimeField + RescueParameter,
+    {
+        let range_table_comm =
+            circuit.create_constant_point_variable(&Point::from(vk.range_table_comm))?;
+        let key_table_comm =
+            circuit.create_constant_point_variable(&Point::from(vk.key_table_comm))?;
+        let table_dom_sep_comm =
+            circuit.create_constant_point_variable(&Point::from(vk.table_dom_sep_comm))?;
+        let q_dom_sep_comm =
+            circuit.create_constant_point_variable(&Point::from(vk.q_dom_sep_comm))?;
+        Ok(Self::new(
+            range_table_comm,
+            key_table_comm,
+            table_dom_sep_comm,
+            q_dom_sep_comm,
+        ))
+    }
 }
 
 impl<T, F> CircuitTranscriptVisitor<T, F> for PlookupVerifyingKeyVar
@@ -204,12 +255,12 @@ where
         } else {
             None
         };
-
         let id = if let Some(id) = verify_key.id() {
             Some(circuit.create_variable(F::from(id as u8))?)
         } else {
             None
         };
+
         Ok(Self {
             sigma_comms,
             selector_comms,
@@ -219,6 +270,49 @@ where
             num_inputs: verify_key.num_inputs(),
             k: verify_key.k().to_vec(),
             id,
+        })
+    }
+
+    /// Create a constant variable for a Plonk verifying key.
+    pub fn new_constant<VerifyingKey>(
+        circuit: &mut PlonkCircuit<F>,
+        verify_key: &VerifyingKey,
+    ) -> Result<Self, CircuitError>
+    where
+        VerifyingKey: VK<PCS>,
+    {
+        if verify_key.id().is_some() {
+            return Err(CircuitError::ParameterError(
+                "Constant VerifyingKeyVar should not have an ID".to_string(),
+            ));
+        }
+        let sigma_comms = verify_key
+            .sigma_comms()
+            .iter()
+            .map(|comm| circuit.create_constant_point_variable(&Point::from(*comm)))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        let selector_comms = verify_key
+            .selector_comms()
+            .iter()
+            .map(|comm| circuit.create_constant_point_variable(&Point::from(*comm)))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        let plookup_vk = if let Some(plookup_vk) = verify_key.plookup_vk() {
+            Some(PlookupVerifyingKeyVar::constant_from_struct(
+                plookup_vk, circuit,
+            )?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            sigma_comms,
+            selector_comms,
+            plookup_vk,
+            is_merged: verify_key.is_merged(),
+            domain_size: verify_key.domain_size(),
+            num_inputs: verify_key.num_inputs(),
+            k: verify_key.k().to_vec(),
+            id: None,
         })
     }
 
@@ -264,6 +358,349 @@ where
             res.push(plookup_vk.q_dom_sep_comm);
         }
         res
+    }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+/// Represents the scalars in a verification key variable.
+/// Note, unlike `VerifyingKeyVar` and `BasesVerifyingKeyVar`, `ScalarsVerifyingKeyVar` is used in a circuit defined over PCS::Evaluation.
+pub struct VerifyingKeyScalarsVar<PCS: PolynomialCommitmentScheme> {
+    /// The log of the evaluation domain size.
+    log_domain_size: Variable,
+
+    /// The constants K0, ..., K_num_wire_types that ensure wire subsets are
+    /// disjoint.
+    k: Vec<Variable>,
+
+    /// Used for client verification keys to identify distinguish between
+    /// transfer/withdrawal and deposit.
+    pub(crate) id: Variable,
+    _phantom: PhantomData<PCS>,
+}
+
+impl<PCS, F> VerifyingKeyScalarsVar<PCS>
+where
+    PCS: PolynomialCommitmentScheme<Evaluation = F>,
+    F: PrimeField,
+{
+    /// Create a variable representing a reduced Plonk verifying key.
+    pub fn new<VerifyingKey>(
+        circuit: &mut PlonkCircuit<F>,
+        verify_key: &VerifyingKey,
+    ) -> Result<Self, CircuitError>
+    where
+        VerifyingKey: VK<PCS>,
+    {
+        let id_var = if let Some(id) = verify_key.id() {
+            circuit.create_variable(F::from(id as u8))
+        } else {
+            return Err(CircuitError::ParameterError(
+                "ScalarsVerifyingKeyVar are only created from VerifyingKeys with an ID".to_string(),
+            ));
+        }?;
+
+        let log_domain = verify_key.domain_size().ilog2();
+        let log_domain_var = circuit.create_variable(F::from(log_domain))?;
+
+        let k_var = verify_key
+            .k()
+            .iter()
+            .map(|k| circuit.create_variable(*k))
+            .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+        Ok(Self {
+            log_domain_size: log_domain_var,
+            k: k_var,
+            id: id_var,
+            _phantom: PhantomData,
+        })
+    }
+}
+
+/// A struct containing the scalars and bases associated with a verification key.
+/// The bases are stored as `Variable`s to be passed into a circuit defined over the
+/// base field of the commitment curve.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct VerifyingKeyScalarsAndBasesVar<PCS: PolynomialCommitmentScheme> {
+    /// The size of the evaluation domain. Should be a power of two.
+    /// This is stored in the clear.
+    pub(crate) domain_size: usize,
+    /// The number of public inputs. This is stored in the clear.
+    pub(crate) num_inputs: usize,
+    /// The variables for the permutation polynomial commitments.
+    pub(crate) sigma_comms: Vec<PointVariable>,
+    /// The variables for the selector polynomial commitments.
+    pub(crate) selector_comms: Vec<PointVariable>,
+    /// The constants K0, ..., K_num_wire_types that ensure wire subsets are
+    /// disjoint. These are stored in the clear.
+    pub(crate) k: Vec<PCS::Evaluation>,
+    /// The base point of the KZG PCS opening key.
+    pub(crate) g: PointVariable,
+    /// A flag indicating whether the key is a merged key.
+    /// This is stored in the clear.
+    pub(crate) is_merged: bool,
+    /// Plookup verifying key variable.
+    pub(crate) plookup_vk: Option<PlookupVerifyingKeyVar>,
+    /// Used for client verification keys to identify distinguish between
+    /// transfer/withdrawal and deposit.
+    pub(crate) id: Option<Variable>,
+}
+
+impl VerifyingKeyScalarsAndBasesVar<Kzg> {
+    /// Create a variable for a Plonk verifying key.
+    pub fn new(
+        circuit: &mut PlonkCircuit<Fq254>,
+        verify_key: &VerifyingKey<Kzg>,
+    ) -> Result<Self, CircuitError> {
+        let domain_size = verify_key.domain_size();
+        let num_inputs = verify_key.num_inputs();
+        let sigma_comms = verify_key
+            .sigma_comms()
+            .iter()
+            .map(|comm| circuit.create_point_variable(&Point::from(*comm)))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        let selector_comms = verify_key
+            .selector_comms()
+            .iter()
+            .map(|comm| circuit.create_point_variable(&Point::from(*comm)))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        let k = verify_key.k().to_vec();
+        // We constrain g to be constant, as our KZG SRS is fixed across nightfall.
+        let g = circuit.create_constant_point_variable(&Point::from(verify_key.open_key.g))?;
+        let is_merged = verify_key.is_merged();
+        let plookup_vk = if let Some(plookup_vk) = verify_key.plookup_vk() {
+            Some(PlookupVerifyingKeyVar::from_struct(plookup_vk, circuit)?)
+        } else {
+            None
+        };
+        let id = if let Some(id) = verify_key.id() {
+            Some(circuit.create_variable(Fq254::from(id as u8))?)
+        } else {
+            None
+        };
+
+        Ok(Self {
+            domain_size,
+            num_inputs,
+            sigma_comms,
+            selector_comms,
+            k,
+            g,
+            is_merged,
+            plookup_vk,
+            id,
+        })
+    }
+
+    /// Create a constant variable for a Plonk verifying key.
+    pub fn new_constant(
+        circuit: &mut PlonkCircuit<Fq254>,
+        verify_key: &VerifyingKey<Kzg>,
+    ) -> Result<Self, CircuitError> {
+        let domain_size = verify_key.domain_size();
+        let num_inputs = verify_key.num_inputs();
+        let sigma_comms = verify_key
+            .sigma_comms()
+            .iter()
+            .map(|comm| circuit.create_constant_point_variable(&Point::from(*comm)))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        let selector_comms = verify_key
+            .selector_comms()
+            .iter()
+            .map(|comm| circuit.create_constant_point_variable(&Point::from(*comm)))
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+        let k = verify_key.k().to_vec();
+        // We constrain g to be constant, as our KZG SRS is fixed across nightfall.
+        let g = circuit.create_constant_point_variable(&Point::from(verify_key.open_key.g))?;
+        let is_merged = verify_key.is_merged();
+        let plookup_vk = if let Some(plookup_vk) = verify_key.plookup_vk() {
+            Some(PlookupVerifyingKeyVar::constant_from_struct(
+                plookup_vk, circuit,
+            )?)
+        } else {
+            None
+        };
+        if verify_key.id().is_some() {
+            return Err(CircuitError::ParameterError(
+                "Constant VerifyingKeyBasesVar should not have an ID".to_string(),
+            ));
+        }
+
+        Ok(Self {
+            domain_size,
+            num_inputs,
+            sigma_comms,
+            selector_comms,
+            k,
+            g,
+            is_merged,
+            plookup_vk,
+            id: None,
+        })
+    }
+
+    /// Constrain a `VerifyingKeyBasesVar` to agree with the bases of one of two `VerifyingKey`s.
+    pub fn cond_select_equal_bases(
+        &self,
+        circuit: &mut PlonkCircuit<Fq254>,
+        vks: &[VerifyingKey<Kzg>],
+    ) -> Result<(), CircuitError> {
+        if vks.len() != 2 {
+            return Err(CircuitError::ParameterError(
+                "Currently, cond_select_equal_bases only supports two verifying keys".to_string(),
+            ));
+        }
+        let id_var = self.id.ok_or(CircuitError::ParameterError(
+            "cond_select_equal_bases requires VerifyingKeyBasesVar to have an ID".to_string(),
+        ))?;
+        let id = circuit.witness(id_var)?;
+        let client_ids = vks
+            .iter()
+            .map(|vk| {
+                vk.id().ok_or(CircuitError::ParameterError(
+                    "cond_select_equal_bases requires all verifying keys to have an ID".to_string(),
+                ))
+            })
+            .collect::<Result<Vec<VerificationKeyId>, CircuitError>>()?;
+
+        // We determine the index of the verifying key that matches the ID.
+        let idx = if let Some(idx) = client_ids.iter().position(|&x| Fq254::from(x as u8) == id) {
+            Ok(idx)
+        } else {
+            Err(CircuitError::ParameterError(
+                "VerifyingKeyBasesVar ID does not match any of the provided verifying keys"
+                    .to_string(),
+            ))
+        }?;
+        // The remaninder of the function assumes only two verifying keys
+        // We will change this when we introduce more possible client keys
+        let cond_sel_bool = circuit.create_boolean_variable(idx == 1)?;
+        circuit.const_conditional_select_gate(
+            cond_sel_bool,
+            id_var,
+            Fq254::from(client_ids[0] as u8),
+            Fq254::from(client_ids[1] as u8),
+        )?;
+
+        if self.sigma_comms.len() != vks[0].sigma_comms().len()
+            || self.sigma_comms.len() != vks[1].sigma_comms().len()
+        {
+            return Err(CircuitError::ParameterError(
+                "VerifyingKeyBasesVar and VerifyingKeys have different number of sigma commitments"
+                    .to_string(),
+            ));
+        }
+        for (sigma_comm_var, sigma_comm_0, sigma_comm_1) in izip!(
+            self.sigma_comms.iter(),
+            vks[0].sigma_comms().iter(),
+            vks[1].sigma_comms().iter()
+        ) {
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                sigma_comm_var.get_x(),
+                sigma_comm_0.x,
+                sigma_comm_1.x,
+            )?;
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                sigma_comm_var.get_y(),
+                sigma_comm_0.y,
+                sigma_comm_1.y,
+            )?;
+        }
+
+        if self.selector_comms.len() != vks[0].selector_comms().len()
+            || self.selector_comms.len() != vks[1].selector_comms().len()
+        {
+            return Err(CircuitError::ParameterError(
+                "VerifyingKeyBasesVar and VerifyingKeys have different number of selector commitments".to_string(),
+            ));
+        }
+        for (selector_comm_var, selector_comm_0, selector_comm_1) in izip!(
+            self.selector_comms.iter(),
+            vks[0].selector_comms().iter(),
+            vks[1].selector_comms().iter()
+        ) {
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                selector_comm_var.get_x(),
+                selector_comm_0.x,
+                selector_comm_1.x,
+            )?;
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                selector_comm_var.get_y(),
+                selector_comm_0.y,
+                selector_comm_1.y,
+            )?;
+        }
+
+        if let Some(plookup_vk_var) = &self.plookup_vk {
+            let plookup_vk_0 = vks[0].plookup_vk().ok_or(CircuitError::ParameterError(
+                "VerifyingKeyBasesVar has a PlookupVerifyingKeyVar but the first verifying key does not have a PlookupVerifyingKey".to_string(),
+            ))?;
+            let plookup_vk_1 = vks[1].plookup_vk().ok_or(CircuitError::ParameterError(
+                "VerifyingKeyBasesVar has a PlookupVerifyingKeyVar but the second verifying key does not have a PlookupVerifyingKey".to_string(),
+            ))?;
+
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.range_table_comm.get_x(),
+                plookup_vk_0.range_table_comm.x,
+                plookup_vk_1.range_table_comm.x,
+            )?;
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.range_table_comm.get_y(),
+                plookup_vk_0.range_table_comm.y,
+                plookup_vk_1.range_table_comm.y,
+            )?;
+
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.key_table_comm.get_x(),
+                plookup_vk_0.key_table_comm.x,
+                plookup_vk_1.key_table_comm.x,
+            )?;
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.key_table_comm.get_y(),
+                plookup_vk_0.key_table_comm.y,
+                plookup_vk_1.key_table_comm.y,
+            )?;
+
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.table_dom_sep_comm.get_x(),
+                plookup_vk_0.table_dom_sep_comm.x,
+                plookup_vk_1.table_dom_sep_comm.x,
+            )?;
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.table_dom_sep_comm.get_y(),
+                plookup_vk_0.table_dom_sep_comm.y,
+                plookup_vk_1.table_dom_sep_comm.y,
+            )?;
+
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.q_dom_sep_comm.get_x(),
+                plookup_vk_0.q_dom_sep_comm.x,
+                plookup_vk_1.q_dom_sep_comm.x,
+            )?;
+            circuit.const_conditional_select_gate(
+                cond_sel_bool,
+                plookup_vk_var.q_dom_sep_comm.get_y(),
+                plookup_vk_0.q_dom_sep_comm.y,
+                plookup_vk_1.q_dom_sep_comm.y,
+            )?;
+        } else if vks[0].plookup_vk().is_some() || vks[1].plookup_vk().is_some() {
+            return Err(CircuitError::ParameterError(
+                "VerifyingKeyBasesVar has no PlookupVerifyingKeyVar but one of the verifying keys has a PlookupVerifyingKey".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 }
 
