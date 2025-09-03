@@ -148,9 +148,12 @@ pub trait RecursiveProver {
             num_inputs: 0,
         };
 
+        let client_vk_list = Self::get_vk_list();
+
         let circuit_output = prove_bn254_accumulation::<true>(
             &bn254info,
             input_vks,
+            Some(&client_vk_list),
             &vk_grumpkin,
             Self::base_grumpkin_checks,
             &mut circuit,
@@ -345,6 +348,7 @@ pub trait RecursiveProver {
         let grumpkin_circuit_out = prove_bn254_accumulation::<false>(
             &bn254info,
             &[base_bn254_pk.vk.clone(), base_bn254_pk.vk.clone()],
+            None,
             &base_grumpkin_pk.verifying_key,
             Self::grumpkin_merge_circuit_checks,
             &mut circuit,

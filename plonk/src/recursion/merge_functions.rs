@@ -39,10 +39,12 @@ use crate::{
     nightfall::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
         circuit::{
-            plonk_partial_verifier::{MLEVerifyingKeyVar, SAMLEProofVar},
+            plonk_partial_verifier::{
+                MLEVerifyingKeyVar, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
+            },
             verify_zeromorph::verify_zeromorph_circuit,
         },
-        ipa_structs::{VerifyingKey, VK},
+        ipa_structs::VerifyingKey,
         ipa_verifier::{FFTVerifier, PcsInfo},
         mle::{
             mle_structs::{MLEProvingKey, MLEVerifyingKey},
@@ -385,6 +387,7 @@ impl Bn254CircuitOutput {
 pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     bn254info: &Bn254RecursiveInfo,
     vk_bn254: &[VerifyingKey<Kzg>; 2],
+    client_vk_list: Option<&Vec<VerifyingKey<Kzg>>>,
     vk_grumpkin: &MLEVerifyingKey<ZeromorphPCS>,
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
@@ -392,13 +395,41 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
-    if !IS_FIRST_ROUND && (vk_bn254[0].hash() != vk_bn254[1].hash()) {
-        return Err(PlonkError::InvalidParameters(
-            "Can only have differing verification keys in the first round".to_string(),
-        ));
-    }
+    // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
+    let _vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
+        // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
+        // to correspond to be one of `client_vk_list`.
+        let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
+            "client_vk_list must be non-None in base case".to_string(),
+        ))?;
+        vk_bn254
+            .iter()
+            .map(|vk| {
+                let vk_var = VerifyingKeyScalarsAndBasesVar::new(circuit, vk)?;
+                vk_var.cond_select_equal_bases(circuit, vk_list)?;
+                Ok(vk_var)
+            })
+            .collect::<Result<Vec<VerifyingKeyScalarsAndBasesVar<Kzg>>, CircuitError>>()?
+            .try_into()
+            .map_err(|_| PlonkError::InvalidParameters("vk_bn254 must have length 2".to_string()))
+    } else {
+        if client_vk_list.is_some() {
+            return Err(PlonkError::InvalidParameters(
+                "client_vk_list must be None in non-base case".to_string(),
+            ));
+        }
+        if vk_bn254[0] != vk_bn254[1] {
+            return Err(PlonkError::InvalidParameters(
+                "vk_bn254's must be the same in non-base case".to_string(),
+            ));
+        }
+        // If this is not the first round, we constrain the `VerifyingKeyBasesVar`s to be constant.
+        let vk_var = VerifyingKeyScalarsAndBasesVar::new_constant(circuit, &vk_bn254[0])?;
+        Ok([vk_var.clone(), vk_var])
+    }?;
+
+    // Next we prepare the relevant info from each of the proofs.
     let outputs = &bn254info.bn254_outputs;
-    // First things first we prepare the relevant info from each of the proofs.
     let pcs_infos = cfg_iter!(outputs)
         .zip(cfg_iter!(vk_bn254))
         .map(|(output, vk)| {
