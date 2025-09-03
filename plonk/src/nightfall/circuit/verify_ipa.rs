@@ -216,7 +216,7 @@ mod test {
             <PlonkIpaSnark<Bls12_377> as UniversalSNARK<UnivariateIpaPCS<Bls12_377>>>::universal_setup_for_testing(
                 srs_size, &mut rng,
             )?;
-        let (ipa_pk, ipa_vk) = PlonkIpaSnark::<Bls12_377>::preprocess(&ipa_srs, &circuit)?;
+        let (ipa_pk, ipa_vk) = PlonkIpaSnark::<Bls12_377>::preprocess(&ipa_srs, None, &circuit)?;
 
         let ipa_proof = PlonkIpaSnark::<Bls12_377>::prove::<_, _, RescueTranscript<Fq>>(
             &mut rng, &circuit, &ipa_pk, None,
@@ -301,7 +301,7 @@ mod test {
         )
         .unwrap();
         ark_std::println!("KZG SRS Generated");
-        let (pk, vk) = PlonkKzgSnark::<BW6_761>::preprocess(&srs, &circuit).unwrap();
+        let (pk, vk) = PlonkKzgSnark::<BW6_761>::preprocess(&srs, None, &circuit).unwrap();
         ark_std::println!("KZG Proof Generated");
         let now = ark_std::time::Instant::now();
         let proof = PlonkKzgSnark::<BW6_761>::prove::<_, _, StandardTranscript>(

@@ -28,8 +28,10 @@ use jf_relation::{
 use rand_chacha::ChaCha20Rng;
 pub use snark::MLEPlonk;
 
-use crate::proof_system::RecursiveOutput;
-use crate::{errors::PlonkError, proof_system::UniversalSNARK, transcript::Transcript};
+use crate::errors::PlonkError;
+use crate::nightfall::ipa_structs::VerificationKeyId;
+use crate::proof_system::{RecursiveOutput, UniversalSNARK};
+use crate::transcript::Transcript;
 
 use self::mle_structs::SAMLEProof;
 use self::{
@@ -77,6 +79,7 @@ where
 
     fn preprocess<C: Arithmetization<P::ScalarField>>(
         srs: &Self::UniversalSRS,
+        _vk_id: Option<VerificationKeyId>,
         circuit: &C,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
         Self::preprocess_helper(circuit, srs)

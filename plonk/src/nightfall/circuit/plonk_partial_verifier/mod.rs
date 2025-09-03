@@ -358,7 +358,7 @@ mod test {
             let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng).unwrap();
 
             // 3. Create proof
-            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, &circuit).unwrap();
+            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, None, &circuit).unwrap();
             let proof = FFTPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
                 rng, &circuit, &pk, None,
             )
