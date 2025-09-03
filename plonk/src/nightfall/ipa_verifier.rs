@@ -718,7 +718,7 @@ type CommitsAndPoints<PCS> = Vec<(
     Vec<<PCS as PolynomialCommitmentScheme>::Evaluation>,
 )>;
 
-/// Private helper methods
+/// Helper methods
 impl<E, F, PCS> FFTVerifier<PCS>
 where
     E: HasTEForm<BaseField = F>,
@@ -883,7 +883,7 @@ where
     /// * pub_input[l/2+i]
     ///
     /// TODO: reuse the lagrange values
-    fn evaluate_pi_poly(
+    pub(crate) fn evaluate_pi_poly(
         &self,
         pub_input: &[E::ScalarField],
         z: &E::ScalarField,
@@ -932,7 +932,7 @@ where
         )
     }
 
-    fn lagrange_interpolate(
+    pub(crate) fn lagrange_interpolate(
         points: &[E::ScalarField],
         evals: &[E::ScalarField],
     ) -> Result<DensePolynomial<E::ScalarField>, PlonkError> {

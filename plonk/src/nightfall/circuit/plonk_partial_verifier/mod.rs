@@ -32,11 +32,13 @@ use jf_relation::{
 mod gadgets;
 mod poly;
 mod proof_to_var;
+mod scalars_and_bases;
 mod structs;
 
 pub use gadgets::*;
 pub use poly::*;
 pub use proof_to_var::*;
+pub use scalars_and_bases::*;
 pub use structs::*;
 
 // We assume TRANSFER_DOMAIN_SIZE is always at most DEPOSIT_DOMAIN_SIZE.
@@ -701,6 +703,16 @@ impl VerifyingKeyScalarsAndBasesVar<Kzg> {
         }
 
         Ok(())
+    }
+
+    /// The lookup selector polynomial commitment
+    pub(crate) fn q_lookup_comm(&self) -> Result<&PointVariable, CircuitError> {
+        if self.plookup_vk.is_none() {
+            return Err(CircuitError::ParameterError(
+                "This verifying key does not have a Plookup verifying key".to_string(),
+            ));
+        }
+        Ok(self.selector_comms.last().unwrap())
     }
 }
 
