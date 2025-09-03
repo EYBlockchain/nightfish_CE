@@ -34,7 +34,7 @@ fn main() {
     let srs_size = circuit.srs_size().unwrap();
 
     let srs = PlonkKzgSnark::<Bn254>::universal_setup_for_testing(srs_size, &mut rng).unwrap();
-    let (pk, vk) = PlonkKzgSnark::<Bn254>::preprocess(&srs, &circuit).unwrap();
+    let (pk, vk) = PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit).unwrap();
     let proof =
         PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(&mut rng, &circuit, &pk, None)
             .unwrap();
