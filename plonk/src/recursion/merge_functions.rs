@@ -39,7 +39,7 @@ use crate::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
         circuit::{
             plonk_partial_verifier::{
-                MLEVerifyingKeyVar, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
+                MLEVerifyingKeyVar, PcsInfoBasesVar, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
@@ -918,31 +918,31 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     }
 }
 
-type CombineScalars = (Vec<Fr254>, Vec<Affine<BnConfig>>);
+type CombineScalars = (Vec<Fr254>, Vec<PointVariable>);
 
 /// This function takes in a slice of [`PcsInfo`] structs and combines the scalars to minimize the number of bases used in the MSM in the next circuit.
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> CombineScalars {
+fn combine_fft_proof_scalars(pcs_info_vars: &[PcsInfoBasesVar<Kzg>], r_powers: &[Fr254]) -> CombineScalars {
     let mut scalars_list: Vec<Vec<Fr254>> = vec![];
     let mut comms_list = vec![];
     let mut opening_proofs = vec![];
 
-    for pcs_info in pcs_infos.iter() {
-        let mut real_scalars = pcs_info.comm_scalars_and_bases.scalars[..47].to_vec();
+    for pcs_info_var in pcs_info_vars.iter() {
+        let mut real_scalars = pcs_info_var.comm_scalars_and_bases.scalars[..47].to_vec();
 
-        real_scalars[10] += pcs_info.comm_scalars_and_bases.scalars[22];
-        real_scalars[11] += pcs_info.comm_scalars_and_bases.scalars[48];
-        real_scalars[12] += pcs_info.comm_scalars_and_bases.scalars[47];
+        real_scalars[10] += pcs_info_var.comm_scalars_and_bases.scalars[22];
+        real_scalars[11] += pcs_info_var.comm_scalars_and_bases.scalars[48];
+        real_scalars[12] += pcs_info_var.comm_scalars_and_bases.scalars[47];
 
         let _ = real_scalars.remove(22);
-        let mut comms = pcs_info.comm_scalars_and_bases.bases()[..47].to_vec();
+        let mut comms = pcs_info_var.comm_scalars_and_bases.bases()[..47].to_vec();
         let _ = comms.remove(22);
 
         scalars_list.push(real_scalars);
         comms_list.push(comms);
-        opening_proofs.push(pcs_info.opening_proof.proof);
+        opening_proofs.push(pcs_info_var.opening_proof);
     }
 
     // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
@@ -987,8 +987,8 @@ fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> 
 
             scalars.extend_from_slice(&appended_scalars);
         }
-        scalars.push(pcs_infos[0].u);
-        scalars.push(pcs_infos[1].u * r_powers[1]);
+        scalars.push(pcs_info_vars[0].u);
+        scalars.push(pcs_info_vars[1].u * r_powers[1]);
         // With the bases we remove the pi_bases and g_base now since this list will only be used to tell the circuit which variable bases are being used.
         let mut comms = comms_list.first().cloned().unwrap();
 
@@ -1014,27 +1014,27 @@ fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> 
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
 fn combine_fft_proof_scalars_round_one(
-    pcs_infos: &[PcsInfo<Kzg>],
+    pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
     r_powers: &[Fr254],
 ) -> CombineScalars {
     let mut scalars_list: Vec<Vec<Fr254>> = vec![];
     let mut comms_list = vec![];
     let mut opening_proofs = vec![];
 
-    for pcs_info in pcs_infos.iter() {
-        let mut real_scalars = pcs_info.comm_scalars_and_bases.scalars[..47].to_vec();
+    for pcs_info_var in pcs_info_vars.iter() {
+        let mut real_scalars = pcs_info_var.comm_scalars_and_bases.scalars[..47].to_vec();
 
-        real_scalars[10] += pcs_info.comm_scalars_and_bases.scalars[22];
-        real_scalars[11] += pcs_info.comm_scalars_and_bases.scalars[48];
-        real_scalars[12] += pcs_info.comm_scalars_and_bases.scalars[47];
+        real_scalars[10] += pcs_info_var.comm_scalars_and_bases.scalars[22];
+        real_scalars[11] += pcs_info_var.comm_scalars_and_bases.scalars[48];
+        real_scalars[12] += pcs_info_var.comm_scalars_and_bases.scalars[47];
 
         let _ = real_scalars.remove(22);
-        let mut comms = pcs_info.comm_scalars_and_bases.bases()[..47].to_vec();
+        let mut comms = pcs_info_var.comm_scalars_and_bases.bases()[..47].to_vec();
         let _ = comms.remove(22);
 
         scalars_list.push(real_scalars);
         comms_list.push(comms);
-        opening_proofs.push(pcs_info.opening_proof.proof);
+        opening_proofs.push(pcs_info_var.opening_proof);
     }
 
     // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
@@ -1053,8 +1053,8 @@ fn combine_fft_proof_scalars_round_one(
         for list in scalars_list.iter() {
             scalars.extend_from_slice(list);
         }
-        scalars.push(pcs_infos[0].u);
-        scalars.push(pcs_infos[1].u * r_powers[1]);
+        scalars.push(pcs_info_vars[0].u);
+        scalars.push(pcs_info_vars[1].u * r_powers[1]);
 
         // With the bases we remove the pi_bases and g_base now since this list will only be used to tell the circuit which variable bases are being used.
         let mut comms = comms_list.first().cloned().unwrap();
