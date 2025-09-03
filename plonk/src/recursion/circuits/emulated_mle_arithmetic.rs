@@ -381,11 +381,6 @@ pub fn emulated_verify_split_accumulation(
         ));
     }
 
-    old_accs.iter().try_for_each(|acc| {
-        transcript.append_point_variable(&acc.comm, circuit)?;
-        transcript.push_emulated_variable(&acc.value, circuit)
-    })?;
-
     let batch_challenge = transcript.squeeze_scalar_challenge::<SWGrumpkin>(circuit)?;
     let batch_challenge = circuit.to_emulated_variable(batch_challenge)?;
     let zero_var = circuit.emulated_zero();

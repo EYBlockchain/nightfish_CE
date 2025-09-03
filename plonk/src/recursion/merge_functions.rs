@@ -419,12 +419,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
     transcript.merge(&outputs[1].transcript)?;
 
-    // Append the old bn254 accumulators to the transcript.
-    bn254info.old_accumulators.iter().try_for_each(|acc| {
-        transcript.append_curve_point(b"comm", &acc.comm)?;
-        transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
-    })?;
-
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
     // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
