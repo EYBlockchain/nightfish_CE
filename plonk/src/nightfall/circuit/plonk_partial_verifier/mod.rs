@@ -272,7 +272,7 @@ mod test {
     use super::*;
     use crate::{
         errors::PlonkError,
-        nightfall::{ipa_verifier::FFTVerifier, FFTPlonk},
+        nightfall::{ipa_structs::VerificationKeyId, ipa_verifier::FFTVerifier, FFTPlonk},
         proof_system::UniversalSNARK,
         transcript::RescueTranscript,
     };
@@ -307,9 +307,22 @@ mod test {
 
     #[test]
     fn test_compute_scalars_native() -> Result<(), CircuitError> {
-        compute_scalars_native_helper::<UnivariateKzgPCS<Bn254>, Fq254, BnConfig, SWGrumpkin>()
+        for vk_id in [
+            None,
+            Some(VerificationKeyId::Client),
+            Some(VerificationKeyId::Deposit),
+        ]
+        .iter()
+        {
+            compute_scalars_native_helper::<UnivariateKzgPCS<Bn254>, Fq254, BnConfig, SWGrumpkin>(
+                *vk_id,
+            )?;
+        }
+        Ok(())
     }
-    fn compute_scalars_native_helper<PCS, F, P, E>() -> Result<(), CircuitError>
+    fn compute_scalars_native_helper<PCS, F, P, E>(
+        vk_id: Option<VerificationKeyId>,
+    ) -> Result<(), CircuitError>
     where
         PCS: Accumulation<
             Commitment = Affine<P>,
@@ -358,7 +371,7 @@ mod test {
             let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng).unwrap();
 
             // 3. Create proof
-            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, None, &circuit).unwrap();
+            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit).unwrap();
             let proof = FFTPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
                 rng, &circuit, &pk, None,
             )

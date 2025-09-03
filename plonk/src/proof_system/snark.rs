@@ -511,9 +511,14 @@ where
     /// key.
     fn preprocess<C: Arithmetization<<E as Pairing>::ScalarField>>(
         srs: &Self::UniversalSRS,
-        _vk_id: Option<VerificationKeyId>,
+        vk_id: Option<VerificationKeyId>,
         circuit: &C,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if vk_id.is_some() {
+            return Err(PlonkError::InvalidParameters(
+                "PlonkKzgSnark verification keys do not have an ID".to_string(),
+            ));
+        }
         // Make sure the SRS can support the circuit (with hiding degree of 2 for zk)
         let domain_size = circuit.eval_domain_size()?;
         let srs_size = circuit.srs_size()?;

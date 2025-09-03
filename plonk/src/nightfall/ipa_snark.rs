@@ -401,8 +401,8 @@ where
         let mut online_oracles = Oracles::default();
         let prover = FFTProver::<PCS>::new(n, num_wire_types)?;
 
-        // For FFTPlonk we only add the vk ID in the non-merged case.
-        if prove_keys.vk.is_merged {
+        // For FFTPlonk we add the ID to the transcript, if the vk has one.
+        if prove_keys.vk.id.is_some() {
             transcript.append_visitor(&prove_keys.vk)?;
         }
         // In the recursive setting we know that the public inputs have length 1.
@@ -888,16 +888,31 @@ pub mod test {
 
     #[test]
     fn test_preprocessing() -> Result<(), PlonkError> {
-        test_preprocessing_helper::<UnivariateIpaPCS<Bn254>, Fq254, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<Bn254>, Fq254, _>(PlonkType::UltraPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<Bls12_377>, Fq377, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<Bls12_377>, Fq377, _>(PlonkType::UltraPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<Bls12_381>, Fq381, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<Bls12_381>, Fq381, _>(PlonkType::UltraPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<BW6_761>, Fq761, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<UnivariateIpaPCS<BW6_761>, Fq761, _>(PlonkType::UltraPlonk)
+        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+            [
+                None,
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+            ]
+            .iter(),
+        ) {
+            test_preprocessing_helper::<UnivariateKzgPCS<Bn254>, Fq254, _>(*plonk_type, *vk_id)?;
+            test_preprocessing_helper::<UnivariateKzgPCS<Bls12_377>, Fq377, _>(
+                *plonk_type,
+                *vk_id,
+            )?;
+            test_preprocessing_helper::<UnivariateKzgPCS<Bls12_381>, Fq381, _>(
+                *plonk_type,
+                *vk_id,
+            )?;
+            test_preprocessing_helper::<UnivariateKzgPCS<BW6_761>, Fq761, _>(*plonk_type, *vk_id)?;
+        }
+        Ok(())
     }
-    fn test_preprocessing_helper<PCS, F, E>(plonk_type: PlonkType) -> Result<(), PlonkError>
+    fn test_preprocessing_helper<PCS, F, E>(
+        plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
+    ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
             Evaluation = E::ScalarField,
@@ -919,7 +934,7 @@ pub mod test {
 
         let max_degree = 64 + 2;
         let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
-        let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, None, &circuit)?;
+        let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit)?;
 
         // check proving key
         assert_eq!(pk.selectors, selectors);
@@ -996,67 +1011,56 @@ pub mod test {
 
     #[test]
     fn test_plonk_proof_system() -> Result<(), PlonkError> {
-        // merlin transcripts
-        test_plonk_proof_system_helper::<
-            BnConfig,
-            Fq254,
-            UnivariateKzgPCS<Bn254>,
-            StandardTranscript,
-        >(PlonkType::TurboPlonk)?;
-        test_plonk_proof_system_helper::<
-            BnConfig,
-            Fq254,
-            UnivariateKzgPCS<Bn254>,
-            StandardTranscript,
-        >(PlonkType::UltraPlonk)?;
-        test_plonk_proof_system_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            StandardTranscript,
-        >(PlonkType::TurboPlonk)?;
-        test_plonk_proof_system_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            StandardTranscript,
-        >(PlonkType::UltraPlonk)?;
+        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+            [
+                None,
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+            ]
+            .iter(),
+        ) {
+            // merlin transcripts
+            test_plonk_proof_system_helper::<
+                BnConfig,
+                Fq254,
+                UnivariateKzgPCS<Bn254>,
+                StandardTranscript,
+            >(*plonk_type, *vk_id)?;
+            test_plonk_proof_system_helper::<
+                Config377,
+                Fq377,
+                UnivariateIpaPCS<Bls12_377>,
+                StandardTranscript,
+            >(*plonk_type, *vk_id)?;
+            // rescue transcripts
+            test_plonk_proof_system_helper::<
+                BnConfig,
+                Fq254,
+                UnivariateKzgPCS<Bn254>,
+                RescueTranscript<Fq254>,
+            >(*plonk_type, *vk_id)?;
+            test_plonk_proof_system_helper::<
+                Config377,
+                Fq377,
+                UnivariateIpaPCS<Bls12_377>,
+                RescueTranscript<Fq377>,
+            >(*plonk_type, *vk_id)?;
 
-        // rescue transcripts
-        test_recursive_plonk_proof_system_helper::<
-            BnConfig,
-            Fq254,
-            UnivariateKzgPCS<Bn254>,
-            RescueTranscript<Fq254>,
-        >(PlonkType::TurboPlonk)?;
-        test_recursive_plonk_proof_system_helper::<
-            BnConfig,
-            Fq254,
-            UnivariateKzgPCS<Bn254>,
-            RescueTranscript<Fq254>,
-        >(PlonkType::UltraPlonk)?;
-        test_plonk_proof_system_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            RescueTranscript<Fq377>,
-        >(PlonkType::TurboPlonk)?;
-        test_plonk_proof_system_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            RescueTranscript<Fq377>,
-        >(PlonkType::UltraPlonk)?;
+            test_recursive_plonk_proof_system_helper::<
+                BnConfig,
+                Fq254,
+                UnivariateKzgPCS<Bn254>,
+                RescueTranscript<Fq254>,
+            >(*plonk_type, *vk_id)?;
+        }
 
-        // solidity-friendly keccak256 transcripts
-        // currently only needed for CAPE using bls12-381
-        // test_plonk_proof_system_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
         Ok(())
     }
 
-    fn test_plonk_proof_system_helper<E, F, PCS, T>(plonk_type: PlonkType) -> Result<(), PlonkError>
+    fn test_plonk_proof_system_helper<E, F, PCS, T>(
+        plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
+    ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
             Evaluation = E::ScalarField,
@@ -1086,8 +1090,8 @@ pub mod test {
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
         let (pk1, vk1) =
-            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[0])?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, None, &circuits[3])?;
+            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0])?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3])?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1158,6 +1162,7 @@ pub mod test {
 
     fn test_recursive_plonk_proof_system_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
     ) -> Result<(), PlonkError>
     where
         PCS: Accumulation<
@@ -1188,8 +1193,8 @@ pub mod test {
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
         let (pk1, vk1) =
-            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[0])?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, None, &circuits[3])?;
+            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0])?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3])?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1256,63 +1261,36 @@ pub mod test {
 
     #[test]
     fn test_inconsistent_pub_input_len() -> Result<(), PlonkError> {
-        // merlin transcripts
-        // test_inconsistent_pub_input_len_helper::<Bn254, Fq254, _, StandardTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
-        // test_inconsistent_pub_input_len_helper::<Bn254, Fq254, _, StandardTranscript>(
-        //     PlonkType::UltraPlonk,
-        // )?;
-        test_inconsistent_pub_input_len_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            StandardTranscript,
-        >(PlonkType::TurboPlonk)?;
-        test_inconsistent_pub_input_len_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            StandardTranscript,
-        >(PlonkType::UltraPlonk)?;
-        // test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
-        // test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-        //     PlonkType::UltraPlonk,
-        // )?;
-        // test_inconsistent_pub_input_len_helper::<BW6_761, Fq761, _, StandardTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
-        // test_inconsistent_pub_input_len_helper::<BW6_761, Fq761, _, StandardTranscript>(
-        //     PlonkType::UltraPlonk,
-        // )?;
-
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_inconsistent_pub_input_len_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            RescueTranscript<Fq377>,
-        >(PlonkType::TurboPlonk)?;
-        test_inconsistent_pub_input_len_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            RescueTranscript<Fq377>,
-        >(PlonkType::UltraPlonk)?;
-
-        // Solidity-friendly keccak256 transcript
-        // test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
+        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+            [
+                None,
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+            ]
+            .iter(),
+        ) {
+            // merlin transcripts
+            test_inconsistent_pub_input_len_helper::<
+                Config377,
+                Fq377,
+                UnivariateIpaPCS<Bls12_377>,
+                StandardTranscript,
+            >(*plonk_type, *vk_id)?;
+            // rescue transcripts
+            test_inconsistent_pub_input_len_helper::<
+                Config377,
+                Fq377,
+                UnivariateIpaPCS<Bls12_377>,
+                RescueTranscript<Fq377>,
+            >(*plonk_type, *vk_id)?;
+        }
 
         Ok(())
     }
 
     fn test_inconsistent_pub_input_len_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1350,8 +1328,8 @@ pub mod test {
         let size_two = cs2.srs_size()?;
         let size = ark_std::cmp::max(size_one, size_two);
         let srs = FFTPlonk::<PCS>::universal_setup_for_testing(size, rng)?;
-        let (pk1, vk1) = FFTPlonk::<PCS>::preprocess(&srs, None, &cs1)?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, None, &cs2)?;
+        let (pk1, vk1) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs1)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs2)?;
 
         // 4. Proving
         assert!(FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk1, None).is_err());
@@ -1375,63 +1353,37 @@ pub mod test {
 
     #[test]
     fn test_plonk_prover_polynomials() -> Result<(), PlonkError> {
-        // merlin transcripts
-        // test_plonk_prover_polynomials_helper::<Bn254, Fq254, _, StandardTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
-        test_plonk_prover_polynomials_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            StandardTranscript,
-        >(PlonkType::TurboPlonk)?;
-        // test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
-        // test_plonk_prover_polynomials_helper::<BW6_761, Fq761, _, StandardTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
-        // test_plonk_prover_polynomials_helper::<Bn254, Fq254, _, StandardTranscript>(
-        //     PlonkType::UltraPlonk,
-        // )?;
-        test_plonk_prover_polynomials_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            StandardTranscript,
-        >(PlonkType::UltraPlonk)?;
-        // test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-        //     PlonkType::UltraPlonk,
-        // )?;
-        // test_plonk_prover_polynomials_helper::<BW6_761, Fq761, _, StandardTranscript>(
-        //     PlonkType::UltraPlonk,
-        // )?;
+        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+            [
+                None,
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+            ]
+            .iter(),
+        ) {
+            // merlin transcripts
+            test_plonk_prover_polynomials_helper::<
+                Config377,
+                Fq377,
+                UnivariateIpaPCS<Bls12_377>,
+                StandardTranscript,
+            >(*plonk_type, *vk_id)?;
 
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_plonk_prover_polynomials_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            RescueTranscript<Fq377>,
-        >(PlonkType::TurboPlonk)?;
-        test_plonk_prover_polynomials_helper::<
-            Config377,
-            Fq377,
-            UnivariateIpaPCS<Bls12_377>,
-            RescueTranscript<Fq377>,
-        >(PlonkType::UltraPlonk)?;
-
-        // Solidity-friendly keccak256 transcript
-        // test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
-        //     PlonkType::TurboPlonk,
-        // )?;
+            // rescue transcripts
+            test_plonk_prover_polynomials_helper::<
+                Config377,
+                Fq377,
+                UnivariateIpaPCS<Bls12_377>,
+                RescueTranscript<Fq377>,
+            >(*plonk_type, *vk_id)?;
+        }
 
         Ok(())
     }
 
     fn test_plonk_prover_polynomials_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1458,7 +1410,7 @@ pub mod test {
         assert!(circuit.num_gates() <= n);
 
         // 3. Preprocessing
-        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, None, &circuit)?;
+        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit)?;
 
         // 4. Proving
         let (_, oracles, challenges) =
