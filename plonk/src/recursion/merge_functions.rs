@@ -607,46 +607,14 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_acc_vars = bn254info
-            .old_accumulators
-            .chunks_exact(2)
-            .map(|acc_pair| {
-                Ok(acc_pair
-                    .iter()
-                    .map(|acc| {
-                        let x = bytes_to_field_elements::<_, Fq254>(
-                            acc.comm.x.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let y = bytes_to_field_elements::<_, Fq254>(
-                            acc.comm.y.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let proof_x = bytes_to_field_elements::<_, Fq254>(
-                            acc.opening_proof.proof.x.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let proof_y = bytes_to_field_elements::<_, Fq254>(
-                            acc.opening_proof.proof.y.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        x.into_iter()
-                            .chain(y)
-                            .chain(proof_x)
-                            .chain(proof_y)
-                            .map(|x| circuit.create_variable(x))
-                            .collect::<Result<Vec<Variable>, CircuitError>>()
-                    })
-                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Variable>>())
-            })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+        let old_acc_vars = old_accumulators_commitments_vars
+            .into_iter()
+            .zip(old_accumulators_proof_vars)
+            .map(|(comm, proof)| [comm.get_x(), comm.get_y(), proof.get_x(), proof.get_y()])
+            .collect::<Vec<[Variable; 4]>>()
+            .chunks(2)
+            .map(|c| c.concat())
+            .collect::<Vec<Vec<Variable>>>();
 
         let forwarded_accs: Vec<Vec<Variable>> = bn254info
             .forwarded_acumulators
