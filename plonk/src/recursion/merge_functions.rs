@@ -8,7 +8,7 @@ use ark_ec::short_weierstrass::Affine;
 use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-use ark_std::{cfg_iter, string::ToString, sync::Arc, vec, vec::Vec};
+use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
 use jf_primitives::{
     circuit::{rescue::RescueNativeGadget, sha256::Sha256HashGadget},
     pcs::{
@@ -31,7 +31,6 @@ use jf_relation::{
 };
 use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
 use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
-use rayon::prelude::*;
 
 use crate::{
     errors::PlonkError,
@@ -39,12 +38,13 @@ use crate::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
         circuit::{
             plonk_partial_verifier::{
-                Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
+                Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar, SAMLEProofVar,
+                VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
         ipa_structs::VerifyingKey,
-        ipa_verifier::{FFTVerifier, PcsInfo},
+        ipa_verifier::FFTVerifier,
         mle::{
             mle_structs::{MLEProvingKey, MLEVerifyingKey},
             zeromorph::Zeromorph,
@@ -428,14 +428,14 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     }?;
 
     // Next we prepare the relevant info from each of the proofs.
-    let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = cfg_iter!(bn254info.bn254_outputs)
-        .zip(cfg_iter!(vk_bases_var))
+    let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = bn254info.bn254_outputs.iter()
+        .zip(vk_bases_var.iter())
         .map(|(output, vk)| {
             let verifier = Verifier::new(vk.domain_size)?;
             verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                 vk,
                 &[output.pi_hash],
-                &output,
+                output,
                 &None,
                 circuit,
             )
@@ -446,11 +446,11 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
     let output_vars = output_pcs_info_var_pair
         .iter()
-        .map(|(output, _)| *output)
+        .map(|(output, _)| output.clone())
         .collect::<Vec<Bn254OutputScalarsAndBasesVar>>();
     let pcs_info_vars = output_pcs_info_var_pair
         .iter()
-        .map(|(_, pcs_info)| *pcs_info)
+        .map(|(_, pcs_info)| pcs_info.clone())
         .collect::<Vec<PcsInfoBasesVar<Kzg>>>();
 
     // Now we merge the transcripts from the two proofs. we do this to avoid having to re-append all the commitments to a new transcript.
@@ -474,12 +474,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .take(6)
         .collect::<Vec<Fr254>>();
 
-    let (scalars, mut point_vars) = if !IS_FIRST_ROUND {
+    let (scalars, mut instance_base_vars) = if !IS_FIRST_ROUND {
         combine_fft_proof_scalars(&pcs_info_vars, &r_powers)
     } else {
         combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers)
     };
 
+    // Append the extra accumulator commitments to `bases` for the atomic accumulation.
     let old_accumulators_commitments_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
         bn254info
             .old_accumulators
@@ -511,18 +512,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     }?;
 
     // Append the extra accumulator commitments to `bases` for the atomic accumulation.
-    let mut instance_base_vars = bases
-        .iter()
-        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
     instance_base_vars.extend_from_slice(&old_accumulators_commitments_vars);
 
-    let mut proof_base_vars = outputs
+    let mut proof_base_vars = output_vars
         .iter()
-        .map(|output| {
-            circuit.create_point_variable(&Point::<Fq254>::from(output.proof.opening_proof.proof))
-        })
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+        .map(|output_var| output_var.proof.opening_proof)
+        .collect::<Vec<PointVariable>>();
     proof_base_vars.extend(old_accumulators_proof_vars.clone());
 
     // Now perform the MSM for the accumulation, we only do this in the circuit as the procedure for proving and verifying is identical.
@@ -941,7 +936,10 @@ type CombineScalars = (Vec<Fr254>, Vec<PointVariable>);
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars(pcs_info_vars: &[PcsInfoBasesVar<Kzg>], r_powers: &[Fr254]) -> CombineScalars {
+fn combine_fft_proof_scalars(
+    pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
+    r_powers: &[Fr254],
+) -> CombineScalars {
     let mut scalars_list: Vec<Vec<Fr254>> = vec![];
     let mut comms_list = vec![];
     let mut opening_proofs = vec![];

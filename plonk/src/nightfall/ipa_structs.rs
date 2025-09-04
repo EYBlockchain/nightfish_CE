@@ -533,6 +533,7 @@ impl<PCS: PolynomialCommitmentScheme> ScalarsAndBases<PCS> {
         &self.scalars
     }
 
+    #[allow(dead_code)]
     /// Returns the bases as a slice.
     pub(crate) fn bases(&self) -> &[PCS::Commitment] {
         &self.bases
