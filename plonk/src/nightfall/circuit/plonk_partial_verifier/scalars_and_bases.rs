@@ -5,11 +5,7 @@ use ark_std::{collections::BTreeMap, One, Zero};
 use ark_std::{format, string::ToString, vec, vec::Vec};
 use core::ops::Neg;
 use jf_primitives::pcs::PolynomialCommitmentScheme;
-use jf_relation::{
-    constants::GATE_WIDTH,
-    gadgets::ecc::PointVariable,
-    Circuit, PlonkCircuit,
-};
+use jf_relation::{constants::GATE_WIDTH, gadgets::ecc::PointVariable, Circuit, PlonkCircuit};
 use jf_utils::fq_to_fr;
 
 use crate::constants::EXTRA_TRANSCRIPT_MSG_LABEL;
@@ -91,8 +87,11 @@ pub struct PcsInfoBasesVar<PCS>
 where
     PCS: PolynomialCommitmentScheme,
 {
+    /// random combiner
     pub u: PCS::Evaluation,
+    /// the scalars-and-bases form of the (aggregated) polynomial commitment
     pub comm_scalars_and_bases: ScalarsAndBasesVar<PCS>,
+    /// (aggregated) proof of evaluations at point `eval_point`
     pub opening_proof: PointVariable,
 }
 
