@@ -36,7 +36,7 @@ use crate::{
     errors::PlonkError,
     nightfall::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
-        ipa_structs::{ProvingKey, VerifyingKey, VK},
+        ipa_structs::{ProvingKey, VerifyingKey},
         mle::{
             mle_structs::{GateInfo, MLEProvingKey, MLEVerifyingKey},
             MLEPlonk,
@@ -99,8 +99,8 @@ pub trait RecursiveProver {
         circuit: &mut PlonkCircuit<Fr254>,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>;
-    /// Retrieve the list of acceptable verification key hashes
-    fn get_vk_hash_list() -> Vec<Fr254>;
+    /// Retrieve the list of acceptable verification keys.
+    fn get_vk_list() -> Vec<VerifyingKey<Kzg>>;
     /// Retrieves the base Grumpkin proving key.
     fn get_base_grumpkin_pk() -> MLEProvingKey<Zmorph>;
     /// Retrieves the base Bn254 proving key.
@@ -143,9 +143,12 @@ pub trait RecursiveProver {
             num_inputs: 0,
         };
 
+        let client_vk_list = Self::get_vk_list();
+
         let circuit_output = prove_bn254_accumulation::<true>(
             &bn254info,
             input_vks,
+            Some(&client_vk_list),
             &vk_grumpkin,
             Self::base_grumpkin_checks,
             &mut circuit,
@@ -230,10 +233,7 @@ pub trait RecursiveProver {
         grumpkin_info.old_accumulators = old_accumulators;
         let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(12);
 
-        let hash_list = Self::get_vk_hash_list();
-        for vk in input_vks.iter() {
-            Self::generate_vk_check_constraint(vk.hash(), &hash_list, &mut circuit)?;
-        }
+        let _vk_list = Self::get_vk_list();
         // Perform any extra checks that only happen at base level.
         let extra_checks_pi = extra_base_info
             .iter()
@@ -322,6 +322,7 @@ pub trait RecursiveProver {
         let grumpkin_circuit_out = prove_bn254_accumulation::<false>(
             &bn254info,
             &[base_bn254_pk.vk.clone(), base_bn254_pk.vk.clone()],
+            None,
             &base_grumpkin_pk.verifying_key,
             Self::grumpkin_merge_circuit_checks,
             &mut circuit,
@@ -556,7 +557,8 @@ pub trait RecursiveProver {
 
         // We know the outputs is non-zero so we can safely unwrap here
         let base_grumpkin_circuit = &base_grumpkin_out[0].0;
-        let (base_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, base_grumpkin_circuit)?;
+        let (base_grumpkin_pk, _) =
+            MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, base_grumpkin_circuit)?;
         Self::store_base_grumpkin_pk(base_grumpkin_pk.clone()).ok_or(
             PlonkError::InvalidParameters("Could not store base Grumpkin proving key".to_string()),
         )?;
@@ -597,7 +599,7 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
         let base_bn254_circuit = &base_bn254_out[0].0;
-        let (base_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, base_bn254_circuit)?;
+        let (base_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit)?;
         Self::store_base_bn254_pk(base_bn254_pk.clone()).ok_or(PlonkError::InvalidParameters(
             "Could not store base Bn254 proving key".to_string(),
         ))?;
@@ -658,7 +660,8 @@ pub trait RecursiveProver {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let grumpkin_circuit = &grumpkin_out[0].0;
-            let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, grumpkin_circuit)?;
+            let (new_grumpkin_pk, _) =
+                MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
             current_grumpkin_pk = new_grumpkin_pk;
 
             // 2. Merge Grumpkin → Bn254
@@ -682,7 +685,7 @@ pub trait RecursiveProver {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let bn254_circuit = &current_bn254_out[0].0;
-            let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, bn254_circuit)?;
+            let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit)?;
             merge_bn254_pks.push(new_bn254_pk.clone());
             current_bn254_pk = new_bn254_pk;
         }
@@ -723,7 +726,8 @@ pub trait RecursiveProver {
             &current_bn254_pk,
         )?;
 
-        let (decider_pk, _) = PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, &decider_out.circuit)?;
+        let (decider_pk, _) =
+            PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit)?;
 
         Self::store_merge_grumpkin_pk(current_grumpkin_pk).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Grumpkin proving key".to_string(),
@@ -1187,10 +1191,10 @@ mod tests {
         KEY_STORE.get_or_init(|| RwLock::new(HashMap::<String, Key>::new()))
     }
 
-    /// This function is used so that we can work with one hash list.
-    fn get_hash_list() -> &'static RwLock<Vec<Fr254>> {
-        static HASH_LIST: OnceLock<RwLock<Vec<Fr254>>> = OnceLock::new();
-        HASH_LIST.get_or_init(|| RwLock::new(Vec::new()))
+    /// This function is used so that we can work with one vk list.
+    fn get_test_vk_list() -> &'static RwLock<Vec<VerifyingKey<Kzg>>> {
+        static VK_LIST: OnceLock<RwLock<Vec<VerifyingKey<Kzg>>>> = OnceLock::new();
+        VK_LIST.get_or_init(|| RwLock::new(Vec::new()))
     }
     #[test]
     #[ignore = "Only run this test on powerful machines"]
@@ -1229,15 +1233,15 @@ mod tests {
         let ipa_srs: UnivariateUniversalIpaParams<Grumpkin> =
             Zmorph::gen_srs_for_testing(rng, 18).unwrap();
 
-        let (pk_one, input_vk_one) = FFTPlonk::<Kzg>::preprocess(&kzg_srs, &circuits[0])?;
-        let (pk_two, input_vk_two) = FFTPlonk::<Kzg>::preprocess(&kzg_srs, &circuits[43])?;
+        let (pk_one, input_vk_one) = FFTPlonk::<Kzg>::preprocess(&kzg_srs, None, &circuits[0])?;
+        let (pk_two, input_vk_two) = FFTPlonk::<Kzg>::preprocess(&kzg_srs, None, &circuits[43])?;
         ark_std::println!("Made proving key in: {:?}", now.elapsed());
         // Scope the lock
         {
-            let mut hash_list = get_hash_list().write().unwrap();
-            hash_list.push(input_vk_one.hash());
-            hash_list.push(input_vk_two.hash());
-            ark_std::println!("hash list: {:?}", hash_list);
+            let mut vk_list = get_test_vk_list().write().unwrap();
+            vk_list.push(input_vk_one);
+            vk_list.push(input_vk_two);
+            ark_std::println!("vk list: {:?}", vk_list);
         }
         let now = ark_std::time::Instant::now();
         let input_outputs = cfg_iter!(circuits)
@@ -1319,8 +1323,8 @@ mod tests {
                 Ok(vec![])
             }
 
-            fn get_vk_hash_list() -> Vec<Fr254> {
-                get_hash_list().read().unwrap().clone()
+            fn get_vk_list() -> Vec<VerifyingKey<Kzg>> {
+                get_test_vk_list().read().unwrap().clone()
             }
 
             fn get_base_grumpkin_pk() -> MLEProvingKey<Zmorph> {

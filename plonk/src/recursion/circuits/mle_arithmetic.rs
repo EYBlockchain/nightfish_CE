@@ -728,7 +728,7 @@ mod tests {
         let srs = MLEPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
 
         let (pk1, _vk1) =
-            <MLEPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, &circuits[3]).unwrap();
+            <MLEPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[3]).unwrap();
 
         // 4. Proving
         let mut proofs = vec![];
@@ -883,7 +883,7 @@ mod tests {
             let srs_size = circuit_one.srs_size()?;
             let srs = MLEPlonk::<Zmorph>::universal_setup_for_testing(srs_size, rng).unwrap();
 
-            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, &circuit_one)?;
+            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, None, &circuit_one)?;
 
             let circuits = [circuit_one, circuit_two];
 

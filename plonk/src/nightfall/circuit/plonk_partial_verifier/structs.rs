@@ -29,9 +29,7 @@ use crate::{
             sumcheck::SumCheckGadget,
         },
         hops::srs::UnivariateUniversalIpaParams,
-        ipa_structs::{
-            Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VerifyingKey, VK,
-        },
+        ipa_structs::{Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VK},
         mle::mle_structs::{
             MLEChallenges, MLELookupEvals, MLELookupProof, MLEProofEvals, MLEVerifyingKey,
             SAMLEProof,
@@ -107,7 +105,7 @@ impl ChallengesVar {
     /// Computes challenges from a proof.
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
-        vk: &VerifyingKey<PCS>,
+        vk_id: Option<Variable>,
         pi: &Variable,
         proof: &ProofVarNative<P>,
         transcript: &mut C,
@@ -120,9 +118,9 @@ impl ChallengesVar {
         F: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
         C: CircuitTranscript<F>,
     {
-        let vk_hash = circuit.create_variable(vk.hash())?;
-        transcript.push_variable(&vk_hash)?;
-
+        if let Some(id) = vk_id {
+            transcript.push_variable(&id)?;
+        }
         transcript.push_variable(pi)?;
 
         transcript.append_point_variables(&proof.wire_commitments, circuit)?;
@@ -586,7 +584,7 @@ where
     }
 }
 
-/// A Plookup argument proof to be passed in to a circuit defined over the scalar field of the commitment curve.
+/// A Plookup argument proof to be passed into a circuit defined over the scalar field of the commitment curve.
 #[derive(Debug, Clone)]
 pub struct PlookupProofVarNative<P>
 where
@@ -881,6 +879,24 @@ where
         transcript.push_variable(&self.w_4_next_eval)?;
         Ok(())
     }
+}
+
+/// A struct containing the bases associated with a Plookup argument proof to be passed
+/// into a circuit defined over the base field of the commitment curve.
+#[derive(Debug, Clone)]
+pub struct PlookupProofScalarsAndBasesVar<PCS>
+where
+    PCS: PolynomialCommitmentScheme,
+{
+    /// The commitments for the polynomials that interpolate the sorted
+    /// concatenation of the lookup table and the witnesses in the lookup gates.
+    pub(crate) h_poly_comms: Vec<PointVariable>,
+
+    /// The product accumulation polynomial commitment for the Plookup argument
+    pub(crate) prod_lookup_poly_comm: PointVariable,
+
+    /// Polynomial evaluations that we store in the clear.
+    pub(crate) poly_evals: PlookupEvaluations<PCS::Evaluation>,
 }
 
 /// A struct used to represent Ipa proving/verifying params in a circuit.

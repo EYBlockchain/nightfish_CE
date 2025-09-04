@@ -605,7 +605,7 @@ mod tests {
             let srs_size = circuit_one.srs_size()?;
             let srs = MLEPlonk::<Zmorph>::universal_setup_for_testing(srs_size, rng).unwrap();
 
-            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, &circuit_one)?;
+            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, None, &circuit_one)?;
 
             let circuits = [circuit_one, circuit_two];
 

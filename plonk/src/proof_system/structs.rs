@@ -11,6 +11,7 @@ use crate::{
         PlonkError,
         SnarkError::{self, ParameterError, SnarkLookupUnsupported},
     },
+    nightfall::ipa_structs::VerificationKeyId,
     transcript::{Transcript, TranscriptVisitor},
 };
 use ark_ec::{
@@ -830,6 +831,11 @@ where
 
     /// Returns whether the circuit is merged.
     fn is_merged(&self) -> bool;
+
+    /// Returns the id
+    fn id(&self) -> Option<VerificationKeyId> {
+        None
+    }
 
     /// Returns the hash of the key.
     fn hash(&self) -> E::ScalarField;
