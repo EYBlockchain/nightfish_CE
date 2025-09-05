@@ -1110,6 +1110,7 @@ fn combine_fft_proof_scalars_round_one(
 pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     grumpkin_info: &GrumpkinRecursiveInfo,
     bn254_vks: &[VerifyingKey<Kzg>; 4],
+    _client_vk_list: Option<&Vec<VerifyingKey<Kzg>>>,
     pk_grumpkin: &MLEProvingKey<ZeromorphPCS>,
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
