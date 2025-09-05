@@ -899,6 +899,15 @@ where
     pub(crate) poly_evals: PlookupEvaluations<PCS::Evaluation>,
 }
 
+impl<PCS: PolynomialCommitmentScheme> PlookupProofScalarsAndBasesVar<PCS> {
+    /// Convert to vector of point variables.
+    pub fn to_vec(&self) -> Vec<PointVariable> {
+        let mut bases = self.h_poly_comms.clone();
+        bases.push(self.prod_lookup_poly_comm);
+        bases
+    }
+}
+
 /// A struct used to represent Ipa proving/verifying params in a circuit.
 #[derive(Debug, Clone)]
 pub struct UnivariateUniversalIpaParamsVar<F: PrimeField> {
