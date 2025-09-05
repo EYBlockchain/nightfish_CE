@@ -16,21 +16,6 @@ use jf_primitives::{
         PolynomialCommitmentScheme,
     },
 };
-
-use itertools::izip;
-use jf_relation::{
-    errors::CircuitError,
-    gadgets::{
-        ecc::{
-            EmulMultiScalarMultiplicationCircuit, MultiScalarMultiplicationCircuit, Point,
-            PointVariable,
-        },
-        EmulatedVariable,
-    },
-    Circuit, PlonkCircuit, Variable,
-};
-use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
-use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
 use num_bigint::BigUint;
 
 use crate::{
@@ -39,8 +24,8 @@ use crate::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
         circuit::{
             plonk_partial_verifier::{
-                Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar, SAMLEProofVar,
-                VerifyingKeyScalarsAndBasesVar,
+                Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar,
+                ProofEvalsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
@@ -60,6 +45,20 @@ use crate::{
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript, Transcript},
 };
+use itertools::izip;
+use jf_relation::{
+    errors::CircuitError,
+    gadgets::{
+        ecc::{
+            EmulMultiScalarMultiplicationCircuit, MultiScalarMultiplicationCircuit, Point,
+            PointVariable,
+        },
+        EmulatedVariable,
+    },
+    Circuit, PlonkCircuit, Variable,
+};
+use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
+use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
 
 use super::circuits::{
     challenges::MLEProofChallenges,
@@ -1118,6 +1117,34 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Bn254CircuitOutput, PlonkError> {
+    // We first construct variables for the two bn254 proofs that we will be verifying.
+    let output_var_pairs = grumpkin_info
+        .bn254_outputs
+        .iter()
+        .map(|output| {
+            let proof_evals = ProofEvalsVarNative::from_struct(circuit, &output.proof.poly_evals)?;
+            let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
+            Ok((proof_evals, proof))
+        })
+        .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
+    let _output_scalar_vars: [ProofEvalsVarNative; 4] = output_var_pairs
+        .clone()
+        .into_iter()
+        .map(|(output_scalar_var, _)| output_scalar_var)
+        .collect::<Vec<ProofEvalsVarNative>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+    let _output_base_vars: [ProofVarNative<BnConfig>; 4] = output_var_pairs
+        .into_iter()
+        .map(|(_, output_base_var)| output_base_var)
+        .collect::<Vec<ProofVarNative<BnConfig>>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = if !IS_BASE {
         izip!(
