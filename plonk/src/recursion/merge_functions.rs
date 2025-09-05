@@ -25,7 +25,8 @@ use crate::{
         circuit::{
             plonk_partial_verifier::{
                 Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar,
-                ProofEvalsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyScalarsAndBasesVar,
+                ProofEvalsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyNativeScalarsVar,
+                VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
@@ -1110,7 +1111,7 @@ fn combine_fft_proof_scalars_round_one(
 pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     grumpkin_info: &GrumpkinRecursiveInfo,
     bn254_vks: &[VerifyingKey<Kzg>; 4],
-    _client_vk_list: Option<&Vec<VerifyingKey<Kzg>>>,
+    client_vk_list: Option<&Vec<VerifyingKey<Kzg>>>,
     pk_grumpkin: &MLEProvingKey<ZeromorphPCS>,
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
@@ -1128,7 +1129,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             Ok((proof_evals, proof))
         })
         .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
-    let _output_scalar_vars: [ProofEvalsVarNative; 4] = output_var_pairs
+    let output_scalar_vars: [ProofEvalsVarNative; 4] = output_var_pairs
         .clone()
         .into_iter()
         .map(|(output_scalar_var, _)| output_scalar_var)
@@ -1137,7 +1138,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .map_err(|_| {
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
-    let _output_base_vars: [ProofVarNative<BnConfig>; 4] = output_var_pairs
+    let output_base_vars: [ProofVarNative<BnConfig>; 4] = output_var_pairs
         .into_iter()
         .map(|(_, output_base_var)| output_base_var)
         .collect::<Vec<ProofVarNative<BnConfig>>>()
@@ -1146,25 +1147,77 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
 
+    let vk_scalars_vars: [VerifyingKeyNativeScalarsVar; 4] = if IS_BASE {
+        // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
+        // to correspond to be one of `client_vk_list`.
+        let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
+            "client_vk_list must be non-None in base case".to_string(),
+        ))?;
+        bn254_vks
+            .iter()
+            .map(|vk| {
+                let vk_var = VerifyingKeyNativeScalarsVar::new(circuit, vk)?;
+                vk_var.cond_select_equal_scalars(circuit, vk_list)?;
+                Ok(vk_var)
+            })
+            .collect::<Result<Vec<VerifyingKeyNativeScalarsVar>, CircuitError>>()?
+            .try_into()
+            .map_err(|_| {
+                PlonkError::InvalidParameters("bn254_vks must have length 4".to_string())
+            })?
+    } else {
+        // In the non-base case we just create some dummy variables.
+        [
+            VerifyingKeyNativeScalarsVar::default(),
+            VerifyingKeyNativeScalarsVar::default(),
+            VerifyingKeyNativeScalarsVar::default(),
+            VerifyingKeyNativeScalarsVar::default(),
+        ]
+    };
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = if !IS_BASE {
+        if bn254_vks[0] != bn254_vks[1]
+            || bn254_vks[0] != bn254_vks[2]
+            || bn254_vks[0] != bn254_vks[3]
+        {
+            return Err(PlonkError::InvalidParameters(
+                "In non-base case all bn254 vks must be the same".to_string(),
+            ));
+        }
         izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4)
+            output_scalar_vars.chunks_exact(2),
+            output_base_vars.chunks_exact(2),
+            grumpkin_info.transcript_accumulators.chunks_exact(4),
         )
-        .map(|(outputs, old_accs)| {
-            calculate_recursion_scalars(outputs, old_accs, &bn254_vks[0], circuit)
+        .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
+            calculate_recursion_scalars(
+                scalar_vars_pair,
+                base_vars_pair,
+                &bn254_vks[0],
+                old_accs,
+                circuit,
+            )
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     } else {
         izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
+            output_scalar_vars.chunks_exact(2),
+            output_base_vars.chunks_exact(2),
+            vk_scalars_vars.chunks_exact(2),
             grumpkin_info.transcript_accumulators.chunks_exact(4),
-            bn254_vks.chunks_exact(2),
         )
-        .map(|(outputs, old_accs, vks)| {
-            calculate_recursion_scalars_base(outputs, old_accs, vks, circuit)
-        })
+        .map(
+            |(scalar_vars_pair, base_vars_pair, vk_vars_pair, old_accs)| {
+                calculate_recursion_scalars_base(
+                    scalar_vars_pair,
+                    base_vars_pair,
+                    vk_vars_pair,
+                    old_accs,
+                    circuit,
+                )
+            },
+        )
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
     // Make a vk variable
