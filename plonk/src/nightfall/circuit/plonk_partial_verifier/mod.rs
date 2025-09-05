@@ -716,7 +716,8 @@ impl VerifyingKeyScalarsAndBasesVar<Kzg> {
     }
 }
 
-struct VerifyingKeyNativeScalarsVar {
+#[derive(Default)]
+pub(crate) struct VerifyingKeyNativeScalarsVar {
     /// The size of the evaluation domain. Should be a power of two.
     pub(crate) domain_size: Variable,
     /// The constants K0, ..., K_num_wire_types that ensure wire subsets are
