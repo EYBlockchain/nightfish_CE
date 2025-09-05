@@ -12,7 +12,7 @@ use ark_bn254::{Fq as Fq254, Fr as Fr254};
 use ark_ec::{pairing::Pairing, short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{fmt::Debug, vec::Vec};
+use ark_std::{fmt::Debug, vec, vec::Vec};
 use jf_primitives::{
     pcs::{prelude::UnivariateKzgProof, Accumulation, PolynomialCommitmentScheme},
     rescue::RescueParameter,
@@ -184,6 +184,23 @@ pub struct Bn254ProofScalarsandBasesVar {
     pub plookup_proof: Option<PlookupProofScalarsAndBasesVar<Kzg>>,
 }
 
+impl Bn254ProofScalarsandBasesVar {
+    /// Convert to vector of point variables.
+    pub fn to_vec(&self) -> Vec<PointVariable> {
+        let mut vars = vec![];
+        vars.extend_from_slice(&self.wires_poly_comms);
+        vars.push(self.prod_perm_poly_comm);
+        vars.extend_from_slice(&self.split_quot_poly_comms);
+        vars.push(self.opening_proof);
+        vars.push(self.q_comm);
+        if let Some(plookup_proof) = &self.plookup_proof {
+            vars.extend_from_slice(&plookup_proof.h_poly_comms);
+            vars.push(plookup_proof.prod_lookup_poly_comm);
+        }
+        vars
+    }
+}
+
 impl RecursiveProofToScalarsAndBasesVar<Kzg> for Proof<Kzg> {
     type RecursiveProofVar = Bn254ProofScalarsandBasesVar;
     fn create_variables(
@@ -264,6 +281,13 @@ pub struct Bn254OutputScalarsAndBasesVar {
     pub pi_hash: Fr254,
     /// The transcript of the proof stored in the clear.
     pub transcript: RescueTranscript<Fr254>,
+}
+
+impl Bn254OutputScalarsAndBasesVar {
+    /// Convert to vector of point variables.
+    pub fn to_vec(&self) -> Vec<PointVariable> {
+        self.proof.to_vec()
+    }
 }
 
 impl RecursiveOutputToScalarsAndBasesVar<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>
