@@ -248,9 +248,13 @@ pub trait RecursiveProver {
             .into_iter()
             .map(|pi| circuit.witness(pi))
             .collect::<Result<Vec<Fr254>, CircuitError>>()?;
+
+        let client_vk_list = Self::get_vk_list();
+
         let mut bn254_circuit_out = prove_grumpkin_accumulation::<true>(
             &grumpkin_info,
             input_vks,
+            Some(&client_vk_list),
             base_grumpkin_pk,
             Self::base_bn254_checks,
             &mut circuit,
@@ -395,6 +399,7 @@ pub trait RecursiveProver {
                 bn254_pk.vk.clone(),
                 bn254_pk.vk.clone(),
             ],
+            None,
             merge_grumpkin_pk,
             Self::bn254_merge_circuit_checks,
             &mut circuit,
