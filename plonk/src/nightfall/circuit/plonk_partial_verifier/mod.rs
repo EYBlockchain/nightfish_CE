@@ -10,7 +10,7 @@ use crate::{
     recursion::circuits::Kzg,
     transcript::*,
 };
-use ark_bn254::Fq as Fq254;
+use ark_bn254::{Fq as Fq254, Fr as Fr254};
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_poly::univariate::DensePolynomial;
@@ -713,6 +713,114 @@ impl VerifyingKeyScalarsAndBasesVar<Kzg> {
             ));
         }
         Ok(self.selector_comms.last().unwrap())
+    }
+}
+
+struct VerifyingKeyNativeScalarsVar {
+    /// The size of the evaluation domain. Should be a power of two.
+    pub(crate) domain_size: Variable,
+    /// The constants K0, ..., K_num_wire_types that ensure wire subsets are
+    /// disjoint.
+    pub(crate) k: Vec<Variable>,
+    /// Used for client verification keys to identify distinguish between
+    /// transfer/withdrawal and deposit.
+    pub(crate) id: Variable,
+}
+
+impl VerifyingKeyNativeScalarsVar {
+    /// Create a variable representing a the scalars in a verifying key.
+    pub fn new<PCS, VerifyingKey, F>(
+        circuit: &mut PlonkCircuit<F>,
+        verify_key: &VerifyingKey,
+    ) -> Result<Self, CircuitError>
+    where
+        PCS: PolynomialCommitmentScheme<Evaluation = F>,
+        VerifyingKey: VK<PCS>,
+        F: PrimeField,
+    {
+        let id_var = if let Some(id) = verify_key.id() {
+            circuit.create_variable(F::from(id as u8))
+        } else {
+            return Err(CircuitError::ParameterError(
+                "NativeScalarsVerifyingKeyVar are only created from VerifyingKeys with an ID"
+                    .to_string(),
+            ));
+        }?;
+
+        let domain_size_var = circuit.create_variable(F::from(verify_key.domain_size() as u64))?;
+
+        let k_var = verify_key
+            .k()
+            .iter()
+            .map(|k| circuit.create_variable(*k))
+            .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+        Ok(Self {
+            domain_size: domain_size_var,
+            k: k_var,
+            id: id_var,
+        })
+    }
+
+    /// Constrain a `VerifyingKeyNativeScalarsVar` to agree with the scalars of one of two `VerifyingKey`s.
+    pub fn cond_select_equal_scalars(
+        &self,
+        circuit: &mut PlonkCircuit<Fr254>,
+        vks: &[VerifyingKey<Kzg>],
+    ) -> Result<(), CircuitError> {
+        if vks.len() != 2 {
+            return Err(CircuitError::ParameterError(
+                "Currently, cond_select_equal_scalars only supports two verifying keys".to_string(),
+            ));
+        }
+        let id = circuit.witness(self.id)?;
+        let client_ids = vks
+            .iter()
+            .map(|vk| {
+                vk.id().ok_or(CircuitError::ParameterError(
+                    "cond_select_equal_scalars requires all verifying keys to have an ID"
+                        .to_string(),
+                ))
+            })
+            .collect::<Result<Vec<VerificationKeyId>, CircuitError>>()?;
+
+        // We determine the index of the verifying key that matches the ID.
+        let idx = if let Some(idx) = client_ids.iter().position(|&x| Fr254::from(x as u8) == id) {
+            Ok(idx)
+        } else {
+            Err(CircuitError::ParameterError(
+                "VerifyingKeyNativeScalarsVar ID does not match any of the provided verifying keys"
+                    .to_string(),
+            ))
+        }?;
+        // The remaninder of the function assumes only two verifying keys
+        // We will change this when we introduce more possible client keys
+        let cond_sel_bool = circuit.create_boolean_variable(idx == 1)?;
+        circuit.const_conditional_select_gate(
+            cond_sel_bool,
+            self.id,
+            Fr254::from(client_ids[0] as u8),
+            Fr254::from(client_ids[1] as u8),
+        )?;
+
+        circuit.const_conditional_select_gate(
+            cond_sel_bool,
+            self.domain_size,
+            Fr254::from(vks[0].domain_size() as u64),
+            Fr254::from(vks[1].domain_size() as u64),
+        )?;
+
+        if self.k.len() != vks[0].k().len() || self.k.len() != vks[1].k().len() {
+            return Err(CircuitError::ParameterError(
+                "VerifyingKeyNativeScalarsVar and VerifyingKeys have different number of k constants"
+                    .to_string(),
+            ));
+        }
+        for (k_var, k_0, k_1) in izip!(self.k.iter(), vks[0].k().iter(), vks[1].k().iter()) {
+            circuit.const_conditional_select_gate(cond_sel_bool, *k_var, *k_0, *k_1)?;
+        }
+
+        Ok(())
     }
 }
 
