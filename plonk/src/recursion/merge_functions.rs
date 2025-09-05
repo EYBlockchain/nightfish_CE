@@ -848,6 +848,28 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
 
+        // We construct a `Variable` that encodes the verification keys used in the client proofs.
+        // This is done to ensure that the verification keys are public inputs to the circuit.
+        // Specifically, we construct id_0 + 2 * id_1 where id_i is the index of vk_bn254[i].
+        let [id_0, id_1] = vk_bases_var
+            .iter()
+            .map(|vk_var| {
+                vk_var.id.ok_or(PlonkError::InvalidParameters(
+                    "vk_bn254's must have non-None ID in base case".to_string(),
+                ))
+            })
+            .collect::<Result<Vec<usize>, PlonkError>>()?
+            .try_into()
+            .map_err(|_| {
+                CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
+            })?;
+
+        let vk_id_var = circuit.lc(
+            &[id_0, id_1, circuit.zero(), circuit.zero()],
+            &[Fq254::one(), Fq254::from(2u8), Fq254::zero(), Fq254::zero()],
+        )?;
+        circuit.set_variable_public(vk_id_var)?;
+
         instance_scalar_vars
             .iter()
             .try_for_each(|var| circuit.set_variable_public(*var))?;
