@@ -714,6 +714,15 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
 
+        // We now make public the `PointVariable`s for both of the bn254 proofs
+        for output_var in output_vars.iter() {
+            let point_vars = output_var.to_vec();
+            for point_var in point_vars.iter() {
+                circuit.set_variable_public(point_var.get_x())?;
+                circuit.set_variable_public(point_var.get_y())?;
+            }
+        }
+
         instance_scalar_vars
             .iter()
             .try_for_each(|var| circuit.set_variable_public(*var))?;
@@ -862,6 +871,15 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .map_err(|_| {
                 CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
             })?;
+
+        // We now make public the `PointVariable`s for both of the bn254 proofs
+        for output_var in output_vars.iter() {
+            let point_vars = output_var.to_vec();
+            for point_var in point_vars.iter() {
+                circuit.set_variable_public(point_var.get_x())?;
+                circuit.set_variable_public(point_var.get_y())?;
+            }
+        }
 
         let vk_id_var = circuit.lc(
             &[id_0, id_1, circuit.zero(), circuit.zero()],
