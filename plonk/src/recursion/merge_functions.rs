@@ -1233,6 +1233,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         )
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
 
@@ -1552,12 +1553,55 @@ pub fn decider_circuit(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
+    // We first construct variables for the two bn254 proofs that we will be verifying.
+    let output_var_pairs = grumpkin_info
+        .bn254_outputs
+        .iter()
+        .map(|output| {
+            let proof_evals = ProofEvalsVarNative::from_struct(circuit, &output.proof.poly_evals)?;
+            let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
+            Ok((proof_evals, proof))
+        })
+        .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
+    let output_scalar_vars: [ProofEvalsVarNative; 4] = output_var_pairs
+        .clone()
+        .into_iter()
+        .map(|(output_scalar_var, _)| output_scalar_var)
+        .collect::<Vec<ProofEvalsVarNative>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+    let output_base_vars: [ProofVarNative<BnConfig>; 4] = output_var_pairs
+        .into_iter()
+        .map(|(_, output_base_var)| output_base_var)
+        .collect::<Vec<ProofVarNative<BnConfig>>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = izip!(
-        grumpkin_info.bn254_outputs.chunks_exact(2),
-        grumpkin_info.transcript_accumulators.chunks_exact(4)
+        output_scalar_vars.chunks_exact(2),
+        output_base_vars.chunks_exact(2),
+        grumpkin_info.transcript_accumulators.chunks_exact(4),
     )
-    .map(|(outputs, old_accs)| calculate_recursion_scalars(outputs, old_accs, vk_bn254, circuit))
+    .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
+        calculate_recursion_scalars(
+            scalar_vars_pair
+                .try_into()
+                .expect("scalar_vars_pair length verified by chunks_exact"),
+            base_vars_pair
+                .try_into()
+                .expect("base_vars_pair length verified by chunks_exact"),
+            &vk_bn254,
+            old_accs
+                .try_into()
+                .expect("old_accs length verified by chunks_exact"),
+            circuit,
+        )
+    })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     // Make a vk variable
