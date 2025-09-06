@@ -1165,7 +1165,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 PlonkError::InvalidParameters("bn254_vks must have length 4".to_string())
             })?
     } else {
-        // In the non-base case we just create some dummy variables.
+        // In the non-base case we just create some dummy variables, as they will not be used.
         [
             VerifyingKeyNativeScalarsVar::default(),
             VerifyingKeyNativeScalarsVar::default(),
@@ -1191,10 +1191,16 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         )
         .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
             calculate_recursion_scalars(
-                scalar_vars_pair,
-                base_vars_pair,
+                scalar_vars_pair
+                    .try_into()
+                    .expect("scalar_vars_pair length verified by chunks_exact"),
+                base_vars_pair
+                    .try_into()
+                    .expect("base_vars_pair length verified by chunks_exact"),
                 &bn254_vks[0],
-                old_accs,
+                old_accs
+                    .try_into()
+                    .expect("old_accs length verified by chunks_exact"),
                 circuit,
             )
         })
@@ -1209,10 +1215,18 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .map(
             |(scalar_vars_pair, base_vars_pair, vk_vars_pair, old_accs)| {
                 calculate_recursion_scalars_base(
-                    scalar_vars_pair,
-                    base_vars_pair,
-                    vk_vars_pair,
-                    old_accs,
+                    scalar_vars_pair
+                        .try_into()
+                        .expect("scalar_vars_pair length verified by chunks_exact"),
+                    base_vars_pair
+                        .try_into()
+                        .expect("base_vars_pair length verified by chunks_exact"),
+                    vk_vars_pair
+                        .try_into()
+                        .expect("vk_vars_pair length verified by chunks_exact"),
+                    old_accs
+                        .try_into()
+                        .expect("old_accs length verified by chunks_exact"),
                     circuit,
                 )
             },

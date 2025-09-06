@@ -2,14 +2,12 @@
 
 use ark_bn254::{g1::Config as BnConfig, Fq as Fq254, Fr as Fr254};
 
-use ark_std::{string::ToString, vec::Vec};
-
 use crate::{
     nightfall::{
         accumulation::accumulation_structs::AtomicInstance,
         circuit::plonk_partial_verifier::{
             compute_scalars_for_native_field, ChallengesVar, PlookupEvalsVarNative,
-            ProofEvalsVarNative, ProofVarNative,
+            ProofEvalsVarNative, ProofVarNative, VerifyingKeyNativeScalarsVar,
         },
         ipa_structs::VerifyingKey,
         FFTPlonk,
@@ -17,6 +15,8 @@ use crate::{
     proof_system::RecursiveOutput,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript},
 };
+use ark_std::{string::ToString, vec::Vec};
+use itertools::izip;
 use jf_relation::{errors::CircuitError, gadgets::ecc::Point, Circuit, PlonkCircuit, Variable};
 
 use super::Kzg;
@@ -121,21 +121,22 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
 /// This function takes in two [`RecursiveOutput`]s and verifies their transcripts and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn calculate_recursion_scalars(
-    outputs: &[RecursiveOutput<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>],
-    old_accs: &[AtomicInstance<Kzg>],
+    scalar_vars: &[ProofEvalsVarNative; 2],
+    base_vars: &[ProofVarNative<BnConfig>; 2],
     vk: &VerifyingKey<Kzg>,
+    old_accs: &[AtomicInstance<Kzg>; 4],
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
-    if outputs.is_empty() {
-        return Err(CircuitError::ParameterError(
-            "No outputs provided".to_string(),
-        ));
-    }
     // First prepare the pcs_infos for each proof
-    let pcs_infos = outputs
+    let pcs_infos = scalar_vars
         .iter()
-        .map(|output| partial_verify_fft_plonk::<false>(output, vk, circuit))
-        .collect::<Result<Vec<_>, _>>()?;
+        .zip(base_vars.iter())
+        .map(|(scalar_var, base_var)| {
+            partial_verify_fft_plonk::<false>(scalar_var, base_var, vk, circuit)
+        })
+        .collect::<Result<Vec<PCSInfoCircuit>, CircuitError>>()?
+        .try_into()
+        .map_err(|_| CircuitError::ParameterError("pcs_infos must have length 4".to_string()))?;
 
     // Now we transform the 'old_accs' into the relevant circuit variables
     let acc_vars: Vec<(_, _, _, _)> = old_accs
@@ -179,7 +180,7 @@ pub fn calculate_recursion_scalars(
         circuit,
     )?;
 
-    let mut challenge_powers = (0..outputs.len() + old_accs.len() - 1)
+    let mut challenge_powers = (0..5)
         .scan(circuit.one(), |state, _| {
             if let Ok(challenge_power) = circuit.mul(*state, batching_challenge) {
                 *state = challenge_power;
@@ -214,21 +215,17 @@ pub fn calculate_recursion_scalars(
 /// This function takes in two [`RecursiveOutput`]s and verifies their transcripts and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in suc a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn calculate_recursion_scalars_base(
-    outputs: &[RecursiveOutput<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>],
-    old_accs: &[AtomicInstance<Kzg>],
-    vks: &[VerifyingKey<Kzg>],
+    scalar_vars: &[ProofEvalsVarNative; 2],
+    base_vars: &[ProofVarNative<BnConfig>; 2],
+    vk_vars: &[VerifyingKeyNativeScalarsVar; 2],
+    old_accs: &[AtomicInstance<Kzg>; 4],
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
-    if outputs.is_empty() {
-        return Err(CircuitError::ParameterError(
-            "No outputs provided".to_string(),
-        ));
-    }
     // First prepare the pcs_infos for each proof
-    let pcs_infos = outputs
-        .iter()
-        .zip(vks.iter())
-        .map(|(output, vk)| partial_verify_fft_plonk::<true>(output, vk, circuit))
+    let pcs_infos = izip!(scalar_vars, base_vars, vk_vars)
+        .map(|(scalar_var, base_var, vk_var)| {
+            partial_verify_fft_plonk::<true>(scalar_var, base_var, vk_var, circuit)
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     // Now we transform the 'old_accs' into the relevant circuit variables
@@ -273,7 +270,7 @@ pub fn calculate_recursion_scalars_base(
         circuit,
     )?;
 
-    let mut challenge_powers = (0..outputs.len() + old_accs.len() - 1)
+    let mut challenge_powers = (0..5)
         .scan(circuit.one(), |state, _| {
             if let Ok(challenge_power) = circuit.mul(*state, batching_challenge) {
                 *state = challenge_power;
@@ -405,6 +402,7 @@ mod tests {
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
     use ark_std::Zero;
     use jf_primitives::pcs::{
+        errors::PCSError,
         prelude::{UnivariateKzgPCS, UnivariateKzgProof},
         PolynomialCommitmentScheme,
     };
@@ -504,30 +502,74 @@ mod tests {
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let mut accs = Vec::new();
+            let accs: [AtomicInstance<Kzg>; 4] = (0..4)
+                .into_iter()
+                .map(|_| {
+                    let mut poly = DensePolynomial::<Fr254>::rand(srs_size, rng);
 
-            for _ in 0..4 {
-                let mut poly = DensePolynomial::<Fr254>::rand(srs_size, rng);
+                    poly[0] = Fr254::zero();
+                    let comm: Affine<BnConfig> = Kzg::commit(&pk.commit_key, &poly)?;
+                    let (proof, eval): (UnivariateKzgProof<Bn254>, Fr254) =
+                        Kzg::open(&pk.commit_key, &poly, &Fr254::zero())?;
+                    assert_eq!(eval, Fr254::zero());
+                    assert!(Kzg::verify(
+                        &vk.open_key,
+                        &comm,
+                        &Fr254::zero(),
+                        &Fr254::zero(),
+                        &proof
+                    )?);
 
-                poly[0] = Fr254::zero();
-                let comm: Affine<BnConfig> = Kzg::commit(&pk.commit_key, &poly)?;
-                let (proof, eval): (UnivariateKzgProof<Bn254>, Fr254) =
-                    Kzg::open(&pk.commit_key, &poly, &Fr254::zero())?;
-                assert_eq!(eval, Fr254::zero());
-                assert!(Kzg::verify(
-                    &vk.open_key,
-                    &comm,
-                    &Fr254::zero(),
-                    &Fr254::zero(),
-                    &proof
-                )?);
-
-                accs.push(AtomicInstance::new(comm, eval, Fr254::zero(), proof));
-            }
+                    Ok(AtomicInstance::new(comm, eval, Fr254::zero(), proof))
+                })
+                .collect::<Result<Vec<AtomicInstance<Kzg>>, PCSError>>()?
+                .try_into()
+                .map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
-            let recursion_scalars =
-                calculate_recursion_scalars(&outputs, &accs, &vk, &mut verifier_circuit)?;
+
+            // Create variables from the proofs
+            let output_var_pairs = outputs
+                .iter()
+                .map(|output| {
+                    let proof_evals = ProofEvalsVarNative::from_struct(&mut verifier_circuit, &output.proof.poly_evals)?;
+                    let proof = ProofVarNative::from_struct(&mut verifier_circuit, &output.proof)?;
+                    Ok((proof_evals, proof))
+                })
+                .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
+            let output_scalar_vars: [ProofEvalsVarNative; 2] = output_var_pairs
+                .clone()
+                .into_iter()
+                .map(|(output_scalar_var, _)| output_scalar_var)
+                .collect::<Vec<ProofEvalsVarNative>>()
+                .try_into()
+                .map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })?;
+            let output_base_vars: [ProofVarNative<BnConfig>; 2] = output_var_pairs
+                .into_iter()
+                .map(|(_, output_base_var)| output_base_var)
+                .collect::<Vec<ProofVarNative<BnConfig>>>()
+                .try_into()
+                .map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Could not convert to fixed length array".to_string(),
+                    )
+                })?;
+
+            let recursion_scalars = calculate_recursion_scalars(
+                &output_scalar_vars,
+                &output_base_vars,
+                &vk,
+                &accs,
+                &mut verifier_circuit,
+            )?;
             let (instance_scalars, proof_scalars) =
                 recursion_scalars.split_at(recursion_scalars.len() - 6);
 
