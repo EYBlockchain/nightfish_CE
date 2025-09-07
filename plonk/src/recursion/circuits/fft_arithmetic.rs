@@ -7,7 +7,8 @@ use crate::{
         accumulation::accumulation_structs::AtomicInstance,
         circuit::plonk_partial_verifier::{
             compute_scalars_for_native_field, ChallengesVar, PlookupEvalsVarNative,
-            ProofEvalsVarNative, ProofVarNative, VerifyingKeyNativeScalarsVar,
+            ProofEvalsVarNative, ProofScalarsVarNative, ProofVarNative,
+            VerifyingKeyNativeScalarsVar,
         },
         ipa_structs::VerifyingKey,
         FFTPlonk,
@@ -63,40 +64,70 @@ impl PCSInfoCircuit {
 }
 
 /// This function takes as input an FFT proof and verifies its transcript and produces the scalars that should be used to calculate its final commitment.
-pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
-    output: &RecursiveOutput<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>,
+pub fn partial_verify_fft_plonk(
+    scalar_var: &ProofScalarsVarNative,
+    base_vars: &ProofVarNative<BnConfig>,
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<PCSInfoCircuit, CircuitError> {
-    // First we convert the `output` into the relevant circuit variables.
-    let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
-
-    let proof_evals = ProofEvalsVarNative::from_struct(circuit, &output.proof.poly_evals)?;
-
-    let lookup_evals = if let Some(lookup_proof) = &output.proof.plookup_proof {
-        Some(PlookupEvalsVarNative::from_struct(
-            circuit,
-            &lookup_proof.poly_evals,
-        )?)
-    } else {
-        None
-    };
-    let pi_hash = circuit.create_variable(output.pi_hash)?;
+    let ProofScalarsVarNative{
+        evals: proof_evals,
+        lookup_evals,
+        pi_hash
+     } = scalar_var;
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
 
-    let vk_id = if let Some(id) = vk.id {
-        Some(circuit.create_variable(Fr254::from(id as u8))?)
-    } else {
-        None
-    };
+    // Generate the challenges
+    // As this is the non-base version, the verification key is fixed and we do not pass in the vk_id to be added to the transcript.
+    let challenges = ChallengesVar::compute_challenges::<Kzg, _, _, _>(
+        circuit,
+        None,
+        &pi_hash,
+        &base_vars,
+        &mut transcript,
+    )?;
+
+    // Output the scalars
+    let vk_k =
+        vk.k.iter()
+            .map(|k| circuit.create_variable(*k))
+            .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let scalars = compute_scalars_for_native_field::<Fr254, IS_BASE>(
+        circuit,
+        pi_hash,
+        &challenges,
+        &proof_evals,
+        lookup_evals,
+        &vk_k,
+        vk.domain_size,
+    )?;
+
+    Ok(PCSInfoCircuit::new(scalars, transcript, challenges.u))
+}
+
+/// This function takes as input an FFT proof and verifies its transcript and produces the scalars that should be used to calculate its final commitment.
+/// This version is used within the base_bn254_circuit. Since verification keys come from the client proofs, they are inputted as variables. 
+pub fn partial_verify_fft_plonk_base(
+    scalar_var: &ProofScalarsVarNative,
+    base_vars: &ProofVarNative<BnConfig>,
+    vk_var: &VerifyingKeyNativeScalarsVar,
+    circuit: &mut PlonkCircuit<Fr254>,
+) -> Result<PCSInfoCircuit, CircuitError> {
+    let ProofScalarsVarNative{
+        evals: proof_evals,
+        lookup_evals,
+        pi_hash
+     } = scalar_var;
+
+    let mut transcript = RescueTranscriptVar::new_transcript(circuit);
 
     // Generate the challenges
     let challenges = ChallengesVar::compute_challenges::<Kzg, _, _, _>(
         circuit,
-        vk_id,
-        &pi_hash,
-        &proof,
+        Some(vk_var.id),
+        pi_hash,
+        base_vars,
         &mut transcript,
     )?;
 
@@ -121,7 +152,7 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
 /// This function takes in two [`RecursiveOutput`]s and verifies their transcripts and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn calculate_recursion_scalars(
-    scalar_vars: &[ProofEvalsVarNative; 2],
+    scalar_vars: &[ProofScalarsVarNative; 2],
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk: &VerifyingKey<Kzg>,
     old_accs: &[AtomicInstance<Kzg>; 4],
@@ -132,7 +163,7 @@ pub fn calculate_recursion_scalars(
         .iter()
         .zip(base_vars.iter())
         .map(|(scalar_var, base_var)| {
-            partial_verify_fft_plonk::<false>(scalar_var, base_var, vk, circuit)
+            partial_verify_fft_plonk(scalar_var, base_var, vk, circuit)
         })
         .collect::<Result<Vec<PCSInfoCircuit>, CircuitError>>()?
         .try_into()
@@ -215,7 +246,7 @@ pub fn calculate_recursion_scalars(
 /// This function takes in two [`RecursiveOutput`]s and verifies their transcripts and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in suc a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn calculate_recursion_scalars_base(
-    scalar_vars: &[ProofEvalsVarNative; 2],
+    scalar_vars: &[ProofScalarsVarNative; 2],
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk_vars: &[VerifyingKeyNativeScalarsVar; 2],
     old_accs: &[AtomicInstance<Kzg>; 4],
@@ -224,7 +255,7 @@ pub fn calculate_recursion_scalars_base(
     // First prepare the pcs_infos for each proof
     let pcs_infos = izip!(scalar_vars, base_vars, vk_vars)
         .map(|(scalar_var, base_var, vk_var)| {
-            partial_verify_fft_plonk::<true>(scalar_var, base_var, vk_var, circuit)
+            partial_verify_fft_plonk_base(scalar_var, base_var, vk_var, circuit)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -536,16 +567,16 @@ mod tests {
             let output_var_pairs = outputs
                 .iter()
                 .map(|output| {
-                    let proof_evals = ProofEvalsVarNative::from_struct(&mut verifier_circuit, &output.proof.poly_evals)?;
+                    let proof_evals = ProofScalarsVarNative::from_struct(&output, &mut verifier_circuit)?;
                     let proof = ProofVarNative::from_struct(&mut verifier_circuit, &output.proof)?;
                     Ok((proof_evals, proof))
                 })
-                .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
-            let output_scalar_vars: [ProofEvalsVarNative; 2] = output_var_pairs
+                .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
+            let output_scalar_vars: [ProofScalarsVarNative; 2] = output_var_pairs
                 .clone()
                 .into_iter()
                 .map(|(output_scalar_var, _)| output_scalar_var)
-                .collect::<Vec<ProofEvalsVarNative>>()
+                .collect::<Vec<ProofScalarsVarNative>>()
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
