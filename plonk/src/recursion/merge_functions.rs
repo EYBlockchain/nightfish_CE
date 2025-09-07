@@ -1124,7 +1124,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .iter()
         .map(|output| {
             let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
-            let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
+            let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
             Ok((proof_evals, proof))
         })
         .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
@@ -1560,7 +1560,7 @@ pub fn decider_circuit(
         .iter()
         .map(|output| {
             let proof_evals = ProofScalarsVarNative::from_struct(&output, circuit)?;
-            let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
+            let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
             Ok((proof_evals, proof))
         })
         .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
