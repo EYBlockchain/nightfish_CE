@@ -1168,14 +1168,54 @@ mod tests {
         KEY_STORE.get_or_init(|| RwLock::new(HashMap::<String, Key>::new()))
     }
 
+    pub fn host_sha_hash(field_pi: Vec<u8>, proof: &RecursiveProof) -> Fr254 {
+        use sha2::Sha256;
+        let be32 = |f: &Fr254| {
+            let mut v = f.into_bigint().to_bytes_be();
+            let mut o = [0u8; 32];
+            o[32 - v.len()..].copy_from_slice(&v);
+            o
+        };
+        let limbs = |q: Fq254| -> [Fr254; 2] {
+            jf_utils::bytes_to_field_elements::<_, Fr254>(q.into_bigint().to_bytes_le())[1..]
+                .try_into()
+                .unwrap()
+        };
+        let mut acc_elems = Vec::new();
+        acc_elems.extend(
+            proof
+                .accumulators
+                .iter()
+                .flat_map(|a| {
+                    [
+                        a.comm.x,
+                        a.comm.y,
+                        a.opening_proof.proof.x,
+                        a.opening_proof.proof.y,
+                    ]
+                })
+                .flat_map(|c| {
+                    let [l, h] = limbs(c);
+                    be32(&l).into_iter().chain(be32(&h).into_iter())
+                }),
+        );
+        let mut hasher = Sha256::new();
+        hasher.update([field_pi, acc_elems].concat());
+        let buf = hasher.finalize();
+
+        let d : num_bigint::BigUint = num_bigint::BigUint::from_bytes_be(&buf) >> 4;
+
+        Fr254::from_be_bytes_mod_order(&(d).to_bytes_be())
+    }
+
     /// This function is used so that we can work with one hash list.
     fn get_hash_list() -> &'static RwLock<Vec<Fr254>> {
         static HASH_LIST: OnceLock<RwLock<Vec<Fr254>>> = OnceLock::new();
         HASH_LIST.get_or_init(|| RwLock::new(Vec::new()))
     }
     #[test]
-   // #[ignore = "Only run this test on powerful machines"]
-   // #[allow(clippy::type_complexity)]
+    // #[ignore = "Only run this test on powerful machines"]
+    // #[allow(clippy::type_complexity)]
     fn test_preprocess_and_prove() -> Result<(), PlonkError> {
         let now = ark_std::time::Instant::now();
         struct TestProver;
@@ -1466,11 +1506,11 @@ mod tests {
             .collect::<Vec<u8>>();
 
         let mut hasher = Keccak256::new();
-        hasher.update([field_pi, acc_elems].concat());
+        hasher.update([field_pi.clone(), acc_elems].concat());
         let buf = hasher.finalize();
 
         // Generate challenge from state bytes using little-endian order
-        let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
+        let pi_hash = host_sha_hash(field_pi, &proof); //Fr254::from_be_bytes_mod_order(&buf);
 
         assert!(PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
             &TestProver::get_decider_pk().vk,
