@@ -4,6 +4,7 @@
 // You should have received a copy of the MIT License
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
+use ark_bn254::Fr as Fr254;
 use ark_ec::{pairing::Pairing, short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 
@@ -36,6 +37,7 @@ use crate::{
         },
     },
     proof_system::structs::{PlookupEvaluations, ProofEvaluations},
+    recursion::merge_functions::Bn254Output,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, CircuitTranscriptVisitor},
 };
 
@@ -693,6 +695,49 @@ impl ProofEvalsVarNative {
         let perm_next_eval = circuit.create_variable(evals.perm_next_eval)?;
 
         Ok(Self::new(wires_evals, wire_sigma_evals, perm_next_eval))
+    }
+}
+
+/// Represent variables for a struct that stores the scalars in a
+/// Plonk proof.
+#[derive(Debug, Clone)]
+pub struct ProofScalarsVarNative {
+    pub(crate) evals: ProofEvalsVarNative,
+    pub(crate) lookup_evals: Option<PlookupEvalsVarNative>,
+    pub(crate) pi_hash: Variable,
+}
+
+impl ProofScalarsVarNative {
+    /// Create a new instance of [`ProofScalarVarNative`].
+    pub fn new(
+        evals: ProofEvalsVarNative,
+        lookup_evals: Option<PlookupEvalsVarNative>,
+        pi_hash: Variable,
+    ) -> Self {
+        Self {
+            evals,
+            lookup_evals,
+            pi_hash,
+        }
+    }
+
+    /// Create a new [`ProofScalarVarNative`] variable from a reference to a [`ProofEvaluations`] and a pi_hash.
+    pub fn from_struct(
+        bn254_output: &Bn254Output,
+        circuit: &mut PlonkCircuit<Fr254>,
+    ) -> Result<Self, CircuitError> {
+        let evals = ProofEvalsVarNative::from_struct(circuit, &bn254_output.proof.poly_evals)?;
+        let lookup_evals = if let Some(plookup_proof) = &bn254_output.proof.plookup_proof {
+            Some(PlookupEvalsVarNative::from_struct(
+                circuit,
+                &plookup_proof.poly_evals,
+            )?)
+        } else {
+            None
+        };
+        let pi_hash = circuit.create_variable(bn254_output.pi_hash)?;
+
+        Ok(Self::new(evals, lookup_evals, pi_hash))
     }
 }
 

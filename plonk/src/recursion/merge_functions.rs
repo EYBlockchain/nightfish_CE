@@ -25,7 +25,7 @@ use crate::{
         circuit::{
             plonk_partial_verifier::{
                 Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar,
-                ProofEvalsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyNativeScalarsVar,
+                ProofScalarsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyNativeScalarsVar,
                 VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
@@ -1124,16 +1124,17 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .bn254_outputs
         .iter()
         .map(|output| {
-            let proof_evals = ProofEvalsVarNative::from_struct(circuit, &output.proof.poly_evals)?;
+            let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
             let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
             Ok((proof_evals, proof))
         })
-        .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
-    let output_scalar_vars: [ProofEvalsVarNative; 4] = output_var_pairs
+        .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
+        )?;
+    let output_scalar_vars: [ProofScalarsVarNative; 4] = output_var_pairs
         .clone()
         .into_iter()
         .map(|(output_scalar_var, _)| output_scalar_var)
-        .collect::<Vec<ProofEvalsVarNative>>()
+        .collect::<Vec<ProofScalarsVarNative>>()
         .try_into()
         .map_err(|_| {
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
@@ -1560,16 +1561,17 @@ pub fn decider_circuit(
         .bn254_outputs
         .iter()
         .map(|output| {
-            let proof_evals = ProofEvalsVarNative::from_struct(circuit, &output.proof.poly_evals)?;
+            let proof_evals = ProofScalarsVarNative::from_struct(&output, circuit)?;
             let proof = ProofVarNative::from_struct(circuit, &output.proof)?;
             Ok((proof_evals, proof))
         })
-        .collect::<Result<Vec<(ProofEvalsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
-    let output_scalar_vars: [ProofEvalsVarNative; 4] = output_var_pairs
+        .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
+        )?;
+    let output_scalar_vars: [ProofScalarsVarNative; 4] = output_var_pairs
         .clone()
         .into_iter()
         .map(|(output_scalar_var, _)| output_scalar_var)
-        .collect::<Vec<ProofEvalsVarNative>>()
+        .collect::<Vec<ProofScalarsVarNative>>()
         .try_into()
         .map_err(|_| {
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
