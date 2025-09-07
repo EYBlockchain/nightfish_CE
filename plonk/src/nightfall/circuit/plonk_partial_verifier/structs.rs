@@ -542,8 +542,8 @@ where
 
     /// Creates a new [`ProofVarNative`] variable from a reference to a [`PCSProof`].
     pub fn from_struct<E, F>(
-        circuit: &mut PlonkCircuit<F>,
         proof: &PCSProof<UnivariateKzgPCS<E>>,
+        circuit: &mut PlonkCircuit<F>,
     ) -> Result<Self, CircuitError>
     where
         E: Pairing<G1Affine = Affine<P>, BaseField = P::BaseField, ScalarField = F>,
