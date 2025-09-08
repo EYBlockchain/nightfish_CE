@@ -13,7 +13,7 @@ use crate::{
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
-use ark_poly::univariate::DensePolynomial;
+use ark_poly::{univariate::DensePolynomial, EvaluationDomain, Radix2EvaluationDomain};
 use ark_std::{marker::PhantomData, string::ToString, vec, vec::Vec};
 use itertools::izip;
 use jf_primitives::{
@@ -717,9 +717,19 @@ impl VerifyingKeyScalarsAndBasesVar<Kzg> {
 }
 
 #[derive(Default)]
-pub(crate) struct VerifyingKeyNativeScalarsVar {
+/// Stores the domain size and generator variables for a Plonk circuit.
+pub(crate) struct DomainVar {
     /// The size of the evaluation domain. Should be a power of two.
     pub(crate) domain_size: Variable,
+    /// The generator of the evaluation domain.
+    pub(crate) gen: Variable,
+}
+
+#[derive(Default)]
+/// A struct used to represent the native field scalars in a verifying key.
+pub(crate) struct VerifyingKeyNativeScalarsVar {
+    /// The size of the evaluation domain. Should be a power of two.
+    pub(crate) domain: DomainVar,
     /// The constants K0, ..., K_num_wire_types that ensure wire subsets are
     /// disjoint.
     pub(crate) k: Vec<Variable>,
@@ -748,7 +758,12 @@ impl VerifyingKeyNativeScalarsVar {
             ));
         }?;
 
+        let domain = Radix2EvaluationDomain::<F>::new(verify_key.domain_size()).ok_or(
+            CircuitError::ParameterError("Could not create vk domain".to_string()),
+        )?;
         let domain_size_var = circuit.create_variable(F::from(verify_key.domain_size() as u64))?;
+        let gen = domain.group_gen;
+        let gen_var = circuit.create_variable(gen)?;
 
         let k_var = verify_key
             .k()
@@ -757,7 +772,10 @@ impl VerifyingKeyNativeScalarsVar {
             .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
         Ok(Self {
-            domain_size: domain_size_var,
+            domain: DomainVar {
+                domain_size: domain_size_var,
+                gen: gen_var,
+            },
             k: k_var,
             id: id_var,
         })
@@ -804,11 +822,28 @@ impl VerifyingKeyNativeScalarsVar {
             Fr254::from(client_ids[1] as u8),
         )?;
 
+        let vk_gens = vks
+            .iter()
+            .map(|vk| {
+                let domain = Radix2EvaluationDomain::<Fr254>::new(vk.domain_size()).ok_or(
+                    CircuitError::ParameterError("Could not create vk domain".to_string()),
+                )?;
+                Ok(domain.group_gen)
+            })
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+
         circuit.const_conditional_select_gate(
             cond_sel_bool,
-            self.domain_size,
+            self.domain.domain_size,
             Fr254::from(vks[0].domain_size() as u64),
             Fr254::from(vks[1].domain_size() as u64),
+        )?;
+
+        circuit.const_conditional_select_gate(
+            cond_sel_bool,
+            self.domain.gen,
+            vk_gens[0],
+            vk_gens[1],
         )?;
 
         if self.k.len() != vks[0].k().len() || self.k.len() != vks[1].k().len() {
