@@ -64,7 +64,7 @@ impl PCSInfoCircuit {
 }
 
 /// This function takes as input an FFT proof and verifies its transcript and produces the scalars that should be used to calculate its final commitment.
-pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
+pub fn partial_verify_fft_plonk(
     output: &RecursiveOutput<Kzg, FFTPlonk<Kzg>, RescueTranscript<Fr254>>,
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
@@ -95,7 +95,7 @@ pub fn partial_verify_fft_plonk<const IS_BASE: bool>(
         vk.k.iter()
             .map(|k| circuit.create_variable(*k))
             .collect::<Result<Vec<Variable>, CircuitError>>()?;
-    let scalars = compute_scalars_for_native_field::<Fr254, IS_BASE>(
+    let scalars = compute_scalars_for_native_field(
         circuit,
         pi_hash,
         &challenges,
@@ -124,7 +124,7 @@ pub fn calculate_recursion_scalars(
     // First prepare the pcs_infos for each proof
     let pcs_infos = outputs
         .iter()
-        .map(|output| partial_verify_fft_plonk::<false>(output, vk, circuit))
+        .map(|output| partial_verify_fft_plonk(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Now we transform the 'old_accs' into the relevant circuit variables
@@ -218,7 +218,7 @@ pub fn calculate_recursion_scalars_base(
     let pcs_infos = outputs
         .iter()
         .zip(vks.iter())
-        .map(|(output, vk)| partial_verify_fft_plonk::<true>(output, vk, circuit))
+        .map(|(output, vk)| partial_verify_fft_plonk(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
     // Now we transform the 'old_accs' into the relevant circuit variables
@@ -416,8 +416,7 @@ mod tests {
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
-            let pcs_info_circuit =
-                partial_verify_fft_plonk::<false>(&output, &vk, &mut verifier_circuit)?;
+            let pcs_info_circuit = partial_verify_fft_plonk(&output, &vk, &mut verifier_circuit)?;
 
             let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
 
