@@ -129,8 +129,7 @@ pub fn partial_verify_fft_plonk_base(
         &challenges,
         &proof_evals,
         lookup_evals,
-        &vk_var.k,
-        &vk_var.domain_size,
+        vk_var,
     )?;
 
     Ok(PCSInfoCircuit::new(scalars, transcript, challenges.u))

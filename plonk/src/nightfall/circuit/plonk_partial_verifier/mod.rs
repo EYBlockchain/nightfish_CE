@@ -871,7 +871,7 @@ mod test {
     };
     use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254, Fr as Fr254};
     use ark_ec::{short_weierstrass::Projective, CurveGroup, VariableBaseMSM};
-    use ark_std::UniformRand;
+    use ark_std::{UniformRand, Zero};
     use jf_primitives::{
         pcs::{prelude::*, Accumulation},
         rescue::{sponge::RescueCRHF, RescueParameter},
@@ -1015,21 +1015,16 @@ mod test {
                 &mut circuit,
                 &proof.proof.plookup_proof.as_ref().unwrap().poly_evals,
             )?;
-            let vk_k = vk
-                .k()
-                .iter()
-                .map(|k| circuit.create_variable(*k))
-                .collect::<Result<Vec<_>, CircuitError>>()?;
 
             let pi_var = circuit.create_variable(pi)?;
 
             let scalars = compute_scalars_for_native_field::<P::ScalarField>(
                 &mut circuit,
-                pi_var,
+                &pi_var,
                 &challenges_var,
                 &proof_evals,
-                Some(lookup_evals),
-                &vk_k,
+                &Some(lookup_evals),
+                &vk.k,
                 verifier.domain.size as usize,
             )?;
 
@@ -1096,13 +1091,13 @@ mod test {
             table_dom_sep_next_eval: circuit.zero(),
         };
 
-        let vk_k = vec![circuit.zero(); 6];
+        let vk_k = vec![Fr254::zero(); 6];
         let scalars = compute_scalars_for_native_field::<Fr254>(
             &mut circuit,
-            0,
+            &0,
             &challenges_var,
             &proof_evals,
-            Some(lookup_evals),
+            &Some(lookup_evals),
             &vk_k,
             TRANSFER_DOMAIN_SIZE,
         )
