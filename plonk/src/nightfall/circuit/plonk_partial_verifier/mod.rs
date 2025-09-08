@@ -988,7 +988,7 @@ mod test {
 
             let pi_var = circuit.create_variable(pi)?;
 
-            let scalars = compute_scalars_for_native_field::<P::ScalarField, false>(
+            let scalars = compute_scalars_for_native_field::<P::ScalarField>(
                 &mut circuit,
                 pi_var,
                 &challenges_var,
@@ -1062,7 +1062,7 @@ mod test {
         };
 
         let vk_k = vec![circuit.zero(); 6];
-        let scalars = compute_scalars_for_native_field::<Fr254, true>(
+        let scalars = compute_scalars_for_native_field::<Fr254>(
             &mut circuit,
             0,
             &challenges_var,

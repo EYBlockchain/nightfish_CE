@@ -89,18 +89,13 @@ pub fn partial_verify_fft_plonk(
         &mut transcript,
     )?;
 
-    // Output the scalars
-    let vk_k =
-        vk.k.iter()
-            .map(|k| circuit.create_variable(*k))
-            .collect::<Result<Vec<Variable>, CircuitError>>()?;
-    let scalars = compute_scalars_for_native_field::<Fr254, IS_BASE>(
+    let scalars = compute_scalars_for_native_field::<Fr254>(
         circuit,
         pi_hash,
         &challenges,
         &proof_evals,
         lookup_evals,
-        &vk_k,
+        &vk.k,
         vk.domain_size,
     )?;
 
@@ -132,19 +127,14 @@ pub fn partial_verify_fft_plonk_base(
         &mut transcript,
     )?;
 
-    // Output the scalars
-    let vk_k =
-        vk.k.iter()
-            .map(|k| circuit.create_variable(*k))
-            .collect::<Result<Vec<Variable>, CircuitError>>()?;
-    let scalars = compute_scalars_for_native_field::<Fr254, IS_BASE>(
+    let scalars = compute_scalars_for_native_field_base::<Fr254>(
         circuit,
         pi_hash,
         &challenges,
         &proof_evals,
         lookup_evals,
-        &vk_k,
-        vk.domain_size,
+        &vk_var.k,
+        &vk_var.domain_size,
     )?;
 
     Ok(PCSInfoCircuit::new(scalars, transcript, challenges.u))
