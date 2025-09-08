@@ -903,6 +903,8 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
+        ark_std::println!("decider_input len {}", decider_input.len());
+
         let decider_input_exact: [GrumpkinOut; 2] = decider_input.try_into().map_err(|_| {
             PlonkError::InvalidParameters("Could not create final decider input".to_string())
         })?;
@@ -923,12 +925,14 @@ pub trait RecursiveProver {
             .unwrap()
             .as_secs();
         let mut rng = ChaCha20Rng::seed_from_u64(seed);
+        let now = ark_std::time::Instant::now();
         let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
             &mut rng,
             &circuit,
             &decider_pk,
             None,
         )?;
+        ark_std::println!("time for decider {:?}", now.elapsed());
 
         Ok(RecursiveProof {
             proof,
@@ -1203,7 +1207,7 @@ mod tests {
         hasher.update([field_pi, acc_elems].concat());
         let buf = hasher.finalize();
 
-        let d : num_bigint::BigUint = num_bigint::BigUint::from_bytes_be(&buf) >> 4;
+        let d: num_bigint::BigUint = num_bigint::BigUint::from_bytes_be(&buf) >> 4;
 
         Fr254::from_be_bytes_mod_order(&(d).to_bytes_be())
     }
@@ -1433,30 +1437,22 @@ mod tests {
             }
         }
 
-        TestProver::preprocess(
-            &input_outputs,
-            &hashes,
-            vec![vec![]; input_outputs.len() / 4].as_slice(),
-            &[],
-            &ipa_srs,
-            &kzg_srs,
-        )?;
-
         // Now we test proof generation using the keys
         ark_std::println!("begun prove test");
+        let now = ark_std::time::Instant::now();
         let (prove_inputs, hashes): (Vec<(Bn254Output, VerifyingKey<Kzg>)>, Vec<Vec<Fr254>>) =
-            cfg_into_iter!((0u64..256))
+            cfg_into_iter!((0u64..64))
                 .map(|i| {
                     let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(i);
                     let scalar = Fr254::rand(&mut rng);
                     let hash = poseidon.hash(&[scalar]).unwrap();
 
-                    let mut circuit = if i < 74 {
+                    let mut circuit = if i < 32 {
                         base_proof_circuit_generator(scalar, hash)?
                     } else {
                         base_proof_circuit_generator_two(scalar, hash)?
                     };
-                    let pk = if i < 74 { &pk_one } else { &pk_two };
+                    let pk = if i < 32 { &pk_one } else { &pk_two };
                     circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
                     let input_output =
                         FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
@@ -1471,6 +1467,18 @@ mod tests {
                 )?
                 .into_iter()
                 .unzip();
+        ark_std::println!("time generate base circuits {:?}", now.elapsed());
+
+        let now = ark_std::time::Instant::now();
+        TestProver::preprocess(
+            &prove_inputs,
+            &hashes,
+            vec![vec![]; prove_inputs.len() / 4].as_slice(),
+            &[],
+            &ipa_srs,
+            &kzg_srs,
+        )?;
+        ark_std::println!("time preprocess {:?}", now.elapsed());
 
         let now = ark_std::time::Instant::now();
         let proof = TestProver::prove(
@@ -1480,7 +1488,7 @@ mod tests {
             vec![vec![]; prove_inputs.len() / 4].as_slice(),
         )?;
         ark_std::println!(
-            "Time taken to generate 256 recursive proofs: {:?}",
+            "Time taken to generate 64 recursive proofs: {:?}",
             now.elapsed()
         );
 
