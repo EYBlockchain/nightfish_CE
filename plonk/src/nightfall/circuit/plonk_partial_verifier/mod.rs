@@ -41,10 +41,6 @@ pub use proof_to_var::*;
 pub use scalars_and_bases::*;
 pub use structs::*;
 
-// We assume TRANSFER_DOMAIN_SIZE is always at most DEPOSIT_DOMAIN_SIZE.
-pub(crate) const TRANSFER_DOMAIN_SIZE: usize = 1 << 15;
-pub(crate) const DEPOSIT_DOMAIN_SIZE: usize = 1 << 18;
-
 /*/// A struct used to represent KZG verification parameters as variables.
 #[derive(Debug, Clone)]
 struct KzgVerificatinParamsVar {
@@ -1099,7 +1095,7 @@ mod test {
             &proof_evals,
             &Some(lookup_evals),
             &vk_k,
-            TRANSFER_DOMAIN_SIZE,
+            1 << 15,
         )
         .unwrap();
 
