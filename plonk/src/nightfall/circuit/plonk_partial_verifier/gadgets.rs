@@ -6,7 +6,9 @@
 
 //! Circuits for the building blocks in Plonk verifiers.
 
-use crate::nightfall::mle::mle_structs::GateInfo;
+use crate::nightfall::{
+    circuit::plonk_partial_verifier::VerifyingKeyNativeScalarsVar, mle::mle_structs::GateInfo,
+};
 
 use ark_ff::PrimeField;
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
@@ -24,7 +26,6 @@ use super::{
         linearization_scalars_circuit_native,
     },
     ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative,
-    {DEPOSIT_DOMAIN_SIZE, TRANSFER_DOMAIN_SIZE},
 };
 
 /// Function to compute the scalars used in partial verification over the native field
@@ -45,19 +46,19 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     // zeta: w[0], w[1], w[2], w[3], w[4], sigma[0], sigma[1], sigma[2], sigma[3],
     // zeta_omega: prod_perm_poly_next_eval,
 
-    // Because we are verifying a non-client proof (we're not in the base case) `k` and `domain_size`
+    // Because we are verifying a non-client proof (we're not in the base case) `k`, `domain_size` and `group_gen`
     // depend only on the layer of the recursion. We can, therefore, treat them as scalars.
 
     let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
 
-    let evals = poly::evaluate_poly_helper_native::<F>(
+    let evals = poly::evaluate_poly_helper_native(
         circuit,
         challenges.zeta,
         domain.group_gen_inv,
         domain_size,
     )?;
 
-    let lin_poly_const = compute_lin_poly_constant_term_circuit_native::<F>(
+    let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
         domain.group_gen_inv,
         challenges,
@@ -67,7 +68,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
         lookup_evals,
     )?;
 
-    let mut d_1_coeffs = linearization_scalars_circuit_native::<F>(
+    let mut d_1_coeffs = linearization_scalars_circuit_native(
         circuit,
         vk_k,
         challenges,
@@ -272,8 +273,7 @@ pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     lookup_evals: Option<PlookupEvalsVarNative>,
-    vk_k: &[Variable],
-    domain_size: Variable,
+    vk_var: &VerifyingKeyNativeScalarsVar,
 ) -> Result<Vec<Variable>, CircuitError> {
     // In lookup scalars are combined in the order
     // zeta: w[0], w[1], w[2], w[5], sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], q_dom_sep, pi_eval
@@ -283,59 +283,27 @@ pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     // zeta: w[0], w[1], w[2], w[3], w[4], sigma[0], sigma[1], sigma[2], sigma[3],
     // zeta_omega: prod_perm_poly_next_eval,
 
-    // If we are in the non-base case, `domain_size` depends only on the layer of the recursion.
-    // We can, therefore, treat `domain_size` and `domain.group_gen` as scalars.
-    // If we are in the base case, `domain_size` can be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE,
-    // depending on whether the corresponding client circuit is a transfer/withdraw or deposit.
+    // Because we are verifying a (variable) client proof (we're in the base case), `k`, `domain_size` and `group_gen`
+    // must be input as `Variable`s.
 
-    let (domain_size_var, gen_var, gen_inv_var) = if IS_BASE {
-        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        if domain_size != TRANSFER_DOMAIN_SIZE && domain_size != DEPOSIT_DOMAIN_SIZE {
-            return Err(CircuitError::ParameterError(
-                "Invalid domain size for base case".to_string(),
-            ));
-        }
-        let is_transfer_var =
-            circuit.create_boolean_variable(domain_size == TRANSFER_DOMAIN_SIZE)?;
-        let transfer_domain = Radix2EvaluationDomain::<F>::new(TRANSFER_DOMAIN_SIZE).unwrap();
-        let deposit_domain = Radix2EvaluationDomain::<F>::new(DEPOSIT_DOMAIN_SIZE).unwrap();
-        let domain_size_var = circuit.const_conditional_select(
-            is_transfer_var,
-            F::from(deposit_domain.size),
-            F::from(transfer_domain.size),
-        )?;
-        let gen_var = circuit.const_conditional_select(
-            is_transfer_var,
-            deposit_domain.group_gen,
-            transfer_domain.group_gen,
-        )?;
-        let gen_inv = circuit.witness(gen_var)?.inverse().unwrap_or(F::zero());
-        let gen_inv_var = circuit.create_variable(gen_inv)?;
-        circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
-        (domain_size_var, gen_var, gen_inv_var)
-    } else {
-        // In the non-base case, `domain_size` cannot be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        if domain_size == TRANSFER_DOMAIN_SIZE || domain_size == DEPOSIT_DOMAIN_SIZE {
-            return Err(CircuitError::ParameterError(
-                "Invalid domain size for non-base case".to_string(),
-            ));
-        }
-        // In the non-base case, we treat `domain_size` as fixed.
-        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-        let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
-        let gen_var = circuit.create_constant_variable(domain.group_gen)?;
-        let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
-        (domain_size_var, gen_var, gen_inv_var)
-    };
+    let gen_inv =
+        circuit
+            .witness(vk_var.domain.gen)?
+            .inverse()
+            .ok_or(CircuitError::ParameterError(
+                "Domain generator cannot be zero".to_string(),
+            ))?;
+    let gen_inv_var = circuit.create_variable(gen_inv)?;
+    circuit.mul_gate(gen_inv_var, vk_var.domain.gen, circuit.one())?;
 
-    let evals = poly::evaluate_poly_helper_native::<F, IS_BASE>(
+    let evals = poly::evaluate_poly_helper_native_base(
         circuit,
         challenges.zeta,
         gen_inv_var,
-        domain_size_var,
+        vk_var.domain.domain_size,
     )?;
 
-    let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
+    let lin_poly_const = compute_lin_poly_constant_term_circuit_native_base(
         circuit,
         gen_inv_var,
         challenges,
@@ -347,7 +315,7 @@ pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
 
     let mut d_1_coeffs = linearization_scalars_circuit_native(
         circuit,
-        vk_k,
+        &vk_var.k,
         challenges,
         challenges.zeta,
         &evals,
@@ -359,18 +327,15 @@ pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     if lookup_evals.is_none() {
         d_1_coeffs = d_1_coeffs[..24].to_vec();
     }
-    let zeta_omega_var = circuit.mul(challenges.zeta, gen_var)?;
+    let zeta_omega_var = circuit.mul(challenges.zeta, vk_var.domain.gen)?;
     let denom = circuit.sub(challenges.zeta, zeta_omega_var)?;
     let denom_val = circuit.witness(denom)?;
-    let inverse = denom_val.inverse().unwrap_or(F::one());
+    let inverse = denom_val.inverse().ok_or(CircuitError::ParameterError(
+        "zeta - zeta * omega cannot be zero".to_string(),
+    ))?;
     let inverse_var = circuit.create_variable(inverse)?;
-    let c = if denom_val == F::zero() {
-        circuit.zero()
-    } else {
-        circuit.one()
-    };
 
-    circuit.mul_gate(inverse_var, denom, c)?;
+    circuit.mul_gate(inverse_var, denom, circuit.one())?;
     let u_minus_zeta = circuit.sub(challenges.u, challenges.zeta)?;
     let u_minus_zeta_omega = circuit.sub(challenges.u, zeta_omega_var)?;
     let q_commitment_scalar = circuit.mul_add(
