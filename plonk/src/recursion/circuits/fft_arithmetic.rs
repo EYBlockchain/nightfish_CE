@@ -10,8 +10,8 @@ use crate::{
     nightfall::{
         accumulation::accumulation_structs::AtomicInstance,
         circuit::plonk_partial_verifier::{
-            compute_scalars_for_native_field, ChallengesVar, ProofScalarsVarNative, ProofVarNative,
-            VerifyingKeyNativeScalarsVar,
+            compute_scalars_for_native_field, compute_scalars_for_native_field_base, ChallengesVar,
+            ProofScalarsVarNative, ProofVarNative, VerifyingKeyNativeScalarsVar,
         },
         ipa_structs::VerifyingKey,
     },
@@ -108,6 +108,7 @@ pub fn partial_verify_fft_plonk_base(
     scalar_var: &ProofScalarsVarNative,
     base_vars: &ProofVarNative<BnConfig>,
     vk_var: &VerifyingKeyNativeScalarsVar,
+    max_domain_size: usize,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<PCSInfoCircuit, CircuitError> {
     let ProofScalarsVarNative {
@@ -134,6 +135,7 @@ pub fn partial_verify_fft_plonk_base(
         &proof_evals,
         lookup_evals,
         vk_var,
+        max_domain_size,
     )?;
 
     Ok(PCSInfoCircuit::new(scalars, transcript, challenges.u))
@@ -216,12 +218,13 @@ pub fn calculate_recursion_scalars_base(
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk_vars: &[VerifyingKeyNativeScalarsVar; 2],
     old_accs: &[AtomicInstance<Kzg>; 4],
+    max_domain_size: usize,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
     // First prepare the pcs_infos for each proof
     let pcs_infos = izip!(scalar_vars, base_vars, vk_vars)
         .map(|(scalar_var, base_var, vk_var)| {
-            partial_verify_fft_plonk_base(scalar_var, base_var, vk_var, circuit)
+            partial_verify_fft_plonk_base(scalar_var, base_var, vk_var, max_domain_size, circuit)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
