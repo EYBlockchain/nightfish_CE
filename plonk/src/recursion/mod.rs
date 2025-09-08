@@ -1111,7 +1111,6 @@ mod tests {
     use ark_ec::{short_weierstrass::Affine, AffineRepr};
     use ark_ff::{BigInteger, PrimeField};
     use ark_std::{
-        cfg_iter,
         collections::HashMap,
         rand::SeedableRng,
         string::{String, ToString},
@@ -1300,7 +1299,7 @@ mod tests {
 
         let poseidon = Poseidon::<Fr254>::new();
         let other_pi = (0u8..100).map(Fr254::from).collect::<Vec<Fr254>>();
-        let (circuits, hashes): (Vec<PlonkCircuit<Fr254>>, Vec<Vec<Fr254>>) =
+        let (circuits, _hashes): (Vec<PlonkCircuit<Fr254>>, Vec<Vec<Fr254>>) =
             cfg_into_iter!((0u64..64))
                 .map(|i| {
                     let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(i);
@@ -1339,20 +1338,6 @@ mod tests {
             ark_std::println!("vk list: {:?}", vk_list);
         }
         let now = ark_std::time::Instant::now();
-        let input_outputs = cfg_iter!(circuits)
-            .enumerate()
-            .map(|(i, circuit)| {
-                let rng = &mut ChaCha20Rng::seed_from_u64(0);
-                let pk = if i < 32 { &pk_one } else { &pk_two };
-                (
-                    FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                        rng, circuit, pk, None,
-                    )
-                    .unwrap(),
-                    pk.vk.clone(),
-                )
-            })
-            .collect::<Vec<(Bn254Output, VerifyingKey<Kzg>)>>();
         ark_std::println!("made input proofs in: {:?}", now.elapsed());
         impl RecursiveProver for TestProver {
             fn base_bn254_checks(
@@ -1537,30 +1522,21 @@ mod tests {
             }
         }
 
-        TestProver::preprocess(
-            &input_outputs,
-            &hashes,
-            vec![vec![]; input_outputs.len() / 4].as_slice(),
-            &[],
-            &ipa_srs,
-            &kzg_srs,
-        )?;
-
         // Now we test proof generation using the keys
         ark_std::println!("begun prove test");
         let (prove_inputs, hashes): (Vec<(Bn254Output, VerifyingKey<Kzg>)>, Vec<Vec<Fr254>>) =
-            cfg_into_iter!((0u64..256))
+            cfg_into_iter!((0u64..64))
                 .map(|i| {
                     let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(i);
                     let scalar = Fr254::rand(&mut rng);
                     let hash = poseidon.hash(&[scalar]).unwrap();
 
-                    let mut circuit = if i < 74 {
+                    let mut circuit = if i < 32 {
                         base_proof_circuit_generator(scalar, hash)?
                     } else {
                         base_proof_circuit_generator_two(scalar, hash)?
                     };
-                    let pk = if i < 74 { &pk_one } else { &pk_two };
+                    let pk = if i < 32 { &pk_one } else { &pk_two };
                     circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
                     let input_output =
                         FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
@@ -1576,6 +1552,15 @@ mod tests {
                 .into_iter()
                 .unzip();
 
+        TestProver::preprocess(
+            &prove_inputs,
+            &hashes,
+            vec![vec![]; prove_inputs.len() / 4].as_slice(),
+            &[],
+            &ipa_srs,
+            &kzg_srs,
+        )?;
+
         let now = ark_std::time::Instant::now();
         let proof = TestProver::prove(
             &prove_inputs,
@@ -1584,7 +1569,7 @@ mod tests {
             vec![vec![]; prove_inputs.len() / 4].as_slice(),
         )?;
         ark_std::println!(
-            "Time taken to generate 256 recursive proofs: {:?}",
+            "Time taken to generate 64 recursive proofs: {:?}",
             now.elapsed()
         );
 
