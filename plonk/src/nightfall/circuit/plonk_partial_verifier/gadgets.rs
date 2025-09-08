@@ -28,14 +28,252 @@ use super::{
 };
 
 /// Function to compute the scalars used in partial verification over the native field
-pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const IS_BASE: bool>(
+pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
+    circuit: &mut PlonkCircuit<F>,
+    pi: &Variable,
+    challenges: &ChallengesVar,
+    proof_evals: &ProofEvalsVarNative,
+    lookup_evals: &Option<PlookupEvalsVarNative>,
+    vk_k: &[F],
+    domain_size: usize,
+) -> Result<Vec<Variable>, CircuitError> {
+    // In lookup scalars are combined in the order
+    // zeta: w[0], w[1], w[2], w[5], sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], q_dom_sep, pi_eval
+    // zeta_omega: prod_perm_poly_next_eval, h_2_next_eval, lookup_prod_next_eval
+    // zeta and zeta_omega: range_table, key_table, h_1, q_lookup, w[3], w[4], table_dom_sep
+    // If normal turboplonk then the order is
+    // zeta: w[0], w[1], w[2], w[3], w[4], sigma[0], sigma[1], sigma[2], sigma[3],
+    // zeta_omega: prod_perm_poly_next_eval,
+
+    // Because we are verifying a non-client proof (we're not in the base case) `k` and `domain_size`
+    // depend only on the layer of the recursion. We can, therefore, treat them as scalars.
+
+    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+
+    let evals = poly::evaluate_poly_helper_native::<F>(
+        circuit,
+        challenges.zeta,
+        domain.group_gen_inv,
+        domain_size,
+    )?;
+
+    let lin_poly_const = compute_lin_poly_constant_term_circuit_native::<F>(
+        circuit,
+        domain.group_gen_inv,
+        challenges,
+        proof_evals,
+        pi,
+        &evals,
+        lookup_evals,
+    )?;
+
+    let mut d_1_coeffs = linearization_scalars_circuit_native::<F>(
+        circuit,
+        vk_k,
+        challenges,
+        challenges.zeta,
+        &evals,
+        proof_evals,
+        lookup_evals,
+        domain.group_gen_inv,
+    )?;
+
+    if lookup_evals.is_none() {
+        d_1_coeffs = d_1_coeffs[..24].to_vec();
+    }
+    let zeta_omega_var = circuit.mul_constant(challenges.zeta, &domain.group_gen)?;
+    let denom = circuit.sub(challenges.zeta, zeta_omega_var)?;
+    let denom_val = circuit.witness(denom)?;
+    let inverse = denom_val.inverse().ok_or(CircuitError::ParameterError(
+        "zeta - zeta * omega cannot be zero".to_string(),
+    ))?;
+    let inverse_var = circuit.create_variable(inverse)?;
+
+    circuit.mul_gate(inverse_var, denom, circuit.one())?;
+    let u_minus_zeta = circuit.sub(challenges.u, challenges.zeta)?;
+    let u_minus_zeta_omega = circuit.sub(challenges.u, zeta_omega_var)?;
+    let q_commitment_scalar = circuit.mul_add(
+        &[
+            u_minus_zeta_omega,
+            u_minus_zeta,
+            circuit.zero(),
+            circuit.zero(),
+        ],
+        &[-F::one(), F::zero()],
+    )?;
+    let mut evals_list = vec![];
+    let mut coeffs_list = vec![];
+    let num_wire_types = proof_evals.wires_evals.len();
+    if let Some(lookup_evals) = lookup_evals.as_ref() {
+        evals_list.push(circuit.mul(u_minus_zeta_omega, proof_evals.wires_evals[0])?);
+        evals_list.push(circuit.mul(u_minus_zeta_omega, proof_evals.wires_evals[1])?);
+        evals_list.push(circuit.mul(u_minus_zeta_omega, proof_evals.wires_evals[2])?);
+        evals_list.push(circuit.mul(u_minus_zeta_omega, proof_evals.wires_evals[5])?);
+        for sigma_eval in proof_evals.wire_sigma_evals.iter().take(num_wire_types - 1) {
+            evals_list.push(circuit.mul(u_minus_zeta_omega, *sigma_eval)?);
+        }
+        evals_list.push(circuit.mul(u_minus_zeta_omega, lookup_evals.q_dom_sep_eval)?);
+
+        evals_list.push(circuit.mul(u_minus_zeta, proof_evals.perm_next_eval)?);
+        evals_list.push(circuit.mul(u_minus_zeta, lookup_evals.h_2_next_eval)?);
+        evals_list.push(circuit.mul(u_minus_zeta, lookup_evals.prod_next_eval)?);
+
+        let range_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[
+                lookup_evals.range_table_eval,
+                lookup_evals.range_table_next_eval,
+            ],
+            challenges.u,
+        )?;
+
+        let key_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[
+                lookup_evals.key_table_eval,
+                lookup_evals.key_table_next_eval,
+            ],
+            challenges.u,
+        )?;
+
+        let h_1_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[lookup_evals.h_1_eval, lookup_evals.h_1_next_eval],
+            challenges.u,
+        )?;
+
+        let q_lookup_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[lookup_evals.q_lookup_eval, lookup_evals.q_lookup_next_eval],
+            challenges.u,
+        )?;
+
+        let w_3_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[proof_evals.wires_evals[3], lookup_evals.w_3_next_eval],
+            challenges.u,
+        )?;
+
+        let w_4_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[proof_evals.wires_evals[4], lookup_evals.w_4_next_eval],
+            challenges.u,
+        )?;
+
+        let table_dom_sep_eval = evaluate_lagrange_poly_helper_native(
+            circuit,
+            challenges.zeta,
+            zeta_omega_var,
+            inverse_var,
+            &[
+                lookup_evals.table_dom_sep_eval,
+                lookup_evals.table_dom_sep_next_eval,
+            ],
+            challenges.u,
+        )?;
+
+        evals_list.push(range_eval);
+        evals_list.push(key_eval);
+        evals_list.push(h_1_eval);
+        evals_list.push(q_lookup_eval);
+        evals_list.push(w_3_eval);
+        evals_list.push(w_4_eval);
+        evals_list.push(table_dom_sep_eval);
+
+        for _ in 0..10 {
+            coeffs_list.push(u_minus_zeta_omega);
+        }
+
+        for _ in 0..3 {
+            coeffs_list.push(u_minus_zeta);
+        }
+
+        for _ in 0..7 {
+            coeffs_list.push(circuit.one());
+        }
+
+        for eval in evals_list.iter_mut() {
+            *eval = circuit.sub(circuit.zero(), *eval)?;
+        }
+    } else {
+        for wire_eval in proof_evals.wires_evals.iter() {
+            evals_list.push(circuit.mul(u_minus_zeta_omega, *wire_eval)?);
+        }
+        for sigma_eval in proof_evals.wire_sigma_evals.iter().take(4) {
+            evals_list.push(circuit.mul(u_minus_zeta_omega, *sigma_eval)?);
+        }
+
+        evals_list.push(circuit.mul(u_minus_zeta, proof_evals.perm_next_eval)?);
+        for eval in evals_list.iter_mut() {
+            *eval = circuit.sub(circuit.zero(), *eval)?;
+        }
+        for _ in 0..9 {
+            coeffs_list.push(u_minus_zeta_omega);
+        }
+        coeffs_list.push(u_minus_zeta);
+    }
+    let mut combiner = challenges.v;
+
+    for (eval, coeff) in evals_list.iter_mut().zip(coeffs_list.iter_mut()) {
+        *eval = circuit.mul(*eval, combiner)?;
+        *coeff = circuit.mul(*coeff, combiner)?;
+        combiner = circuit.mul(combiner, challenges.v)?;
+    }
+
+    for d_1_coeff in d_1_coeffs.iter_mut() {
+        *d_1_coeff = circuit.mul(*d_1_coeff, u_minus_zeta_omega)?;
+    }
+
+    evals_list.push(circuit.mul(u_minus_zeta_omega, lin_poly_const)?);
+
+    let g_scalar = circuit.sum(&evals_list)?;
+
+    let mut result = [
+        coeffs_list.as_slice(),
+        &[q_commitment_scalar, g_scalar],
+        d_1_coeffs.as_slice(),
+    ]
+    .concat();
+
+    if lookup_evals.is_some() {
+        result[10] = circuit.add(result[10], result[22])?;
+
+        result[11] = circuit.add(result[11], result[48])?;
+        result[12] = circuit.add(result[12], result[47])?;
+
+        result.remove(22);
+    }
+
+    Ok(result[..46].to_vec())
+}
+
+/// Function to compute the scalars used in partial verification over the native field
+pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
     pi: Variable,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     lookup_evals: Option<PlookupEvalsVarNative>,
     vk_k: &[Variable],
-    domain_size: usize,
+    domain_size: Variable,
 ) -> Result<Vec<Variable>, CircuitError> {
     // In lookup scalars are combined in the order
     // zeta: w[0], w[1], w[2], w[5], sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], q_dom_sep, pi_eval
