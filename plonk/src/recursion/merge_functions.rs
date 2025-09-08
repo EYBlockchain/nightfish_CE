@@ -1176,6 +1176,23 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         ]
     };
 
+    // We also need to know the maximum `domain_size` of the client proofs
+    let max_domain_size = if IS_BASE {
+        let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
+            "client_vk_list must be non-None in base case".to_string(),
+        ))?;
+        vk_list
+            .iter()
+            .map(|vk| vk.domain_size)
+            .max()
+            .ok_or(PlonkError::InvalidParameters(
+                "client_vk_list must be non-empty in base case".to_string(),
+            ))?
+    } else {
+        // In the non-base case we just use 0, as it will not be used.
+        0
+    };
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = if !IS_BASE {
         if bn254_vks[0] != bn254_vks[1]
@@ -1229,6 +1246,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     old_accs
                         .try_into()
                         .expect("old_accs length verified by chunks_exact"),
+                    max_domain_size,
                     circuit,
                 )
             },

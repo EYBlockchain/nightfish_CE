@@ -8,18 +8,16 @@
 
 use ark_ff::PrimeField;
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
-use ark_std::{format, string::ToString, vec, vec::Vec};
+use ark_std::{format, iter, string::ToString, vec, vec::Vec};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{
     errors::CircuitError,
     gadgets::{ecc::HasTEForm, EmulatedVariable, EmulationConfig},
     Circuit, PlonkCircuit, Variable,
 };
+use num_bigint::BigUint;
 
-use super::{
-    ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative, DEPOSIT_DOMAIN_SIZE,
-    TRANSFER_DOMAIN_SIZE,
-};
+use super::{ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative};
 
 /// This helper function generate the variables for the following data
 /// - Circuit evaluation of vanishing polynomial at point `zeta` i.e., output =
@@ -135,11 +133,11 @@ where
 ///
 /// Note that evaluation at n is commented out as we don't need it for
 /// partial verification circuit.
-pub(super) fn evaluate_poly_helper_native<F, const IS_BASE: bool>(
+pub(super) fn evaluate_poly_helper_native<F>(
     circuit: &mut PlonkCircuit<F>,
     zeta_var: Variable,
-    gen_inv_var: Variable,
-    domain_size_var: Variable,
+    gen_inv: F,
+    domain_size: usize,
 ) -> Result<[Variable; 4], CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -147,49 +145,71 @@ where
     // ================================
     // compute zeta^n - 1
     // ================================
+    // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
+    let mut zeta_n_var = zeta_var;
+    let mut ctr = 1;
+    while ctr < domain_size {
+        ctr *= 2;
+        zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
+    }
 
-    let domain_size = circuit.witness(domain_size_var)?;
-    let zeta_n_var = if IS_BASE {
-        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        if domain_size != F::from(TRANSFER_DOMAIN_SIZE as u32)
-            && domain_size != F::from(DEPOSIT_DOMAIN_SIZE as u32)
-        {
-            return Err(CircuitError::ParameterError(
-                "Invalid domain size for base case".to_string(),
-            ));
-        }
-        let transfer_domain_const_var =
-            circuit.create_constant_variable(F::from(TRANSFER_DOMAIN_SIZE as u32))?;
-        let deposit_domain_const_var =
-            circuit.create_constant_variable(F::from(DEPOSIT_DOMAIN_SIZE as u32))?;
-        let is_transfer_var = circuit.is_equal(domain_size_var, transfer_domain_const_var)?;
-        let is_deposit_var = circuit.is_equal(domain_size_var, deposit_domain_const_var)?;
-        // We constrain `domain_size_var` to represent either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        circuit.add_gate(is_transfer_var.into(), is_deposit_var.into(), circuit.one())?;
-        let mut zeta_transfer_var = zeta_var;
-        let mut ctr = 1;
-        while ctr < TRANSFER_DOMAIN_SIZE {
-            ctr <<= 1;
-            zeta_transfer_var = circuit.mul(zeta_transfer_var, zeta_transfer_var)?;
-        }
-        // Here is where we are assuming TRANSFER_DOMAIN_SIZE is at most DEPOSIT_DOMAIN_SIZE.
-        let mut zeta_deposit_var = zeta_transfer_var;
-        let mut ctr = TRANSFER_DOMAIN_SIZE;
-        while ctr < DEPOSIT_DOMAIN_SIZE {
-            ctr <<= 1;
-            zeta_deposit_var = circuit.mul(zeta_deposit_var, zeta_deposit_var)?;
-        }
-        circuit.conditional_select(is_transfer_var, zeta_deposit_var, zeta_transfer_var)?
-    } else {
-        // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
-        let mut zeta_n_var = zeta_var;
-        let mut ctr = F::from(1u8);
-        while ctr < domain_size {
-            ctr *= F::from(2u8);
-            zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
-        }
-        zeta_n_var
-    };
+    // zeta^n = zeta_n_minus_1 + 1
+    let zeta_n_minus_one_var = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
+
+    // ================================
+    // evaluate lagrange at 1
+    //  lagrange_1_eval = (zeta^n - 1) / (zeta - 1) / domain_size
+    //
+    // which is proven via
+    //  domain_size * lagrange_1_eval * (zeta - 1) = zeta^n - 1 mod Fr::modulus
+    // ================================
+
+    let domain_size = F::from(domain_size as u64);
+
+    // lagrange_1_eval
+
+    let divisor_var = circuit.lin_comb(&[domain_size], &-domain_size, &[zeta_var])?;
+
+    let zeta_n_minus_one = circuit.witness(zeta_n_minus_one_var)?;
+    let divisor = circuit.witness(divisor_var)?;
+
+    let lagrange_1_eval = zeta_n_minus_one / divisor;
+    let lagrange_1_eval_var = circuit.create_variable(lagrange_1_eval)?;
+    // Constrain the lagrange_1_eval to be correct.
+    circuit.mul_gate(divisor_var, lagrange_1_eval_var, zeta_n_minus_one_var)?;
+
+    // Compute lagrange_n_eval
+    let divisor_var = circuit.lin_comb(&[domain_size], &(-domain_size * gen_inv), &[zeta_var])?;
+    let numerator_var = circuit.mul_constant(zeta_n_minus_one_var, &gen_inv)?;
+    let divisor = circuit.witness(divisor_var)?;
+    let numerator = circuit.witness(numerator_var)?;
+    let lagrange_n_eval = numerator / divisor;
+    let lagrange_n_eval_var = circuit.create_variable(lagrange_n_eval)?;
+    // Constrain the lagrange_n_eval to be correct.
+    circuit.mul_gate(divisor_var, lagrange_n_eval_var, numerator_var)?;
+
+    Ok([
+        zeta_n_var,
+        zeta_n_minus_one_var,
+        lagrange_1_eval_var,
+        lagrange_n_eval_var,
+    ])
+}
+
+pub(super) fn evaluate_poly_helper_native_base<F>(
+    circuit: &mut PlonkCircuit<F>,
+    zeta_var: Variable,
+    gen_inv_var: Variable,
+    domain_size_var: Variable,
+    max_domain_size: usize,
+) -> Result<[Variable; 4], CircuitError>
+where
+    F: PrimeField + RescueParameter,
+{
+    // ================================
+    // compute zeta^n - 1
+    // ================================
+    let zeta_n_var = zeta_to_n(circuit, zeta_var, domain_size_var, max_domain_size)?;
 
     // zeta^n = zeta_n_minus_1 + 1
     let zeta_n_minus_one_var = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
@@ -1037,12 +1057,74 @@ where
     Ok(eq_eval)
 }
 
+/// This function takes in a `Variable` `zeta_var`, a `domain_size_var` and a `max_domain_size` and returns
+/// a `Variable` representing `zeta^n`, where `domain_size_var` represents `2^n`.
+pub(crate) fn zeta_to_n<F>(
+    circuit: &mut PlonkCircuit<F>,
+    zeta_var: Variable,
+    domain_size_var: Variable,
+    max_domain_size: usize,
+) -> Result<Variable, CircuitError>
+where
+    F: PrimeField,
+{
+    let domain_size: BigUint = circuit.witness(domain_size_var)?.into_bigint().into();
+
+    let log_domain = domain_size.bits() - 1;
+    let max_log_size = max_domain_size.ilog2() as u64;
+    if log_domain > max_log_size {
+        return Err(CircuitError::ParameterError(format!(
+            "domain size {} is larger than max domain size {}",
+            domain_size, max_domain_size
+        )));
+    }
+    let two_pows = (0..max_log_size + 1)
+        .into_iter()
+        .map(|i| F::from(1u64 << i))
+        .collect::<Vec<F>>();
+
+    let bool_vars = (0..max_log_size + 1)
+        .into_iter()
+        .map(|i| {
+            let bool_var = circuit.create_boolean_variable(i == log_domain)?;
+            Ok(bool_var.0)
+        })
+        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+    circuit.lin_comb_gate(&two_pows, &F::zero(), &bool_vars, &domain_size_var)?;
+
+    let zeta_pow_vars = iter::successors(Some(Ok(zeta_var)), |prev| match prev {
+        Ok(var) => Some(circuit.mul(*var, *var)),
+        _ => None,
+    })
+    .take(max_log_size as usize + 1)
+    .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+    let mut zeta_n_var = circuit.mul_add(
+        &[
+            bool_vars[0],
+            zeta_pow_vars[0],
+            bool_vars[1],
+            zeta_pow_vars[1],
+        ],
+        &[F::one(), F::one()],
+    )?;
+    for (bool_var, zeta_pow_var) in bool_vars.iter().zip(zeta_pow_vars.iter()).skip(2) {
+        zeta_n_var = circuit.mul_add(
+            &[*bool_var, *zeta_pow_var, zeta_n_var, circuit.one()],
+            &[F::one(), F::one()],
+        )?;
+    }
+
+    Ok(zeta_n_var)
+}
+
 #[cfg(test)]
 mod test {
 
     use super::*;
 
-    use ark_bn254::g1::Config as BnConfig;
+    use ark_bn254::{g1::Config as BnConfig, Fr as Fr254};
 
     use ark_poly::{
         DenseMultilinearExtension, DenseUVPolynomial, MultilinearExtension, Polynomial,
@@ -1253,5 +1335,29 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_zeta_to_n() {
+        test_zeta_to_n_helper::<Fr254>();
+    }
+
+    fn test_zeta_to_n_helper<F: PrimeField>() -> Result<(), CircuitError> {
+        let mut rng = test_rng();
+        let max_domain_size = 1024;
+        let mut circuit = PlonkCircuit::<F>::new_turbo_plonk();
+        for n in 6..11 {
+            let domain_size = 1_u32 << n;
+            let domain_size_var = circuit.create_variable(F::from(domain_size))?;
+            let zeta = F::rand(&mut rng);
+            let zeta_var = circuit.create_variable(zeta)?;
+
+            let zeta_n_var = zeta_to_n(&mut circuit, zeta_var, domain_size_var, max_domain_size)?;
+            let zeta_n = circuit.witness(zeta_n_var)?;
+
+            assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+            assert_eq!(zeta_n, zeta.pow([n]));
+        }
+        Ok(())
     }
 }

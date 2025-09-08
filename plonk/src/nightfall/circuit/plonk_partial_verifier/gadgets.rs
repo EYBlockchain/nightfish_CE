@@ -269,11 +269,12 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
 /// Function to compute the scalars used in partial verification over the native field
 pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
-    pi: Variable,
+    pi: &Variable,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
-    lookup_evals: Option<PlookupEvalsVarNative>,
+    lookup_evals: &Option<PlookupEvalsVarNative>,
     vk_var: &VerifyingKeyNativeScalarsVar,
+    max_domain_size: usize,
 ) -> Result<Vec<Variable>, CircuitError> {
     // In lookup scalars are combined in the order
     // zeta: w[0], w[1], w[2], w[5], sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], q_dom_sep, pi_eval
@@ -301,6 +302,7 @@ pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
         challenges.zeta,
         gen_inv_var,
         vk_var.domain.domain_size,
+        max_domain_size,
     )?;
 
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native_base(
