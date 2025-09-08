@@ -48,11 +48,22 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     let gen_inv_var = circuit.create_variable(domain.group_gen_inv)?;
     let gen_var = circuit.create_variable(domain.group_gen)?;
     circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
+    let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
+    //let dom_wit = circuit.witness(domain_size_var)?;
+    // assert_eq!(domain_size, domain.size as usize);
+    // ark_std::println!(
+    //     "vk.dom_sz {}, evaldom_sz {}, evaldom_sz_wit {}",
+    //    domain_size,
+    //    domain.size,
+    //    dom_wit
+    // );
+    //assert!(domain_size.is_power_of_two());
+
     let evals =
         poly::evaluate_poly_helper_native(circuit, challenges.zeta, gen_inv_var, domain_size)?;
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
-        domain_size,
+        gen_inv_var,
         challenges,
         proof_evals,
         pi,
@@ -68,7 +79,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
         &evals,
         proof_evals,
         &lookup_evals,
-        domain_size,
+        gen_inv_var,
     )?;
 
     if lookup_evals.is_none() {

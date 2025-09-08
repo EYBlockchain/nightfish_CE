@@ -91,6 +91,8 @@ where
     // which is proven via
     //  domain_size * lagrange_1_eval * (zeta - 1) = zeta^n - 1 mod Fr::modulus
     // ================================
+    //
+    //let domain_size_var = circuit.create_constant_variable(F::from(domain_size as u64))?;
 
     // lagrange_1_eval
     let zeta_minus_one_emul_var = circuit.emulated_sub(zeta_emul_var, &one_emul_var)?;
@@ -142,7 +144,17 @@ where
     F: PrimeField + RescueParameter,
 {
     // constants
+    assert!(domain_size.is_power_of_two());
     let domain_size_var = circuit.create_variable(F::from(domain_size as u64))?;
+    //assert_eq!(F::from(domain_size as u64), dom_wit);
+    //
+
+    //let mut zeta_n_var = circuit.one();
+    //let mut ctr = 0;
+    //while ctr < domain_size {
+    //    ctr += 1;
+    //    zeta_n_var = circuit.mul(zeta_n_var, zeta_var)?;
+    //}
 
     // ================================
     // compute zeta^n - 1
@@ -166,6 +178,7 @@ where
     // ================================
 
     // lagrange_1_eval
+    //let domain_size_var = circuit.create_constant_variable(F::from(domain_size as u64))?;
 
     let divisor_var = circuit.mul_add(
         &[domain_size_var, zeta_var, domain_size_var, circuit.one()],
@@ -369,7 +382,7 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    domain_size: usize,
+    gen_inv_var: usize,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     pi: Variable,
@@ -380,9 +393,9 @@ where
     F: PrimeField + RescueParameter,
 {
     let zeta_var = challenges.zeta;
-    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-    let generator_inv = domain.group_gen_inv;
-    let gen_inv_var = circuit.create_variable(generator_inv)?;
+    //let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+    //let generator_inv = domain.group_gen_inv;
+    //let gen_inv_var = circuit.create_variable(generator_inv)?;
 
     // r_plonk
     //  = PI - L1(x) * alpha^2 - alpha *
@@ -559,7 +572,7 @@ pub fn linearization_scalars_circuit_native<F>(
     evals: &[Variable; 4],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
-    domain_size: usize,
+    gen_inv_var: usize,
 ) -> Result<Vec<Variable>, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -647,9 +660,9 @@ where
 
     // Now calculate lookup scalars if they are present
     let (lookup_prod_coeff, h_2_coeff) = if let Some(lookup_evals) = lookup_evals {
-        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
-        let gen_inv = domain.group_gen_inv;
-        let gen_inv_var = circuit.create_variable(gen_inv)?;
+        //let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+        //let gen_inv = domain.group_gen_inv;
+        //let gen_inv_var = circuit.create_variable(gen_inv)?;
 
         let g_mul_one_plus_b = circuit.mul_add(
             &[
