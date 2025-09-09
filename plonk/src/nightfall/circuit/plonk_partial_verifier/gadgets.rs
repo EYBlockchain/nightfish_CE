@@ -22,7 +22,8 @@ use jf_relation::{
 
 use super::{
     poly::{
-        self, compute_lin_poly_constant_term_circuit_native, evaluate_lagrange_poly_helper_native,
+        self, compute_lin_poly_constant_term_circuit_native,
+        compute_lin_poly_constant_term_circuit_native_base, evaluate_lagrange_poly_helper_native,
         linearization_scalars_circuit_native,
     },
     ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative,
@@ -60,7 +61,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
 
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native(
         circuit,
-        domain.group_gen_inv,
+        &domain.group_gen_inv,
         challenges,
         proof_evals,
         pi,
