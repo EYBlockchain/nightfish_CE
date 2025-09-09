@@ -758,7 +758,6 @@ pub fn linearization_scalars_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
     vk_k: &[F],
     challenges: &ChallengesVar,
-    zeta: Variable,
     evals: &[Variable; 4],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
@@ -771,14 +770,24 @@ where
     let sigma_evals = &poly_evals.wire_sigma_evals;
     // First we calculate the permutation poly coefficient
     let mut init = circuit.gen_quad_poly(
-        &[challenges.beta, zeta, wire_evals[0], challenges.gamma],
+        &[
+            challenges.beta,
+            challenges.zeta,
+            wire_evals[0],
+            challenges.gamma,
+        ],
         &[F::zero(), F::zero(), F::one(), F::one()],
         &[F::one(), F::zero()],
         F::zero(),
     )?;
     for (wire_eval, k) in wire_evals.iter().skip(1).zip(vk_k.iter().skip(1)) {
         let tmp = circuit.gen_quad_poly(
-            &[challenges.beta, zeta, *wire_eval, challenges.gamma],
+            &[
+                challenges.beta,
+                challenges.zeta,
+                *wire_eval,
+                challenges.gamma,
+            ],
             &[F::zero(), F::zero(), F::one(), F::one()],
             &[*k, F::zero()],
             F::zero(),
@@ -960,7 +969,12 @@ where
         )?;
 
         let reuse_temp = circuit.gen_quad_poly(
-            &[challenges.alphas[2], zeta, circuit.zero(), circuit.zero()],
+            &[
+                challenges.alphas[2],
+                challenges.zeta,
+                circuit.zero(),
+                circuit.zero(),
+            ],
             &[-*gen_inv, F::zero(), F::zero(), F::zero()],
             &[F::one(), F::zero()],
             F::zero(),
@@ -1032,7 +1046,7 @@ where
     };
 
     // Now calculate the coefficients of the quotient commitments
-    let zeta_square = circuit.mul(zeta, zeta)?;
+    let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
     let vanish_eval = evals[1];
     let zeta_n_plus_two = circuit.mul(zeta_square, evals[0])?;
     let mut quotient_coeffs = Vec::with_capacity(5);
@@ -1060,7 +1074,6 @@ pub fn linearization_scalars_circuit_native_base<F>(
     circuit: &mut PlonkCircuit<F>,
     vk_k: &[Variable],
     challenges: &ChallengesVar,
-    zeta: Variable,
     evals: &[Variable; 4],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
@@ -1073,7 +1086,12 @@ where
     let sigma_evals = &poly_evals.wire_sigma_evals;
     // First we calculate the permutation poly coefficient
     let mut init = circuit.gen_quad_poly(
-        &[challenges.beta, zeta, wire_evals[0], challenges.gamma],
+        &[
+            challenges.beta,
+            challenges.zeta,
+            wire_evals[0],
+            challenges.gamma,
+        ],
         &[F::zero(), F::zero(), F::one(), F::one()],
         &[F::one(), F::zero()],
         F::zero(),
@@ -1081,7 +1099,7 @@ where
     for (wire_eval, k) in wire_evals.iter().skip(1).zip(vk_k.iter().skip(1)) {
         let tmp = circuit.mul(challenges.beta, *k)?;
         let tmp = circuit.gen_quad_poly(
-            &[tmp, zeta, *wire_eval, challenges.gamma],
+            &[tmp, challenges.zeta, *wire_eval, challenges.gamma],
             &[F::zero(), F::zero(), F::one(), F::one()],
             &[F::one(), F::zero()],
             F::zero(),
@@ -1265,7 +1283,7 @@ where
         let reuse_temp = circuit.mul_add(
             &[
                 challenges.alphas[2],
-                zeta,
+                challenges.zeta,
                 challenges.alphas[2],
                 *gen_inv_var,
             ],
@@ -1337,7 +1355,7 @@ where
     };
 
     // Now calculate the coefficients of the quotient commitments
-    let zeta_square = circuit.mul(zeta, zeta)?;
+    let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
     let vanish_eval = evals[1];
     let zeta_n_plus_two = circuit.mul(zeta_square, evals[0])?;
     let mut quotient_coeffs = Vec::with_capacity(5);
@@ -1508,7 +1526,7 @@ where
 }
 
 /// This function takes in a `Variable` `zeta_var`, a `domain_size_var` and a `max_domain_size` and returns
-/// a `Variable` representing `zeta^n`, where `domain_size_var` represents `2^n`.
+/// a `Variable` representing `zeta^{2^n}`, where `domain_size_var` represents `2^n`.
 pub(crate) fn zeta_to_n<F>(
     circuit: &mut PlonkCircuit<F>,
     zeta_var: Variable,
@@ -1795,7 +1813,7 @@ mod test {
         let max_domain_size = 1024;
         let mut circuit = PlonkCircuit::<F>::new_turbo_plonk();
         for n in 6..11 {
-            let domain_size = 1_u32 << n;
+            let domain_size = 1_u64 << n;
             let domain_size_var = circuit.create_variable(F::from(domain_size))?;
             let zeta = F::rand(&mut rng);
             let zeta_var = circuit.create_variable(zeta)?;
@@ -1804,7 +1822,7 @@ mod test {
             let zeta_n = circuit.witness(zeta_n_var)?;
 
             assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
-            assert_eq!(zeta_n, zeta.pow([n]));
+            assert_eq!(zeta_n, zeta.pow([domain_size]));
         }
         Ok(())
     }
