@@ -1577,7 +1577,7 @@ pub fn decider_circuit(
         .bn254_outputs
         .iter()
         .map(|output| {
-            let proof_evals = ProofScalarsVarNative::from_struct(&output, circuit)?;
+            let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
             let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
             Ok((proof_evals, proof))
         })
@@ -1615,7 +1615,7 @@ pub fn decider_circuit(
             base_vars_pair
                 .try_into()
                 .expect("base_vars_pair length verified by chunks_exact"),
-            &vk_bn254,
+            vk_bn254,
             old_accs
                 .try_into()
                 .expect("old_accs length verified by chunks_exact"),

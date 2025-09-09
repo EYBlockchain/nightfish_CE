@@ -80,8 +80,8 @@ pub fn partial_verify_fft_plonk(
     let challenges = ChallengesVar::compute_challenges::<Kzg, _, _, _>(
         circuit,
         None,
-        &pi_hash,
-        &base_vars,
+        pi_hash,
+        base_vars,
         &mut transcript,
     )?;
 
@@ -89,7 +89,7 @@ pub fn partial_verify_fft_plonk(
         circuit,
         pi_hash,
         &challenges,
-        &proof_evals,
+        proof_evals,
         lookup_evals,
         &vk.k,
         vk.domain_size,
@@ -100,7 +100,7 @@ pub fn partial_verify_fft_plonk(
 
 /// This function takes as input an FFT proof and verifies its transcript and produces the scalars that should be used to calculate its final commitment.
 /// This version is used within the base_bn254_circuit. Since verification keys come from the client proofs, they are inputted as variables.
-pub fn partial_verify_fft_plonk_base(
+pub(crate) fn partial_verify_fft_plonk_base(
     scalar_var: &ProofScalarsVarNative,
     base_vars: &ProofVarNative<BnConfig>,
     vk_var: &VerifyingKeyNativeScalarsVar,
@@ -128,7 +128,7 @@ pub fn partial_verify_fft_plonk_base(
         circuit,
         pi_hash,
         &challenges,
-        &proof_evals,
+        proof_evals,
         lookup_evals,
         vk_var,
         max_domain_size,
@@ -231,7 +231,7 @@ pub fn calculate_recursion_scalars(
 
 /// This function takes in two [`RecursiveOutput`]s and verifies their transcripts and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in suc a way that their hash is equal to the public input hash of the proof from the other curve.
-pub fn calculate_recursion_scalars_base(
+pub(crate) fn calculate_recursion_scalars_base(
     scalar_vars: &[ProofScalarsVarNative; 2],
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk_vars: &[VerifyingKeyNativeScalarsVar; 2],
@@ -526,7 +526,6 @@ mod tests {
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             let accs: [AtomicInstance<Kzg>; 4] = (0..4)
-                .into_iter()
                 .map(|_| {
                     let mut poly = DensePolynomial::<Fr254>::rand(srs_size, rng);
 
@@ -559,7 +558,7 @@ mod tests {
             let output_var_pairs = outputs
                 .iter()
                 .map(|output| {
-                    let proof_evals = ProofScalarsVarNative::from_struct(&output, &mut verifier_circuit)?;
+                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut verifier_circuit)?;
                     let proof = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
                     Ok((proof_evals, proof))
                 })
