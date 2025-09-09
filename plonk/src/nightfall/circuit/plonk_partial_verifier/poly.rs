@@ -426,10 +426,10 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    gen_inv_var: Variable,
+    gen_inv: &F,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
-    pi: Variable,
+    pi: &Variable,
     evals: &[Variable; 4],
     lookup_evals: &Option<PlookupEvalsVarNative>,
 ) -> Result<Variable, CircuitError>
@@ -491,7 +491,7 @@ where
     prod = circuit.mul(tmp, prod)?;
 
     // r_plonk
-    let pi_eval = circuit.mul(pi, evals[2])?;
+    let pi_eval = circuit.mul(*pi, evals[2])?;
     let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
     let non_lookup = circuit.gen_quad_poly(
         &wires,
@@ -515,13 +515,162 @@ where
         )?;
 
         // Now alpha^3 * (zeta  - domain_gen_inv) * prod_lookup_next * (gamma * ( 1 + beta) + h_1 + beta * h_1_next) * (gamma * (1 + beta) + beta * h_2_next)
+        let wires = [
+            challenges.alphas[2],
+            zeta_var,
+            circuit.zero(),
+            circuit.zero(),
+        ];
+        let mut init = circuit.gen_quad_poly(
+            &wires,
+            &[-*gen_inv, F::zero(), F::zero(), F::zero()],
+            &[F::one(), F::zero()],
+            F::zero(),
+        )?;
+        init = circuit.mul(init, lookup_evals.prod_next_eval)?;
+        let g_mul_one_b = circuit.mul_add(
+            &[
+                challenges.gamma,
+                circuit.one(),
+                challenges.gamma,
+                challenges.beta,
+            ],
+            &[F::one(), F::one()],
+        )?;
+        let wires = [
+            g_mul_one_b,
+            lookup_evals.h_1_eval,
+            challenges.beta,
+            lookup_evals.h_1_next_eval,
+        ];
+        let tmp1 = circuit.gen_quad_poly(
+            &wires,
+            &[F::one(), F::one(), F::zero(), F::zero()],
+            &[F::zero(), F::one()],
+            F::zero(),
+        )?;
+        let tmp2 = circuit.mul_add(
+            &[
+                g_mul_one_b,
+                circuit.one(),
+                challenges.beta,
+                lookup_evals.h_2_next_eval,
+            ],
+            &[F::one(), F::one()],
+        )?;
+        let mut term_two = circuit.mul(tmp1, tmp2)?;
+        term_two = circuit.mul(term_two, init)?;
 
+        let final_sum = circuit.sub(term_one, term_two)?;
+        circuit.mul_add(
+            &[final_sum, challenges.alphas[2], non_lookup, circuit.one()],
+            &[F::one(), F::one()],
+        )
+    } else {
+        Ok(non_lookup)
+    }
+}
+
+/// Same as `compute_lin_poly_constant_term_circuit_native` but takes `gen_inv` as a variable.
+/// This is used in the base layer of recursion where `gen_inv` cannot be hardcoded.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn compute_lin_poly_constant_term_circuit_native_base<F>(
+    circuit: &mut PlonkCircuit<F>,
+    gen_inv_var: &Variable,
+    challenges: &ChallengesVar,
+    proof_evals: &ProofEvalsVarNative,
+    pi: &Variable,
+    evals: &[Variable; 4],
+    lookup_evals: &Option<PlookupEvalsVarNative>,
+) -> Result<Variable, CircuitError>
+where
+    F: PrimeField + RescueParameter,
+{
+    let zeta_var = challenges.zeta;
+
+    // r_plonk
+    //  = PI - L1(x) * alpha^2 - alpha *
+    //  \prod_i=1..m-1 (w_{j,i} + beta * sigma_{j,i} + gamma)
+    //  * (w_{j,m} + gamma) * z_j(xw)
+    //
+    // r_0 = r_plonk + r_lookup
+    // where m is the number of instances, and k_j is the number of alpha power
+    // terms added to the first j-1 instances.
+
+    // =====================================================
+    // r_plonk
+    //  = - L1(x) * alpha^2 - alpha *
+    //  \prod_i=1..m-1 (w_{i} + beta * sigma_{i} + gamma)
+    //  * (w_{m} + gamma) * z(xw)
+    // =====================================================
+
+    // \prod_i=1..m-1 (w_{i} + beta * sigma_{i} + gamma)
+    let num_wire_types = proof_evals.wires_evals.len();
+    let mut prod = challenges.alphas[0];
+    for (w_j_i_var, sigma_j_i_var) in proof_evals.wires_evals[..num_wire_types - 1]
+        .iter()
+        .zip(proof_evals.wire_sigma_evals.iter())
+    {
+        let wires = [
+            challenges.gamma,
+            *w_j_i_var,
+            challenges.beta,
+            *sigma_j_i_var,
+        ];
+        let sum = circuit.gen_quad_poly(
+            &wires,
+            &[F::one(), F::one(), F::zero(), F::zero()],
+            &[F::zero(), F::one()],
+            F::zero(),
+        )?;
+        prod = circuit.mul(prod, sum)?;
+    }
+
+    // tmp = (w_{m} + gamma) * z(xw)
+    let wires = [
+        proof_evals.wires_evals[num_wire_types - 1],
+        proof_evals.perm_next_eval,
+        challenges.gamma,
+        proof_evals.perm_next_eval,
+    ];
+    let tmp = circuit.mul_add(&wires, &[F::one(), F::one()])?;
+
+    // tmp = alpha *
+    //  \prod_i=1..m-1 (w_{i} + beta * sigma_{i} + gamma)
+    //  * (w_{m} + gamma) * z(xw)
+    prod = circuit.mul(tmp, prod)?;
+
+    // r_plonk
+    let pi_eval = circuit.mul(*pi, evals[2])?;
+    let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
+    let non_lookup = circuit.gen_quad_poly(
+        &wires,
+        &[F::one(), -F::one(), F::zero(), F::zero()],
+        &[F::zero(), -F::one()],
+        F::zero(),
+    )?;
+
+    if let Some(lookup_evals) = lookup_evals {
+        // We compute L_n(zeta) * (h_1 - h_1_next - alpha^2) - alpha * L_1(zeta)
+        let wires = [
+            lookup_evals.h_1_eval,
+            lookup_evals.h_2_next_eval,
+            challenges.alphas[1],
+            circuit.zero(),
+        ];
+        let tmp = circuit.lc(&wires, &[F::one(), -F::one(), -F::one(), F::zero()])?;
+        let term_one = circuit.mul_add(
+            &[evals[3], tmp, evals[2], challenges.alphas[0]],
+            &[F::one(), -F::one()],
+        )?;
+
+        // Now alpha^3 * (zeta  - domain_gen_inv) * prod_lookup_next * (gamma * ( 1 + beta) + h_1 + beta * h_1_next) * (gamma * (1 + beta) + beta * h_2_next)
         let mut init = circuit.mul_add(
             &[
                 challenges.alphas[2],
                 zeta_var,
                 challenges.alphas[2],
-                gen_inv_var,
+                *gen_inv_var,
             ],
             &[F::one(), -F::one()],
         )?;
