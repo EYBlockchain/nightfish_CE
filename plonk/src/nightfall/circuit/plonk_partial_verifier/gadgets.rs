@@ -24,7 +24,7 @@ use super::{
     poly::{
         self, compute_lin_poly_constant_term_circuit_native,
         compute_lin_poly_constant_term_circuit_native_base, evaluate_lagrange_poly_helper_native,
-        linearization_scalars_circuit_native,
+        linearization_scalars_circuit_native, linearization_scalars_circuit_native_base,
     },
     ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative,
 };
@@ -77,7 +77,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
         &evals,
         proof_evals,
         lookup_evals,
-        domain.group_gen_inv,
+        &domain.group_gen_inv,
     )?;
 
     if lookup_evals.is_none() {
@@ -268,7 +268,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
 }
 
 /// Function to compute the scalars used in partial verification over the native field
-pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
+pub(crate) fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
     pi: &Variable,
     challenges: &ChallengesVar,
@@ -308,23 +308,23 @@ pub fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
 
     let lin_poly_const = compute_lin_poly_constant_term_circuit_native_base(
         circuit,
-        gen_inv_var,
+        &gen_inv_var,
         challenges,
         proof_evals,
         pi,
         &evals,
-        &lookup_evals,
+        lookup_evals,
     )?;
 
-    let mut d_1_coeffs = linearization_scalars_circuit_native(
+    let mut d_1_coeffs = linearization_scalars_circuit_native_base(
         circuit,
         &vk_var.k,
         challenges,
         challenges.zeta,
         &evals,
         proof_evals,
-        &lookup_evals,
-        gen_inv_var,
+        lookup_evals,
+        &gen_inv_var,
     )?;
 
     if lookup_evals.is_none() {
