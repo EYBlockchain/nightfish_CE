@@ -712,7 +712,7 @@ impl VerifyingKeyScalarsAndBasesVar<Kzg> {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 /// Stores the domain size and generator variables for a Plonk circuit.
 pub(crate) struct DomainVar {
     /// The size of the evaluation domain. Should be a power of two.
@@ -721,7 +721,7 @@ pub(crate) struct DomainVar {
     pub(crate) gen: Variable,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 /// A struct used to represent the native field scalars in a verifying key.
 pub(crate) struct VerifyingKeyNativeScalarsVar {
     /// The size of the evaluation domain. Should be a power of two.
@@ -1053,12 +1053,16 @@ mod test {
     fn test_compute_scalars_zero() {
         let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
 
+        let rng = &mut test_rng();
+        //
+        let zeta = circuit.create_variable(Fr254::rand(rng)).unwrap();
+
         let challenges_var = ChallengesVar {
             tau: circuit.zero(),
             alphas: [circuit.zero(), circuit.zero(), circuit.zero()],
             beta: circuit.zero(),
             gamma: circuit.zero(),
-            zeta: circuit.zero(),
+            zeta,
             v: circuit.zero(),
             u: circuit.zero(),
         };
