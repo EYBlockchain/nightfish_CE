@@ -872,6 +872,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
             })?;
 
+        let vk_id_var = circuit.lc(
+            &[id_0, id_1, circuit.zero(), circuit.zero()],
+            &[Fq254::one(), Fq254::from(2u8), Fq254::zero(), Fq254::zero()],
+        )?;
+        circuit.set_variable_public(vk_id_var)?;
+
         // We now make public the `PointVariable`s for both of the bn254 proofs
         for output_var in output_vars.iter() {
             let point_vars = output_var.to_vec();
@@ -880,12 +886,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 circuit.set_variable_public(point_var.get_y())?;
             }
         }
-
-        let vk_id_var = circuit.lc(
-            &[id_0, id_1, circuit.zero(), circuit.zero()],
-            &[Fq254::one(), Fq254::from(2u8), Fq254::zero(), Fq254::zero()],
-        )?;
-        circuit.set_variable_public(vk_id_var)?;
 
         instance_scalar_vars
             .iter()
@@ -1279,7 +1279,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             impl_specific_pi.iter(),
             grumpkin_info.forwarded_acumulators.iter(),
             grumpkin_info.old_accumulators.chunks_exact(2),
-            recursion_scalars.iter()
+            recursion_scalars.iter(),
+            vk_scalars_vars.chunks_exact(2),
         )
         .map(
             |(
@@ -1289,6 +1290,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 bn254_accumulator,
                 grumpkin_accumulators,
                 recursion_scalars,
+                vk_vars,
             )| {
                 let recursion_scalars_prepped = recursion_scalars
                     .iter()
@@ -1352,6 +1354,16 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     vec![]
                 };
 
+                let vk_ids = if IS_BASE {
+                    let vk_id = circuit.lc(
+                        &[vk_vars[0].id, vk_vars[1].id, circuit.zero(), circuit.zero()],
+                        &[Fr254::one(), Fr254::from(2u8), Fr254::zero(), Fr254::zero()],
+                    )?;
+                    Ok::<_, CircuitError>(convert_to_hash_form(circuit, vk_id)?.to_vec())
+                } else {
+                    Ok(vec![])
+                }?;
+
                 let bn254_acc = [
                     bn254_accumulator.comm.x,
                     bn254_accumulator.comm.y,
@@ -1403,6 +1415,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 
                 let data_vars = [
                     isp_prepped,
+                    vk_ids,
                     recursion_scalars_prepped,
                     grumpkin_accs,
                     bn254_acc,
