@@ -707,3 +707,189 @@ impl FFTVerifier<Kzg> {
         ])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        errors::PlonkError,
+        nightfall::{
+            ipa_snark::test::gen_circuit_for_test, ipa_structs::VerificationKeyId,
+            ipa_verifier::FFTVerifier, FFTPlonk,
+        },
+        proof_system::UniversalSNARK,
+        transcript::RescueTranscript,
+    };
+
+    use super::*;
+    use ark_bn254::Bn254;
+    use jf_primitives::pcs::prelude::UnivariateKzgPCS;
+    use jf_relation::{Arithmetization, PlonkType};
+
+    #[test]
+    fn test_prepare_pcs_info_with_bases_var() -> Result<(), PlonkError> {
+        let rng = &mut jf_utils::test_rng();
+        for (m, vk_id) in (2..8).zip(
+            [
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+                None,
+            ]
+            .iter(),
+        ) {
+            let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
+            let pi = circuit.public_input()?[0];
+
+            let srs_size = circuit.srs_size()?;
+            let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
+
+            // Here we are assuming we are in the non-base case and our verification key is fixed.
+            // Our `vk_id` is, therefore, `None`.
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
+
+            let mut output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
+                rng, &circuit, &pk, None,
+            )?;
+
+            let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
+
+            let pcs_info = fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
+                &vk,
+                &[pi],
+                &output.proof,
+                &None,
+            )?;
+
+            let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+            let vk_var = VerifyingKeyScalarsAndBasesVar::new(&mut verifier_circuit, &vk)?;
+
+            let (mut output_var, pcs_info_var) = fft_verifier
+                .prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
+                    &vk_var,
+                    &[pi],
+                    &output,
+                    &None,
+                    &mut verifier_circuit,
+                )?;
+
+            assert!(verifier_circuit.check_circuit_satisfiability(&[]).is_ok());
+
+            // We check that `output_var` matches up with its non-circuit equivalent.
+            for (point_var, point) in output_var
+                .proof
+                .wires_poly_comms
+                .iter()
+                .zip(output.proof.wires_poly_comms.iter())
+            {
+                assert_eq!(verifier_circuit.witness(point_var.get_x())?, point.x);
+                assert_eq!(verifier_circuit.witness(point_var.get_y())?, point.y);
+            }
+
+            assert_eq!(
+                verifier_circuit.witness(output_var.proof.prod_perm_poly_comm.get_x())?,
+                output.proof.prod_perm_poly_comm.x,
+            );
+            assert_eq!(
+                verifier_circuit.witness(output_var.proof.prod_perm_poly_comm.get_y())?,
+                output.proof.prod_perm_poly_comm.y,
+            );
+            for (point_var, point) in output_var
+                .proof
+                .split_quot_poly_comms
+                .iter()
+                .zip(output.proof.split_quot_poly_comms.iter())
+            {
+                assert_eq!(verifier_circuit.witness(point_var.get_x())?, point.x);
+                assert_eq!(verifier_circuit.witness(point_var.get_y())?, point.y);
+            }
+            assert_eq!(
+                verifier_circuit.witness(output_var.proof.opening_proof.get_x())?,
+                output.proof.opening_proof.proof.x,
+            );
+            assert_eq!(
+                verifier_circuit.witness(output_var.proof.opening_proof.get_y())?,
+                output.proof.opening_proof.proof.y,
+            );
+            assert_eq!(
+                output_var.proof.poly_evals.wires_evals,
+                output.proof.poly_evals.wires_evals,
+            );
+            assert_eq!(
+                output_var.proof.poly_evals.wire_sigma_evals,
+                output.proof.poly_evals.wire_sigma_evals,
+            );
+            assert_eq!(
+                output_var.proof.poly_evals.perm_next_eval,
+                output.proof.poly_evals.perm_next_eval,
+            );
+
+            let plookup_proof_var = if let Some(plookup_proof_var) = output_var.proof.plookup_proof
+            {
+                plookup_proof_var
+            } else {
+                return Err(PlonkError::InvalidParameters(
+                    "The proof does not contain a plookup proof var".to_string(),
+                ));
+            };
+            let plookup_proof = if let Some(plookup_proof) = output.proof.plookup_proof {
+                plookup_proof
+            } else {
+                return Err(PlonkError::InvalidParameters(
+                    "The proof does not contain a plookup proof".to_string(),
+                ));
+            };
+            for (point_var, point) in plookup_proof_var
+                .h_poly_comms
+                .iter()
+                .zip(plookup_proof.h_poly_comms.iter())
+            {
+                assert_eq!(verifier_circuit.witness(point_var.get_x())?, point.x);
+                assert_eq!(verifier_circuit.witness(point_var.get_y())?, point.y);
+            }
+            assert_eq!(
+                verifier_circuit.witness(plookup_proof_var.prod_lookup_poly_comm.get_x())?,
+                plookup_proof.prod_lookup_poly_comm.x,
+            );
+            assert_eq!(
+                verifier_circuit.witness(plookup_proof_var.prod_lookup_poly_comm.get_y())?,
+                plookup_proof.prod_lookup_poly_comm.y,
+            );
+            assert_eq!(plookup_proof_var.poly_evals, plookup_proof.poly_evals,);
+
+            assert_eq!(output_var.pi_hash, output.pi_hash);
+            // We test equality of the transcripts by squeezing a challenge from each.
+            assert_eq!(
+                output_var
+                    .transcript
+                    .squeeze_scalar_challenge::<BnConfig>(b"test")?,
+                output
+                    .transcript
+                    .squeeze_scalar_challenge::<BnConfig>(b"test")?,
+            );
+
+            // We check that `pcs_var` matches up with its non-circuit equivalent.
+            assert_eq!(pcs_info_var.u, pcs_info.u);
+            assert_eq!(
+                pcs_info_var.comm_scalars_and_bases.scalars,
+                pcs_info.comm_scalars_and_bases.scalars
+            );
+            for (point_var, point) in pcs_info_var
+                .comm_scalars_and_bases
+                .bases
+                .iter()
+                .zip(pcs_info.comm_scalars_and_bases.bases.iter())
+            {
+                assert_eq!(verifier_circuit.witness(point_var.get_x())?, point.x);
+                assert_eq!(verifier_circuit.witness(point_var.get_y())?, point.y);
+            }
+            assert_eq!(
+                verifier_circuit.witness(pcs_info_var.opening_proof.get_x())?,
+                pcs_info.opening_proof.proof.x
+            );
+            assert_eq!(
+                verifier_circuit.witness(pcs_info_var.opening_proof.get_y())?,
+                pcs_info.opening_proof.proof.y
+            );
+        }
+        Ok(())
+    }
+}
