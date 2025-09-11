@@ -1281,6 +1281,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             grumpkin_info.old_accumulators.chunks_exact(2),
             recursion_scalars.iter(),
             vk_scalars_vars.chunks_exact(2),
+            output_base_vars.chunks_exact(2),
         )
         .map(
             |(
@@ -1291,6 +1292,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 grumpkin_accumulators,
                 recursion_scalars,
                 vk_vars,
+                bn254_proofs,
             )| {
                 let recursion_scalars_prepped = recursion_scalars
                     .iter()
@@ -1364,6 +1366,14 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     Ok(vec![])
                 }?;
 
+                let bn254_pfs = bn254_proofs
+                    .iter()
+                    .map(|bn254_proof| bn254_proof.convert_to_vec_for_transcript::<Bn254, Fr254>(circuit))
+                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<Variable>>();
+
                 let bn254_acc = [
                     bn254_accumulator.comm.x,
                     bn254_accumulator.comm.y,
@@ -1416,6 +1426,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 let data_vars = [
                     isp_prepped,
                     vk_ids,
+                    bn254_pfs,
                     recursion_scalars_prepped,
                     grumpkin_accs,
                     bn254_acc,
