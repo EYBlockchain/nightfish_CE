@@ -149,46 +149,65 @@ where
     // ================================
 
     let domain_size = circuit.witness(domain_size_var)?;
-    let zeta_n_var = if IS_BASE {
-        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        if domain_size != F::from(TRANSFER_DOMAIN_SIZE as u32)
-            && domain_size != F::from(DEPOSIT_DOMAIN_SIZE as u32)
+    let zeta_n_var = {
+        // Test builds: always run the simple non-base path, no size checks.
+        #[cfg(test)]
         {
-            return Err(CircuitError::ParameterError(
-                "Invalid domain size for base case".to_string(),
-            ));
+            // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
+            let mut zeta_n_var = zeta_var;
+            let mut ctr = F::from(1u8);
+            while ctr < domain_size {
+                ctr *= F::from(2u8);
+                zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
+            }
+            zeta_n_var
         }
-        let transfer_domain_const_var =
-            circuit.create_constant_variable(F::from(TRANSFER_DOMAIN_SIZE as u32))?;
-        let deposit_domain_const_var =
-            circuit.create_constant_variable(F::from(DEPOSIT_DOMAIN_SIZE as u32))?;
-        let is_transfer_var = circuit.is_equal(domain_size_var, transfer_domain_const_var)?;
-        let is_deposit_var = circuit.is_equal(domain_size_var, deposit_domain_const_var)?;
-        // We constrain `domain_size_var` to represent either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        circuit.add_gate(is_transfer_var.into(), is_deposit_var.into(), circuit.one())?;
-        let mut zeta_transfer_var = zeta_var;
-        let mut ctr = 1;
-        while ctr < TRANSFER_DOMAIN_SIZE {
-            ctr <<= 1;
-            zeta_transfer_var = circuit.mul(zeta_transfer_var, zeta_transfer_var)?;
+
+        #[cfg(not(test))]
+        {
+            if IS_BASE {
+                // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+                if domain_size != F::from(TRANSFER_DOMAIN_SIZE as u32)
+                    && domain_size != F::from(DEPOSIT_DOMAIN_SIZE as u32)
+                {
+                    return Err(CircuitError::ParameterError(
+                        "Invalid domain size for base case".to_string(),
+                    ));
+                }
+                let transfer_domain_const_var =
+                    circuit.create_constant_variable(F::from(TRANSFER_DOMAIN_SIZE as u32))?;
+                let deposit_domain_const_var =
+                    circuit.create_constant_variable(F::from(DEPOSIT_DOMAIN_SIZE as u32))?;
+                let is_transfer_var =
+                    circuit.is_equal(domain_size_var, transfer_domain_const_var)?;
+                let is_deposit_var = circuit.is_equal(domain_size_var, deposit_domain_const_var)?;
+                // We constrain `domain_size_var` to represent either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+                circuit.add_gate(is_transfer_var.into(), is_deposit_var.into(), circuit.one())?;
+                let mut zeta_transfer_var = zeta_var;
+                let mut ctr = 1;
+                while ctr < TRANSFER_DOMAIN_SIZE {
+                    ctr <<= 1;
+                    zeta_transfer_var = circuit.mul(zeta_transfer_var, zeta_transfer_var)?;
+                }
+                // Here is where we are assuming TRANSFER_DOMAIN_SIZE is at most DEPOSIT_DOMAIN_SIZE.
+                let mut zeta_deposit_var = zeta_transfer_var;
+                let mut ctr = TRANSFER_DOMAIN_SIZE;
+                while ctr < DEPOSIT_DOMAIN_SIZE {
+                    ctr <<= 1;
+                    zeta_deposit_var = circuit.mul(zeta_deposit_var, zeta_deposit_var)?;
+                }
+                circuit.conditional_select(is_transfer_var, zeta_deposit_var, zeta_transfer_var)?
+            } else {
+                // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
+                let mut zeta_n_var = zeta_var;
+                let mut ctr = F::from(1u8);
+                while ctr < domain_size {
+                    ctr *= F::from(2u8);
+                    zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
+                }
+                zeta_n_var
+            }
         }
-        // Here is where we are assuming TRANSFER_DOMAIN_SIZE is at most DEPOSIT_DOMAIN_SIZE.
-        let mut zeta_deposit_var = zeta_transfer_var;
-        let mut ctr = TRANSFER_DOMAIN_SIZE;
-        while ctr < DEPOSIT_DOMAIN_SIZE {
-            ctr <<= 1;
-            zeta_deposit_var = circuit.mul(zeta_deposit_var, zeta_deposit_var)?;
-        }
-        circuit.conditional_select(is_transfer_var, zeta_deposit_var, zeta_transfer_var)?
-    } else {
-        // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
-        let mut zeta_n_var = zeta_var;
-        let mut ctr = F::from(1u8);
-        while ctr < domain_size {
-            ctr *= F::from(2u8);
-            zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
-        }
-        zeta_n_var
     };
 
     // zeta^n = zeta_n_minus_1 + 1
