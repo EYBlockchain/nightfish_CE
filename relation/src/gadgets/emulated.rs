@@ -297,6 +297,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
                 let carry_val = val / (BigUint::from(2u32).pow(power));
                 carry_var = self.create_variable(F::from(carry_val))?;
 
+                // We do the appropriate range checks on `lower_var` and `carry_var`.
+                self.enforce_in_range(lower_var, power as usize)?;
+                self.enforce_in_range(carry_var, E::B - power as usize)?;
+
                 // `lower_var` and `carry_var` must decompose the `Variable` that straddles two `field_limb_vars`.
                 self.lin_comb_gate(
                     &[F::one(), F::from(2u8).pow([power as u64])],
@@ -1367,53 +1371,6 @@ mod tests {
         assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
     }
 
-    /*#[test]
-    fn test_validity_check() {
-        test_validity_check_helper::<Fq377, Fr254>();
-        test_validity_check_helper::<Fr254, Fq254>();
-        test_validity_check_helper::<Fq254, Fr254>();
-        test_validity_check_helper::<Fr377, Fq377>();
-        test_validity_check_helper::<Fr381, Fq381>();
-        test_validity_check_helper::<Fr761, Fq761>();
-    }
-
-    fn test_validity_check_helper<E, F>()
-    where
-        E: EmulationConfig<F>,
-        F: PrimeField,
-    {
-        let rng = &mut test_rng();
-        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
-        // Randomly generated emulated variables should all pass the validity check
-        for _ in 0..20 {
-            let val = E::rand(rng);
-            let emu_var = circuit.create_emulated_variable(val).unwrap();
-            circuit.enforce_valid_emulated_var(&emu_var).unwrap();
-        }
-        circuit.check_circuit_satisfiability(&[]).unwrap();
-
-        // `E::MODULUS - 1` should pass the validity check but adding
-        // something small and non-zero to any limb should not pass
-        let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
-        let minus_one = -E::one();
-        let emu_var = circuit.create_emulated_variable(minus_one).unwrap();
-        circuit.enforce_valid_emulated_var(&emu_var).unwrap();
-        circuit.check_circuit_satisfiability(&[]).unwrap();
-        for _ in 0..20 {
-            let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
-
-            let index = usize::rand(rng) % E::NUM_LIMBS;
-            let rand_u8 = u8::rand(rng);
-            let mut emu_var = circuit.create_emulated_variable(minus_one).unwrap();
-            emu_var.0[index] = circuit
-                .add_constant(emu_var.0[index], &F::from(rand_u8 + 1))
-                .unwrap();
-
-            circuit.enforce_valid_emulated_var(&emu_var).unwrap();
-            assert!(circuit.check_circuit_satisfiability(&[]).is_err());
-        }
-    }*/
-
     #[test]
     fn test_emulated_add() {
         test_emulated_add_helper::<Fq377, Fr254>();
@@ -1722,9 +1679,9 @@ mod tests {
         assert!(circuit.emulated_unpack(&b, 9).is_err());
     }
 
-    // Doesn't work with the Fq377, Fr254 configuration. Maybe try to fix this in the future
     #[test]
     fn test_emulated_decomposition() -> Result<(), CircuitError> {
+        test_emulated_decomposition_helper::<Fq377, Fr254>()?;
         test_emulated_decomposition_helper::<Fr254, Fq254>()?;
         test_emulated_decomposition_helper::<Fq254, Fr254>()?;
         test_emulated_decomposition_helper::<Fr377, Fq377>()?;
@@ -1763,9 +1720,9 @@ mod tests {
         Ok(())
     }
 
-    // Doesn't work with the Fq377, Fr254 configuration. Maybe try to fix this in the future
     #[test]
     fn test_convert_to_transcript() -> Result<(), CircuitError> {
+        test_convert_to_transcript_helper::<Fq377, Fr254>()?;
         test_convert_to_transcript_helper::<Fr254, Fq254>()?;
         test_convert_to_transcript_helper::<Fq254, Fr254>()?;
         test_convert_to_transcript_helper::<Fr377, Fq377>()?;

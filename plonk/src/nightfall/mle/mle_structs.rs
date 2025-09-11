@@ -6,7 +6,7 @@ use ark_poly::DenseMultilinearExtension;
 
 use crate::{
     errors::PlonkError,
-    nightfall::ipa_structs::VK,
+    nightfall::ipa_structs::{VerificationKeyId, VK},
     transcript::{Transcript, TranscriptVisitor},
 };
 use ark_ff::{BigInteger, PrimeField};
@@ -159,6 +159,10 @@ where
         hasher.update(&bytes);
         let buf = hasher.finalize();
         PCS::Evaluation::from_le_bytes_mod_order(&buf[..bytes_to_take as usize])
+    }
+
+    fn id(&self) -> Option<VerificationKeyId> {
+        None
     }
 
     fn is_merged(&self) -> bool {

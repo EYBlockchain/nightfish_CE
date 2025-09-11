@@ -27,6 +27,7 @@ use jf_relation::{
     gadgets::ecc::HasTEForm,
 };
 use jf_utils::to_bytes;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use sha3::{Digest, Keccak256};
 use tagged_base64::tagged;
 
@@ -195,6 +196,10 @@ where
 
     /// Plookup verifying key, None if not support lookup.
     pub(crate) plookup_vk: Option<PlookupVerifyingKey<PCS>>,
+
+    /// Used for client verification keys to distinguish between
+    /// transfer/withdrawal and deposit.
+    pub(crate) id: Option<VerificationKeyId>,
 }
 /// APIs for generic plonk verifying key.
 pub trait VK<PCS: PolynomialCommitmentScheme> {
@@ -219,6 +224,9 @@ pub trait VK<PCS: PolynomialCommitmentScheme> {
 
     /// Plookup verifying key, None if not support lookup.
     fn plookup_vk(&self) -> Option<&PlookupVerifyingKey<PCS>>;
+
+    /// Get the id of the verifying key.
+    fn id(&self) -> Option<VerificationKeyId>;
 
     /// Get the hash of the verifying key.
     fn hash(&self) -> PCS::Evaluation;
@@ -255,6 +263,10 @@ where
 
     fn plookup_vk(&self) -> Option<&PlookupVerifyingKey<PCS>> {
         self.plookup_vk.as_ref()
+    }
+
+    fn id(&self) -> Option<VerificationKeyId> {
+        self.id
     }
 
     fn hash(&self) -> <PCS as PolynomialCommitmentScheme>::Evaluation {
@@ -307,7 +319,15 @@ where
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
 {
     fn append_to_transcript<T: Transcript>(&self, transcript: &mut T) -> Result<(), PlonkError> {
-        transcript.push_message(b"verifying key", &<Self as VK<PCS>>::hash(self))?;
+        let id_field = if let Some(id) = self.id {
+            Ok(PCS::Evaluation::from(id as u8))
+        } else {
+            Err(PlonkError::InvalidParameters(
+                "Verifying key has no id".to_string(),
+            ))
+        }?;
+
+        transcript.push_message(b"verifying key id", &id_field)?;
         Ok(())
     }
 }
@@ -334,6 +354,51 @@ where
     pub(crate) q_dom_sep_comm: PCS::Commitment,
 }
 
+/// An enum to identify different client verification keys.
+/// Client means transfer or withdrawal.
+/// These will not be used for merge verification keys.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
+pub enum VerificationKeyId {
+    /// Transfer or Withdrawal
+    Client = 0,
+    /// Deposit
+    Deposit = 1,
+}
+
+// --- Serialize the enum as exactly one byte ---
+impl CanonicalSerialize for VerificationKeyId {
+    fn serialize_with_mode<W: Write>(
+        &self,
+        mut writer: W,
+        compress: Compress,
+    ) -> Result<(), SerializationError> {
+        let b: u8 = (*self).into();
+        b.serialize_with_mode(&mut writer, compress)
+    }
+
+    fn serialized_size(&self, _compress: Compress) -> usize {
+        1
+    }
+}
+
+impl CanonicalDeserialize for VerificationKeyId {
+    fn deserialize_with_mode<R: Read>(
+        mut reader: R,
+        compress: Compress,
+        validate: Validate,
+    ) -> Result<Self, SerializationError> {
+        let b = u8::deserialize_with_mode(&mut reader, compress, validate)?;
+        VerificationKeyId::try_from(b).map_err(|_| SerializationError::InvalidData)
+    }
+}
+
+impl Valid for VerificationKeyId {
+    fn check(&self) -> Result<(), SerializationError> {
+        Ok(())
+    }
+}
+
 impl<PCS> VerifyingKey<PCS>
 where
     PCS: PolynomialCommitmentScheme,
@@ -351,6 +416,7 @@ where
             open_key: <PCS::SRS as StructuredReferenceString>::VerifierParam::default(),
             is_merged: false,
             plookup_vk: None,
+            id: None,
         }
     }
 
@@ -467,6 +533,7 @@ impl<PCS: PolynomialCommitmentScheme> ScalarsAndBases<PCS> {
         &self.scalars
     }
 
+    #[allow(dead_code)]
     /// Returns the bases as a slice.
     pub(crate) fn bases(&self) -> &[PCS::Commitment] {
         &self.bases
@@ -562,28 +629,29 @@ mod test {
     }
     #[test]
     fn test_serde_kzg() -> Result<(), PlonkError> {
-        // merlin transcripts
-        test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-        test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-        test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-        test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(PlonkType::UltraPlonk)?;
-
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(PlonkType::TurboPlonk)?;
-        test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(PlonkType::UltraPlonk)?;
-
-        // Solidity-friendly keccak256 transcript
-        test_serde_helper::<Bls12_381, Fq381, _, SolidityTranscript>(PlonkType::TurboPlonk)?;
+        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip([
+            None,
+            Some(VerificationKeyId::Client),
+            Some(VerificationKeyId::Deposit),
+        ]) {
+            // merlin transcripts
+            test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(*plonk_type, vk_id)?;
+            // rescue transcripts
+            test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(*plonk_type, vk_id)?;
+            // Solidity-friendly keccak256 transcript
+            test_serde_helper::<Bls12_381, Fq381, _, SolidityTranscript>(*plonk_type, vk_id)?;
+        }
 
         Ok(())
     }
 
-    fn test_serde_helper<E, F, P, T>(plonk_type: PlonkType) -> Result<(), PlonkError>
+    fn test_serde_helper<E, F, P, T>(
+        plonk_type: PlonkType,
+        vk_id: Option<VerificationKeyId>,
+    ) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
         F: RescueParameter + PrimeField,
@@ -598,7 +666,7 @@ mod test {
         let _max_degree = 80;
         let srs =
             FFTPlonk::<UnivariateKzgPCS<E>>::universal_setup_for_testing(srs_size, rng).unwrap();
-        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, &circuit).unwrap();
+        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit).unwrap();
         let proof = FFTPlonk::<UnivariateKzgPCS<E>>::prove::<_, _, T>(rng, &circuit, &pk, None)?;
         let public_inputs = circuit.public_input().unwrap();
         let public_inputs1 = public_inputs.as_slice();

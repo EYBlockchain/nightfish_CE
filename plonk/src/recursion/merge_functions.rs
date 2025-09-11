@@ -8,7 +8,7 @@ use ark_ec::short_weierstrass::Affine;
 use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-use ark_std::{cfg_iter, string::ToString, sync::Arc, vec, vec::Vec};
+use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
 use jf_primitives::{
     circuit::{rescue::RescueNativeGadget, sha256::Sha256HashGadget},
     pcs::{
@@ -17,32 +17,20 @@ use jf_primitives::{
     },
 };
 
-use itertools::izip;
-use jf_relation::{
-    errors::CircuitError,
-    gadgets::{
-        ecc::{
-            EmulMultiScalarMultiplicationCircuit, MultiScalarMultiplicationCircuit, Point,
-            PointVariable,
-        },
-        EmulatedVariable,
-    },
-    Circuit, PlonkCircuit, Variable,
-};
-use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
-use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
-use rayon::prelude::*;
-
 use crate::{
     errors::PlonkError,
     nightfall::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
         circuit::{
-            plonk_partial_verifier::{MLEVerifyingKeyVar, SAMLEProofVar},
+            plonk_partial_verifier::{
+                Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar,
+                ProofScalarsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyNativeScalarsVar,
+                VerifyingKeyScalarsAndBasesVar,
+            },
             verify_zeromorph::verify_zeromorph_circuit,
         },
-        ipa_structs::{VerifyingKey, VK},
-        ipa_verifier::{FFTVerifier, PcsInfo},
+        ipa_structs::VerifyingKey,
+        ipa_verifier::FFTVerifier,
         mle::{
             mle_structs::{MLEProvingKey, MLEVerifyingKey},
             zeromorph::Zeromorph,
@@ -57,6 +45,20 @@ use crate::{
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript, Transcript},
 };
+use itertools::izip;
+use jf_relation::{
+    errors::CircuitError,
+    gadgets::{
+        ecc::{
+            EmulMultiScalarMultiplicationCircuit, MultiScalarMultiplicationCircuit, Point,
+            PointVariable,
+        },
+        EmulatedVariable,
+    },
+    Circuit, PlonkCircuit, Variable,
+};
+use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
+use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
 
 use super::circuits::{
     challenges::MLEProofChallenges,
@@ -384,6 +386,7 @@ impl Bn254CircuitOutput {
 pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     bn254info: &Bn254RecursiveInfo,
     vk_bn254: &[VerifyingKey<Kzg>; 2],
+    client_vk_list: Option<&Vec<VerifyingKey<Kzg>>>,
     vk_grumpkin: &MLEVerifyingKey<ZeromorphPCS>,
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
@@ -391,33 +394,75 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
-    if !IS_FIRST_ROUND && (vk_bn254[0].hash() != vk_bn254[1].hash()) {
-        return Err(PlonkError::InvalidParameters(
-            "Can only have differing verification keys in the first round".to_string(),
-        ));
-    }
-    let outputs = &bn254info.bn254_outputs;
-    // First things first we prepare the relevant info from each of the proofs.
-    let pcs_infos = cfg_iter!(outputs)
-        .zip(cfg_iter!(vk_bn254))
+    // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
+    let vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
+        // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
+        // to correspond to be one of `client_vk_list`.
+        let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
+            "client_vk_list must be non-None in base case".to_string(),
+        ))?;
+        vk_bn254
+            .iter()
+            .map(|vk| {
+                let vk_var = VerifyingKeyScalarsAndBasesVar::new(circuit, vk)?;
+                vk_var.cond_select_equal_bases(circuit, vk_list)?;
+                Ok(vk_var)
+            })
+            .collect::<Result<Vec<VerifyingKeyScalarsAndBasesVar<Kzg>>, CircuitError>>()?
+            .try_into()
+            .map_err(|_| PlonkError::InvalidParameters("vk_bn254 must have length 2".to_string()))
+    } else {
+        if client_vk_list.is_some() {
+            return Err(PlonkError::InvalidParameters(
+                "client_vk_list must be None in non-base case".to_string(),
+            ));
+        }
+        if vk_bn254[0] != vk_bn254[1] {
+            return Err(PlonkError::InvalidParameters(
+                "vk_bn254's must be the same in non-base case".to_string(),
+            ));
+        }
+        // If this is not the first round, we constrain the `VerifyingKeyBasesVar`s to be constant.
+        let vk_var = VerifyingKeyScalarsAndBasesVar::new_constant(circuit, &vk_bn254[0])?;
+        Ok([vk_var.clone(), vk_var])
+    }?;
+
+    // We store the scalars and bases from the proofs into the relevant struct.
+    // In particular, the bases are stored as `Variable`s in the circuit, as we
+    // need to reuse them later in the circuit and in the next circuit.
+    // We also prepare the relevant info from each of the proofs.
+    let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = bn254info.bn254_outputs.iter()
+        .zip(vk_bases_var.iter())
         .map(|(output, vk)| {
             let verifier = Verifier::new(vk.domain_size)?;
-            verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
+            verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                 vk,
                 &[output.pi_hash],
-                &output.proof,
+                output,
                 &None,
+                circuit,
             )
         })
-        .collect::<Result<Vec<PcsInfo<Kzg>>, PlonkError>>()?;
+        .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
+        .try_into()
+        .map_err(|_| PlonkError::InvalidParameters("bn254_outputs must have length 2".to_string()))?;
+
+    let output_vars = output_pcs_info_var_pair
+        .iter()
+        .map(|(output, _)| output.clone())
+        .collect::<Vec<Bn254OutputScalarsAndBasesVar>>();
+    let pcs_info_vars = output_pcs_info_var_pair
+        .iter()
+        .map(|(_, pcs_info)| pcs_info.clone())
+        .collect::<Vec<PcsInfoBasesVar<Kzg>>>();
 
     // Now we merge the transcripts from the two proofs. we do this to avoid having to re-append all the commitments to a new transcript.
     // TODO:  Double check that this still provides adequate security.
 
     // Unwrap is safe here because we checked tht the slice was non-empty at the beginning.
-    let transcript = &mut outputs[0].transcript.clone();
+    let transcript = &mut output_vars[0].transcript.clone();
 
-    transcript.merge(&outputs[1].transcript)?;
+    transcript.merge(&output_vars[1].transcript)?;
 
     // Append the old bn254 accumulators to the transcript.
     bn254info.old_accumulators.iter().try_for_each(|acc| {
@@ -432,31 +477,54 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .take(6)
         .collect::<Vec<Fr254>>();
 
-    let (scalars, mut bases) = if !IS_FIRST_ROUND {
-        combine_fft_proof_scalars(&pcs_infos, &r_powers)
+    let (scalars, mut instance_base_vars) = if !IS_FIRST_ROUND {
+        combine_fft_proof_scalars(&pcs_info_vars, &r_powers)
     } else {
-        combine_fft_proof_scalars_round_one(&pcs_infos, &r_powers)
+        combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers)
     };
 
-    // Append the extra accumulator commitments to `bases` for the atomic accumulation.
-    bases.extend_from_slice(
-        &bn254info
+    // Construct variables representing the old accumulators.
+    // In the case of the first round, these will be constrined to be constant.
+    let old_accumulators_commitments_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
+        bn254info
             .old_accumulators
             .iter()
-            .map(|acc| acc.comm)
-            .collect::<Vec<_>>(),
-    );
+            .map(|a| circuit.create_constant_point_variable(&Point::<Fq254>::from(a.comm)))
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    } else {
+        bn254info
+            .old_accumulators
+            .iter()
+            .map(|a| circuit.create_point_variable(&Point::<Fq254>::from(a.comm)))
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    }?;
 
-    let proof_bases = outputs
+    let old_accumulators_proof_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
+        bn254info
+            .old_accumulators
+            .iter()
+            .map(|a| {
+                circuit.create_constant_point_variable(&Point::<Fq254>::from(a.opening_proof.proof))
+            })
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    } else {
+        bn254info
+            .old_accumulators
+            .iter()
+            .map(|a| circuit.create_point_variable(&Point::<Fq254>::from(a.opening_proof.proof)))
+            .collect::<Result<Vec<PointVariable>, CircuitError>>()
+    }?;
+
+    // Append the extra accumulator point variables to `instance_base_vars`
+    // and `proof_base_vars` ready for the atomic accumulation.
+    instance_base_vars.extend_from_slice(&old_accumulators_commitments_vars);
+
+    let mut proof_base_vars = output_vars
         .iter()
-        .map(|output| output.proof.opening_proof.proof)
-        .chain(
-            bn254info
-                .old_accumulators
-                .iter()
-                .map(|acc| acc.opening_proof.proof),
-        )
-        .collect::<Vec<_>>();
+        .map(|output_var| output_var.proof.opening_proof)
+        .collect::<Vec<PointVariable>>();
+    proof_base_vars.extend(old_accumulators_proof_vars.clone());
+
     // Now perform the MSM for the accumulation, we only do this in the circuit as the procedure for proving and verifying is identical.
     let scalar_vars = scalars
         .iter()
@@ -467,15 +535,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .map(|s| circuit.create_variable(fr_to_fq::<Fq254, BnConfig>(s)))
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
     let instance_scalar_vars = [scalar_vars.as_slice(), &proof_scalar_vars[2..]].concat();
-
-    let instance_base_vars = bases
-        .iter()
-        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
-    let proof_base_vars = proof_bases
-        .iter()
-        .map(|base| circuit.create_point_variable(&Point::<Fq254>::from(*base)))
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
 
     let acc_instance = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
         circuit,
@@ -553,46 +612,14 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_acc_vars = bn254info
-            .old_accumulators
-            .chunks_exact(2)
-            .map(|acc_pair| {
-                Ok(acc_pair
-                    .iter()
-                    .map(|acc| {
-                        let x = bytes_to_field_elements::<_, Fq254>(
-                            acc.comm.x.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let y = bytes_to_field_elements::<_, Fq254>(
-                            acc.comm.y.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let proof_x = bytes_to_field_elements::<_, Fq254>(
-                            acc.opening_proof.proof.x.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        let proof_y = bytes_to_field_elements::<_, Fq254>(
-                            acc.opening_proof.proof.y.into_bigint().to_bytes_le(),
-                        )[1..]
-                            .to_vec();
-
-                        x.into_iter()
-                            .chain(y)
-                            .chain(proof_x)
-                            .chain(proof_y)
-                            .map(|x| circuit.create_variable(x))
-                            .collect::<Result<Vec<Variable>, CircuitError>>()
-                    })
-                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Variable>>())
-            })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+        let old_acc_vars = old_accumulators_commitments_vars
+            .into_iter()
+            .zip(old_accumulators_proof_vars)
+            .map(|(comm, proof)| [comm.get_x(), comm.get_y(), proof.get_x(), proof.get_y()])
+            .collect::<Vec<[Variable; 4]>>()
+            .chunks(2)
+            .map(|c| c.concat())
+            .collect::<Vec<Vec<Variable>>>();
 
         let forwarded_accs: Vec<Vec<Variable>> = bn254info
             .forwarded_acumulators
@@ -691,6 +718,15 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         specific_pi_vars
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
+
+        // We now make public the `PointVariable`s for both of the bn254 proofs
+        for output_var in output_vars.iter() {
+            let point_vars = output_var.to_vec();
+            for point_var in point_vars.iter() {
+                circuit.set_variable_public(point_var.get_x())?;
+                circuit.set_variable_public(point_var.get_y())?;
+            }
+        }
 
         instance_scalar_vars
             .iter()
@@ -825,6 +861,37 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
 
+        // We construct a `Variable` that encodes the verification keys used in the client proofs.
+        // This is done to ensure that the verification keys are public inputs to the circuit.
+        // Specifically, we construct id_0 + 2 * id_1 where id_i is the index of vk_bn254[i].
+        let [id_0, id_1] = vk_bases_var
+            .iter()
+            .map(|vk_var| {
+                vk_var.id.ok_or(PlonkError::InvalidParameters(
+                    "vk_bn254's must have non-None ID in base case".to_string(),
+                ))
+            })
+            .collect::<Result<Vec<usize>, PlonkError>>()?
+            .try_into()
+            .map_err(|_| {
+                CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
+            })?;
+
+        let vk_id_var = circuit.lc(
+            &[id_0, id_1, circuit.zero(), circuit.zero()],
+            &[Fq254::one(), Fq254::from(2u8), Fq254::zero(), Fq254::zero()],
+        )?;
+        circuit.set_variable_public(vk_id_var)?;
+
+        // We now make public the `PointVariable`s for both of the bn254 proofs
+        for output_var in output_vars.iter() {
+            let point_vars = output_var.to_vec();
+            for point_var in point_vars.iter() {
+                circuit.set_variable_public(point_var.get_x())?;
+                circuit.set_variable_public(point_var.get_y())?;
+            }
+        }
+
         instance_scalar_vars
             .iter()
             .try_for_each(|var| circuit.set_variable_public(*var))?;
@@ -876,31 +943,34 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     }
 }
 
-type CombineScalars = (Vec<Fr254>, Vec<Affine<BnConfig>>);
+type CombineScalars = (Vec<Fr254>, Vec<PointVariable>);
 
 /// This function takes in a slice of [`PcsInfo`] structs and combines the scalars to minimize the number of bases used in the MSM in the next circuit.
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> CombineScalars {
+fn combine_fft_proof_scalars(
+    pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
+    r_powers: &[Fr254],
+) -> CombineScalars {
     let mut scalars_list: Vec<Vec<Fr254>> = vec![];
     let mut comms_list = vec![];
     let mut opening_proofs = vec![];
 
-    for pcs_info in pcs_infos.iter() {
-        let mut real_scalars = pcs_info.comm_scalars_and_bases.scalars[..47].to_vec();
+    for pcs_info_var in pcs_info_vars.iter() {
+        let mut real_scalars = pcs_info_var.comm_scalars_and_bases.scalars[..47].to_vec();
 
-        real_scalars[10] += pcs_info.comm_scalars_and_bases.scalars[22];
-        real_scalars[11] += pcs_info.comm_scalars_and_bases.scalars[48];
-        real_scalars[12] += pcs_info.comm_scalars_and_bases.scalars[47];
+        real_scalars[10] += pcs_info_var.comm_scalars_and_bases.scalars[22];
+        real_scalars[11] += pcs_info_var.comm_scalars_and_bases.scalars[48];
+        real_scalars[12] += pcs_info_var.comm_scalars_and_bases.scalars[47];
 
         let _ = real_scalars.remove(22);
-        let mut comms = pcs_info.comm_scalars_and_bases.bases()[..47].to_vec();
+        let mut comms = pcs_info_var.comm_scalars_and_bases.bases()[..47].to_vec();
         let _ = comms.remove(22);
 
         scalars_list.push(real_scalars);
         comms_list.push(comms);
-        opening_proofs.push(pcs_info.opening_proof.proof);
+        opening_proofs.push(pcs_info_var.opening_proof);
     }
 
     // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
@@ -945,8 +1015,8 @@ fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> 
 
             scalars.extend_from_slice(&appended_scalars);
         }
-        scalars.push(pcs_infos[0].u);
-        scalars.push(pcs_infos[1].u * r_powers[1]);
+        scalars.push(pcs_info_vars[0].u);
+        scalars.push(pcs_info_vars[1].u * r_powers[1]);
         // With the bases we remove the pi_bases and g_base now since this list will only be used to tell the circuit which variable bases are being used.
         let mut comms = comms_list.first().cloned().unwrap();
 
@@ -972,27 +1042,27 @@ fn combine_fft_proof_scalars(pcs_infos: &[PcsInfo<Kzg>], r_powers: &[Fr254]) -> 
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
 fn combine_fft_proof_scalars_round_one(
-    pcs_infos: &[PcsInfo<Kzg>],
+    pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
     r_powers: &[Fr254],
 ) -> CombineScalars {
     let mut scalars_list: Vec<Vec<Fr254>> = vec![];
     let mut comms_list = vec![];
     let mut opening_proofs = vec![];
 
-    for pcs_info in pcs_infos.iter() {
-        let mut real_scalars = pcs_info.comm_scalars_and_bases.scalars[..47].to_vec();
+    for pcs_info_var in pcs_info_vars.iter() {
+        let mut real_scalars = pcs_info_var.comm_scalars_and_bases.scalars[..47].to_vec();
 
-        real_scalars[10] += pcs_info.comm_scalars_and_bases.scalars[22];
-        real_scalars[11] += pcs_info.comm_scalars_and_bases.scalars[48];
-        real_scalars[12] += pcs_info.comm_scalars_and_bases.scalars[47];
+        real_scalars[10] += pcs_info_var.comm_scalars_and_bases.scalars[22];
+        real_scalars[11] += pcs_info_var.comm_scalars_and_bases.scalars[48];
+        real_scalars[12] += pcs_info_var.comm_scalars_and_bases.scalars[47];
 
         let _ = real_scalars.remove(22);
-        let mut comms = pcs_info.comm_scalars_and_bases.bases()[..47].to_vec();
+        let mut comms = pcs_info_var.comm_scalars_and_bases.bases()[..47].to_vec();
         let _ = comms.remove(22);
 
         scalars_list.push(real_scalars);
         comms_list.push(comms);
-        opening_proofs.push(pcs_info.opening_proof.proof);
+        opening_proofs.push(pcs_info_var.opening_proof);
     }
 
     // Now we iterate through the lists and combine relevant scalars, we retain the selector, permutation scalars in the first list
@@ -1011,8 +1081,8 @@ fn combine_fft_proof_scalars_round_one(
         for list in scalars_list.iter() {
             scalars.extend_from_slice(list);
         }
-        scalars.push(pcs_infos[0].u);
-        scalars.push(pcs_infos[1].u * r_powers[1]);
+        scalars.push(pcs_info_vars[0].u);
+        scalars.push(pcs_info_vars[1].u * r_powers[1]);
 
         // With the bases we remove the pi_bases and g_base now since this list will only be used to tell the circuit which variable bases are being used.
         let mut comms = comms_list.first().cloned().unwrap();
@@ -1045,6 +1115,7 @@ fn combine_fft_proof_scalars_round_one(
 pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     grumpkin_info: &GrumpkinRecursiveInfo,
     bn254_vks: &[VerifyingKey<Kzg>; 4],
+    client_vk_list: Option<&Vec<VerifyingKey<Kzg>>>,
     pk_grumpkin: &MLEProvingKey<ZeromorphPCS>,
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
@@ -1052,27 +1123,141 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Bn254CircuitOutput, PlonkError> {
+    // We first construct variables for the two bn254 proofs that we will be verifying.
+    let output_var_pairs = grumpkin_info
+        .bn254_outputs
+        .iter()
+        .map(|output| {
+            let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
+            let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
+            Ok((proof_evals, proof))
+        })
+        .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
+        )?;
+    let output_scalar_vars: [ProofScalarsVarNative; 4] = output_var_pairs
+        .clone()
+        .into_iter()
+        .map(|(output_scalar_var, _)| output_scalar_var)
+        .collect::<Vec<ProofScalarsVarNative>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+    let output_base_vars: [ProofVarNative<BnConfig>; 4] = output_var_pairs
+        .into_iter()
+        .map(|(_, output_base_var)| output_base_var)
+        .collect::<Vec<ProofVarNative<BnConfig>>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+
+    let vk_scalars_vars: [VerifyingKeyNativeScalarsVar; 4] = if IS_BASE {
+        // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
+        // to correspond to be one of `client_vk_list`.
+        let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
+            "client_vk_list must be non-None in base case".to_string(),
+        ))?;
+        bn254_vks
+            .iter()
+            .map(|vk| {
+                let vk_var = VerifyingKeyNativeScalarsVar::new(circuit, vk)?;
+                vk_var.cond_select_equal_scalars(circuit, vk_list)?;
+                Ok(vk_var)
+            })
+            .collect::<Result<Vec<VerifyingKeyNativeScalarsVar>, CircuitError>>()?
+            .try_into()
+            .map_err(|_| {
+                PlonkError::InvalidParameters("bn254_vks must have length 4".to_string())
+            })?
+    } else {
+        // In the non-base case we just create some dummy variables, as they will not be used.
+        [
+            VerifyingKeyNativeScalarsVar::default(),
+            VerifyingKeyNativeScalarsVar::default(),
+            VerifyingKeyNativeScalarsVar::default(),
+            VerifyingKeyNativeScalarsVar::default(),
+        ]
+    };
+
+    // We also need to know the maximum `domain_size` of the client proofs
+    let max_domain_size = if IS_BASE {
+        let vk_list = client_vk_list.ok_or(PlonkError::InvalidParameters(
+            "client_vk_list must be non-None in base case".to_string(),
+        ))?;
+        vk_list
+            .iter()
+            .map(|vk| vk.domain_size)
+            .max()
+            .ok_or(PlonkError::InvalidParameters(
+                "client_vk_list must be non-empty in base case".to_string(),
+            ))?
+    } else {
+        // In the non-base case we just use 0, as it will not be used.
+        0
+    };
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = if !IS_BASE {
+        if bn254_vks[0] != bn254_vks[1]
+            || bn254_vks[0] != bn254_vks[2]
+            || bn254_vks[0] != bn254_vks[3]
+        {
+            return Err(PlonkError::InvalidParameters(
+                "In non-base case all bn254 vks must be the same".to_string(),
+            ));
+        }
         izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4)
+            output_scalar_vars.chunks_exact(2),
+            output_base_vars.chunks_exact(2),
+            grumpkin_info.transcript_accumulators.chunks_exact(4),
         )
-        .map(|(outputs, old_accs)| {
-            calculate_recursion_scalars(outputs, old_accs, &bn254_vks[0], circuit)
+        .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
+            calculate_recursion_scalars(
+                scalar_vars_pair
+                    .try_into()
+                    .expect("scalar_vars_pair length verified by chunks_exact"),
+                base_vars_pair
+                    .try_into()
+                    .expect("base_vars_pair length verified by chunks_exact"),
+                &bn254_vks[0],
+                old_accs
+                    .try_into()
+                    .expect("old_accs length verified by chunks_exact"),
+                circuit,
+            )
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     } else {
         izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
+            output_scalar_vars.chunks_exact(2),
+            output_base_vars.chunks_exact(2),
+            vk_scalars_vars.chunks_exact(2),
             grumpkin_info.transcript_accumulators.chunks_exact(4),
-            bn254_vks.chunks_exact(2),
         )
-        .map(|(outputs, old_accs, vks)| {
-            calculate_recursion_scalars_base(outputs, old_accs, vks, circuit)
-        })
+        .map(
+            |(scalar_vars_pair, base_vars_pair, vk_vars_pair, old_accs)| {
+                calculate_recursion_scalars_base(
+                    scalar_vars_pair
+                        .try_into()
+                        .expect("scalar_vars_pair length verified by chunks_exact"),
+                    base_vars_pair
+                        .try_into()
+                        .expect("base_vars_pair length verified by chunks_exact"),
+                    vk_vars_pair
+                        .try_into()
+                        .expect("vk_vars_pair length verified by chunks_exact"),
+                    old_accs
+                        .try_into()
+                        .expect("old_accs length verified by chunks_exact"),
+                    max_domain_size,
+                    circuit,
+                )
+            },
+        )
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
 
@@ -1099,7 +1284,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             impl_specific_pi.iter(),
             grumpkin_info.forwarded_acumulators.iter(),
             grumpkin_info.old_accumulators.chunks_exact(2),
-            recursion_scalars.iter()
+            recursion_scalars.iter(),
+            vk_scalars_vars.chunks_exact(2),
+            output_base_vars.chunks_exact(2),
         )
         .map(
             |(
@@ -1109,6 +1296,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 bn254_accumulator,
                 grumpkin_accumulators,
                 recursion_scalars,
+                vk_vars,
+                bn254_proofs,
             )| {
                 let recursion_scalars_prepped = recursion_scalars
                     .iter()
@@ -1172,6 +1361,24 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     vec![]
                 };
 
+                let vk_ids = if IS_BASE {
+                    let vk_id = circuit.lc(
+                        &[vk_vars[0].id, vk_vars[1].id, circuit.zero(), circuit.zero()],
+                        &[Fr254::one(), Fr254::from(2u8), Fr254::zero(), Fr254::zero()],
+                    )?;
+                    Ok::<_, CircuitError>(convert_to_hash_form(circuit, vk_id)?.to_vec())
+                } else {
+                    Ok(vec![])
+                }?;
+
+                let bn254_pfs = bn254_proofs
+                    .iter()
+                    .map(|bn254_proof| bn254_proof.convert_to_vec_for_transcript::<Bn254, Fr254>(circuit))
+                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<Variable>>();
+
                 let bn254_acc = [
                     bn254_accumulator.comm.x,
                     bn254_accumulator.comm.y,
@@ -1223,6 +1430,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 
                 let data_vars = [
                     isp_prepped,
+                    vk_ids,
+                    bn254_pfs,
                     recursion_scalars_prepped,
                     grumpkin_accs,
                     bn254_acc,
@@ -1392,12 +1601,56 @@ pub fn decider_circuit(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
+    // We first construct variables for the two bn254 proofs that we will be verifying.
+    let output_var_pairs = grumpkin_info
+        .bn254_outputs
+        .iter()
+        .map(|output| {
+            let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
+            let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
+            Ok((proof_evals, proof))
+        })
+        .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
+        )?;
+    let output_scalar_vars: [ProofScalarsVarNative; 4] = output_var_pairs
+        .clone()
+        .into_iter()
+        .map(|(output_scalar_var, _)| output_scalar_var)
+        .collect::<Vec<ProofScalarsVarNative>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+    let output_base_vars: [ProofVarNative<BnConfig>; 4] = output_var_pairs
+        .into_iter()
+        .map(|(_, output_base_var)| output_base_var)
+        .collect::<Vec<ProofVarNative<BnConfig>>>()
+        .try_into()
+        .map_err(|_| {
+            PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
+        })?;
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = izip!(
-        grumpkin_info.bn254_outputs.chunks_exact(2),
-        grumpkin_info.transcript_accumulators.chunks_exact(4)
+        output_scalar_vars.chunks_exact(2),
+        output_base_vars.chunks_exact(2),
+        grumpkin_info.transcript_accumulators.chunks_exact(4),
     )
-    .map(|(outputs, old_accs)| calculate_recursion_scalars(outputs, old_accs, vk_bn254, circuit))
+    .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
+        calculate_recursion_scalars(
+            scalar_vars_pair
+                .try_into()
+                .expect("scalar_vars_pair length verified by chunks_exact"),
+            base_vars_pair
+                .try_into()
+                .expect("base_vars_pair length verified by chunks_exact"),
+            vk_bn254,
+            old_accs
+                .try_into()
+                .expect("old_accs length verified by chunks_exact"),
+            circuit,
+        )
+    })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     // Make a vk variable
@@ -1424,7 +1677,8 @@ pub fn decider_circuit(
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
-        recursion_scalars.iter()
+        recursion_scalars.iter(),
+        output_base_vars.chunks_exact(2),
     )
     .try_for_each(
         |(
@@ -1434,6 +1688,7 @@ pub fn decider_circuit(
             bn254_accumulator,
             grumpkin_accumulators,
             recursion_scalars,
+            bn254_proofs,
         )| {
             let recursion_scalars_prepped = recursion_scalars
                 .iter()
@@ -1493,6 +1748,16 @@ pub fn decider_circuit(
                 .flatten()
                 .collect::<Vec<Variable>>();
 
+            let bn254_pfs = bn254_proofs
+                .iter()
+                .map(|bn254_proof| {
+                    bn254_proof.convert_to_vec_for_transcript::<Bn254, Fr254>(circuit)
+                })
+                .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Variable>>();
+
             let bn254_acc = [
                 bn254_accumulator.comm.x,
                 bn254_accumulator.comm.y,
@@ -1544,6 +1809,7 @@ pub fn decider_circuit(
 
             let data_vars = [
                 isp_prepped,
+                bn254_pfs,
                 recursion_scalars_prepped,
                 grumpkin_accs,
                 bn254_acc,

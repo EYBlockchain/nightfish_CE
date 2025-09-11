@@ -410,7 +410,9 @@ where
             transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
         }
 
-        transcript.append_visitor(verify_key)?;
+        if verify_key.id.is_some() {
+            transcript.append_visitor(verify_key)?;
+        }
 
         for pub_input in public_inputs.iter() {
             transcript.push_message(b"public_input", pub_input)?;
@@ -716,7 +718,7 @@ type CommitsAndPoints<PCS> = Vec<(
     Vec<<PCS as PolynomialCommitmentScheme>::Evaluation>,
 )>;
 
-/// Private helper methods
+/// Helper methods
 impl<E, F, PCS> FFTVerifier<PCS>
 where
     E: HasTEForm<BaseField = F>,
@@ -881,7 +883,7 @@ where
     /// * pub_input[l/2+i]
     ///
     /// TODO: reuse the lagrange values
-    fn evaluate_pi_poly(
+    pub(crate) fn evaluate_pi_poly(
         &self,
         pub_input: &[E::ScalarField],
         z: &E::ScalarField,
@@ -930,7 +932,7 @@ where
         )
     }
 
-    fn lagrange_interpolate(
+    pub(crate) fn lagrange_interpolate(
         points: &[E::ScalarField],
         evals: &[E::ScalarField],
     ) -> Result<DensePolynomial<E::ScalarField>, PlonkError> {
