@@ -427,7 +427,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok([vk_var.clone(), vk_var])
     }?;
 
-    // Next we prepare the relevant info from each of the proofs.
+    // We store the scalars and bases from the proofs into the relevant struct.
+    // In particular, the bases are stored as `Variable`s in the circuit, as we
+    // need to reuse them later in the circuit and in the next circuit.
+    // We also prepare the relevant info from each of the proofs.
     let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = bn254info.bn254_outputs.iter()
         .zip(vk_bases_var.iter())
         .map(|(output, vk)| {
@@ -480,7 +483,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers)
     };
 
-    // Append the extra accumulator commitments to `bases` for the atomic accumulation.
+    // Construct variables representing the old accumulators.
+    // In the case of the first round, these will be constrined to be constant.
     let old_accumulators_commitments_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
         bn254info
             .old_accumulators
@@ -511,7 +515,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<PointVariable>, CircuitError>>()
     }?;
 
-    // Append the extra accumulator commitments to `bases` for the atomic accumulation.
+    // Append the extra accumulator point variables to `instance_base_vars`
+    // and `proof_base_vars` ready for the atomic accumulation.
     instance_base_vars.extend_from_slice(&old_accumulators_commitments_vars);
 
     let mut proof_base_vars = output_vars
