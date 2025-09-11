@@ -1674,7 +1674,8 @@ pub fn decider_circuit(
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
-        recursion_scalars.iter()
+        recursion_scalars.iter(),
+        output_base_vars.chunks_exact(2),
     )
     .try_for_each(
         |(
@@ -1684,6 +1685,7 @@ pub fn decider_circuit(
             bn254_accumulator,
             grumpkin_accumulators,
             recursion_scalars,
+            bn254_proofs,
         )| {
             let recursion_scalars_prepped = recursion_scalars
                 .iter()
@@ -1743,6 +1745,16 @@ pub fn decider_circuit(
                 .flatten()
                 .collect::<Vec<Variable>>();
 
+            let bn254_pfs = bn254_proofs
+                .iter()
+                .map(|bn254_proof| {
+                    bn254_proof.convert_to_vec_for_transcript::<Bn254, Fr254>(circuit)
+                })
+                .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Variable>>();
+
             let bn254_acc = [
                 bn254_accumulator.comm.x,
                 bn254_accumulator.comm.y,
@@ -1794,6 +1806,7 @@ pub fn decider_circuit(
 
             let data_vars = [
                 isp_prepped,
+                bn254_pfs,
                 recursion_scalars_prepped,
                 grumpkin_accs,
                 bn254_acc,
