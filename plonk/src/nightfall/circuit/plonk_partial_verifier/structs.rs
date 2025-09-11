@@ -16,7 +16,7 @@ use jf_primitives::{
 use jf_relation::{
     errors::CircuitError,
     gadgets::{
-        ecc::{EmulatedPointVariable, HasTEForm, Point, PointVariable},
+        ecc::{CircuitPoint, EmulatedPointVariable, HasTEForm, Point, PointVariable},
         EmulatedVariable, EmulationConfig,
     },
     Circuit, PlonkCircuit, Variable,
@@ -583,6 +583,52 @@ where
             q_comm,
             poly_evals,
         ))
+    }
+
+    /// Converts the `EmulatedPointVariable`s into a vector of `Variable`s that can be absorbed into a transcript.
+    pub fn convert_to_vec_for_transcript<E, F>(
+        &self,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<Vec<Variable>, CircuitError>
+    where
+        E: Pairing<G1Affine = Affine<P>, BaseField = P::BaseField, ScalarField = F>,
+        F: PrimeField + RescueParameter,
+        P: HasTEForm<ScalarField = F>,
+    {
+        let mut vars = vec![];
+        for wire_comm in &self.wire_commitments {
+            vars.extend_from_slice(&circuit.convert_for_transcript(&wire_comm.get_x())?);
+            vars.extend_from_slice(&circuit.convert_for_transcript(&wire_comm.get_y())?);
+        }
+
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.prod_perm_poly_comm.get_x())?);
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.prod_perm_poly_comm.get_y())?);
+
+        for quot_poly_comm in &self.split_quot_poly_comms {
+            vars.extend_from_slice(&circuit.convert_for_transcript(&quot_poly_comm.get_x())?);
+            vars.extend_from_slice(&circuit.convert_for_transcript(&quot_poly_comm.get_y())?);
+        }
+
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.opening_proof.get_x())?);
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.opening_proof.get_y())?);
+
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.q_comm.get_x())?);
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.q_comm.get_y())?);
+
+        if let Some(plookup_proof) = &self.plookup_proof {
+            for h_poly_comm in &plookup_proof.h_poly_comms {
+                vars.extend_from_slice(&circuit.convert_for_transcript(&h_poly_comm.get_x())?);
+                vars.extend_from_slice(&circuit.convert_for_transcript(&h_poly_comm.get_y())?);
+            }
+
+            vars.extend_from_slice(
+                &circuit.convert_for_transcript(&plookup_proof.prod_lookup_poly_comm.get_x())?,
+            );
+            vars.extend_from_slice(
+                &circuit.convert_for_transcript(&plookup_proof.prod_lookup_poly_comm.get_y())?,
+            );
+        }
+        Ok(vars)
     }
 }
 
