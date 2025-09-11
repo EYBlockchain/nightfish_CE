@@ -90,6 +90,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter, const I
         let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
         let gen_var = circuit.create_constant_variable(domain.group_gen)?;
         let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
+        circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
         (domain_size_var, gen_var, gen_inv_var)
     };
 
