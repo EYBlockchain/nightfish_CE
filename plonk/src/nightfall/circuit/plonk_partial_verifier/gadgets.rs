@@ -51,6 +51,49 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     // depend only on the layer of the recursion. We can, therefore, treat them as scalars.
 
     let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+    /*let (domain_size_var, gen_var, gen_inv_var) = if IS_BASE {
+        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+        if domain_size != TRANSFER_DOMAIN_SIZE && domain_size != DEPOSIT_DOMAIN_SIZE {
+            return Err(CircuitError::ParameterError(
+                "Invalid domain size for base case".to_string(),
+            ));
+        }
+        let is_transfer_var =
+            circuit.create_boolean_variable(domain_size == TRANSFER_DOMAIN_SIZE)?;
+        let transfer_domain = Radix2EvaluationDomain::<F>::new(TRANSFER_DOMAIN_SIZE).unwrap();
+        let deposit_domain = Radix2EvaluationDomain::<F>::new(DEPOSIT_DOMAIN_SIZE).unwrap();
+        let transfer_domain_size_var =
+            circuit.create_constant_variable(F::from(transfer_domain.size))?;
+        let deposit_domain_size_var =
+            circuit.create_constant_variable(F::from(deposit_domain.size))?;
+        let transfer_gen_var = circuit.create_constant_variable(transfer_domain.group_gen)?;
+        let deposit_gen_var = circuit.create_constant_variable(deposit_domain.group_gen)?;
+        let domain_size_var = circuit.conditional_select(
+            is_transfer_var,
+            deposit_domain_size_var,
+            transfer_domain_size_var,
+        )?;
+        let gen_var =
+            circuit.conditional_select(is_transfer_var, deposit_gen_var, transfer_gen_var)?;
+        let gen_inv = circuit.witness(gen_var)?.inverse().unwrap_or(F::zero());
+        let gen_inv_var = circuit.create_variable(gen_inv)?;
+        circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
+        (domain_size_var, gen_var, gen_inv_var)
+    } else {
+        // In the non-base case, `domain_size` cannot be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
+        if domain_size == TRANSFER_DOMAIN_SIZE || domain_size == DEPOSIT_DOMAIN_SIZE {
+            return Err(CircuitError::ParameterError(
+                "Invalid domain size for non-base case".to_string(),
+            ));
+        }
+        // In the non-base case, we treat `domain_size` as fixed.
+        let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+        let domain_size_var = circuit.create_constant_variable(F::from(domain.size))?;
+        let gen_var = circuit.create_constant_variable(domain.group_gen)?;
+        let gen_inv_var = circuit.create_constant_variable(domain.group_gen_inv)?;
+        circuit.mul_gate(gen_var, gen_inv_var, circuit.one())?;
+        (domain_size_var, gen_var, gen_inv_var)
+    };*/
 
     let evals = poly::evaluate_poly_helper_native(
         circuit,
