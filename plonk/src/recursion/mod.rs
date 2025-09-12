@@ -739,6 +739,15 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
+        let grumpkin_circuit = &decider_input[0].0;
+        let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+        current_grumpkin_pk = new_grumpkin_pk;
+
+        ark_std::println!(
+            "hash of second grumpkin merge vk: {}",
+            current_grumpkin_pk.verifying_key.hash()
+        );
+
         // Check the length is exactly 2
         if decider_input.len() != 2 {
             return Err(PlonkError::InvalidParameters(format!(
