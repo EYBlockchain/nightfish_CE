@@ -98,11 +98,6 @@ impl SplitAccumulationInfo {
         let mut transcript = outputs[0].transcript.clone();
         transcript.merge(&outputs[1].transcript)?;
 
-        accumulators.iter().try_for_each(|acc| {
-            transcript.append_curve_point(b"acc comm", &acc.comm)?;
-            transcript.push_message(b"acc eval", &acc.value)
-        })?;
-
         let batching_challenge: Fq254 =
             transcript.squeeze_scalar_challenge::<SWGrumpkin>(b"batching challenge")?;
         let bc_sq = batching_challenge * batching_challenge;

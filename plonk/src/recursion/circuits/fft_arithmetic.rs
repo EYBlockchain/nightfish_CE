@@ -1,10 +1,10 @@
 //! This module contains the code for performing scalar arithmetic to do with FFT Proofs.
 
-use ark_bn254::{g1::Config as BnConfig, Fq as Fq254, Fr as Fr254};
+use ark_bn254::{g1::Config as BnConfig, Fr as Fr254};
 
 use ark_std::{string::ToString, vec::Vec};
 
-use jf_relation::{errors::CircuitError, gadgets::ecc::Point, Circuit, PlonkCircuit, Variable};
+use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
 use crate::{
     nightfall::{
@@ -127,34 +127,12 @@ pub fn calculate_recursion_scalars(
         .map(|output| partial_verify_fft_plonk::<false>(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Now we transform the 'old_accs' into the relevant circuit variables
-    let acc_vars: Vec<(_, _, _, _)> = old_accs
-        .iter()
-        .map(|acc| {
-            let comm_point = Point::<Fq254>::from(acc.comm);
-            let emulated_comm = circuit.create_emulated_point_variable(&comm_point)?;
-            let point = circuit.create_variable(acc.point)?;
-            let eval = circuit.create_variable(acc.value)?;
-            let opening_proof_point = Point::<Fq254>::from(acc.opening_proof.proof);
-            let opening_proof = circuit.create_emulated_point_variable(&opening_proof_point)?;
-            Result::<_, CircuitError>::Ok((emulated_comm, point, eval, opening_proof))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     // Since we have checked that outputs is non-empty, we can safely unwrap the first element
     let mut transcript = pcs_infos[0].transcript.clone();
     pcs_infos
         .iter()
         .skip(1)
         .try_for_each(|pcs_info| transcript.merge(&pcs_info.transcript))?;
-
-    // Append old_accs to the transcript
-    acc_vars
-        .iter()
-        .try_for_each(|(comm, _, _, opening_proof)| {
-            transcript.append_point_variable(comm, circuit)?;
-            transcript.append_point_variable(opening_proof, circuit)
-        })?;
 
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
@@ -221,34 +199,12 @@ pub fn calculate_recursion_scalars_base(
         .map(|(output, vk)| partial_verify_fft_plonk::<true>(output, vk, circuit))
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Now we transform the 'old_accs' into the relevant circuit variables
-    let acc_vars: Vec<(_, _, _, _)> = old_accs
-        .iter()
-        .map(|acc| {
-            let comm_point = Point::<Fq254>::from(acc.comm);
-            let emulated_comm = circuit.create_emulated_point_variable(&comm_point)?;
-            let point = circuit.create_variable(acc.point)?;
-            let eval = circuit.create_variable(acc.value)?;
-            let opening_proof_point = Point::<Fq254>::from(acc.opening_proof.proof);
-            let opening_proof = circuit.create_emulated_point_variable(&opening_proof_point)?;
-            Result::<_, CircuitError>::Ok((emulated_comm, point, eval, opening_proof))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
     // Since we have checked that outputs is non-empty, we can safely unwrap the first element
     let mut transcript = pcs_infos[0].transcript.clone();
     pcs_infos
         .iter()
         .skip(1)
         .try_for_each(|pcs_info| transcript.merge(&pcs_info.transcript))?;
-
-    // Append old_accs to the transcript
-    acc_vars
-        .iter()
-        .try_for_each(|(comm, _, _, opening_proof)| {
-            transcript.append_point_variable(comm, circuit)?;
-            transcript.append_point_variable(opening_proof, circuit)
-        })?;
 
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
