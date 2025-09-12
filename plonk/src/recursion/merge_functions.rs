@@ -572,6 +572,30 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         )
     }?;
 
+    let comm_x = circuit.witness(acc_instance.get_x())?;
+    let comm_y = circuit.witness(acc_instance.get_y())?;
+    let comm = Affine::<BnConfig>::new(comm_x, comm_y);
+
+    let proof_x = circuit.witness(acc_proof.get_x())?;
+    let proof_y = circuit.witness(acc_proof.get_y())?;
+    let proof = UnivariateKzgProof::<Bn254> {
+        proof: Affine::<BnConfig>::new(proof_x, proof_y),
+    };
+
+    let result = Kzg::verify(
+        &vk_bn254[0].open_key,
+        &comm,
+        &Fr254::zero(),
+        &Fr254::zero(),
+        &proof,
+    )?;
+
+    if result {
+        ark_std::println!("KZG verification passed");
+    } else {
+        ark_std::println!("KZG verification failed");
+    }
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
         return Err(PlonkError::InvalidParameters(
             "circuit is not satisfiable after accumulation msm".to_string(),
