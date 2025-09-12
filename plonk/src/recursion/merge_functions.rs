@@ -1591,6 +1591,36 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         &pk_grumpkin.pcs_prover_params,
     )?;
 
+    let PCSWitness {
+        poly,
+        value,
+        comm,
+        point,
+    } = split_acc_info.new_accumulator();
+
+    // Check that the new accumulator is correct
+    if poly.evaluate(point).ok_or(PlonkError::InvalidParameters(
+        "could not evaluate poly".to_string(),
+    ))? != *value
+    {
+        return Err(PlonkError::InvalidParameters(
+            "New accumulator polynomial does not evaluate to the correct value".to_string(),
+        ));
+    }
+
+    // Check that `comm` is indeed the commitment to `poly`
+    if Zeromorph::<UnivariateIpaPCS<Grumpkin>>::commit(
+        pk_grumpkin.verifying_key.pcs_verifier_params.clone(),
+        poly,
+    )
+    .map_err(|_| PlonkError::InvalidParameters("could not commit to poly".to_string()))?
+        != *comm
+    {
+        return Err(PlonkError::InvalidParameters(
+            "New accumulator commitment does not match the polynomial".to_string(),
+        ));
+    }
+
     let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
@@ -1950,6 +1980,38 @@ pub fn decider_circuit(
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    let PCSWitness {
+        poly,
+        value,
+        comm,
+        point,
+    } = split_acc_info.new_accumulator();
+
+    // Check that the new accumulator is correct
+    if poly.evaluate(point).ok_or(PlonkError::InvalidParameters(
+        "could not evaluate poly".to_string(),
+    ))? != *value
+    {
+        return Err(PlonkError::InvalidParameters(
+            "New accumulator polynomial does not evaluate to the correct value in decider circuit"
+                .to_string(),
+        ));
+    }
+
+    // Check that `comm` is indeed the commitment to `poly`
+    if Zeromorph::<UnivariateIpaPCS<Grumpkin>>::commit(
+        pk_grumpkin.verifying_key.pcs_verifier_params.clone(),
+        poly,
+    )
+    .map_err(|_| PlonkError::InvalidParameters("could not commit to poly".to_string()))?
+        != *comm
+    {
+        return Err(PlonkError::InvalidParameters(
+            "New accumulator commitment does not match the polynomial in decider circuit"
+                .to_string(),
+        ));
+    }
 
     if circuit.check_circuit_satisfiability(&[]).is_err() {
         return Err(PlonkError::InvalidParameters(
