@@ -1926,12 +1926,26 @@ pub fn decider_circuit(
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfied in decider circuit after perform_accumulation".to_string(),
+        ));
+    }
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
         &pk_grumpkin.verifying_key,
         circuit,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfied in decider circuit after emulated_combine_mle_proof_scalars"
+                .to_string(),
+        ));
+    }
 
     // Create the variables for the commitments in the two proofs
     let proof_one =
@@ -2024,6 +2038,12 @@ pub fn decider_circuit(
         &acc_eval,
         opening_proof,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfied in decider circuit after verify_zeromorph_circuit".to_string(),
+        ));
+    }
 
     // Now to make on chain verification easier we perform a Keccak hash of the specific pi with forwarded accumulators and set it as the public input
     let field_pi_out = specific_pi
