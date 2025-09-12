@@ -36,7 +36,7 @@ use crate::{
     errors::PlonkError,
     nightfall::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
-        ipa_structs::{ProvingKey, VerifyingKey},
+        ipa_structs::{ProvingKey, VerifyingKey, VK},
         mle::{
             mle_structs::{GateInfo, MLEProvingKey, MLEVerifyingKey},
             MLEPlonk,
@@ -688,6 +688,11 @@ pub trait RecursiveProver {
             let (new_grumpkin_pk, _) =
                 MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
             current_grumpkin_pk = new_grumpkin_pk;
+
+            ark_std::println!(
+                "hash of grumpkin merge vk: {}",
+                current_grumpkin_pk.verifying_key.hash()
+            );
 
             // 2. Merge Grumpkin → Bn254
             let grumpkin_chunks: Vec<[GrumpkinOut; 2]> = grumpkin_out
