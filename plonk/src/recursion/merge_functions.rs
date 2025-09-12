@@ -427,6 +427,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok([vk_var.clone(), vk_var])
     }?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "circuit is not satisfiable after vk_bases_var generation".to_string(),
+        ));
+    }
+
     // We store the scalars and bases from the proofs into the relevant struct.
     // In particular, the bases are stored as `Variable`s in the circuit, as we
     // need to reuse them later in the circuit and in the next circuit.
@@ -446,6 +452,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
         .try_into()
         .map_err(|_| PlonkError::InvalidParameters("bn254_outputs must have length 2".to_string()))?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "circuit is not satisfiable after pcs_info generation".to_string(),
+        ));
+    }
 
     let output_vars = output_pcs_info_var_pair
         .iter()
@@ -560,6 +572,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         )
     }?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "circuit is not satisfiable after accumulation msm".to_string(),
+        ));
+    }
+
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
         let scalars_and_acc_evals: Vec<(Vec<Variable>, Vec<Variable>)> = izip!(
@@ -601,6 +619,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             Ok((scalars, vec![low_var, high_var]))
         })
         .collect::<Result<Vec<(Vec<Variable>, Vec<Variable>)>, CircuitError>>()?;
+
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "circuit is not satisfiable after combine_mle_proof_scalars".to_string(),
+            ));
+        }
 
         let impl_pi_vars: Vec<Vec<Variable>> = bn254info
             .specific_pi
@@ -701,15 +725,20 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         )
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
         // For checking correctness during testing
-        #[cfg(test)]
-        {
-            for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter())
+        for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
+            if circuit.witness(*circuit_hash).unwrap()
+                != fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
             {
-                assert_eq!(
-                    circuit.witness(*circuit_hash).unwrap(),
-                    fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
-                );
+                return Err(PlonkError::InvalidParameters(
+                    "prove_bn254_acc hash failure".to_string(),
+                ));
             }
+        }
+
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "circuit is not satisfiable after hash reformation".to_string(),
+            ));
         }
 
         // Now do the specific pi checks.
@@ -1472,12 +1501,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 pi_hash_vars.push(pi_hash);
 
                 // For checking correctness during testing
-                #[cfg(test)]
-                {
-                    assert_eq!(
-                        circuit.witness(pi_hash).unwrap(),
-                        fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash)
-                    );
+                if circuit.witness(pi_hash).unwrap() != fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash) {
+                    return Err(CircuitError::ParameterError(
+                        "prove_grump_acc hash failure".to_string(),
+                    ));
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
 
