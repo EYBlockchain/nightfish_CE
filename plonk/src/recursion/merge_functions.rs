@@ -1905,9 +1905,22 @@ pub fn decider_circuit(
             let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
             let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
 
+            if circuit.witness(pi_hash).unwrap() != fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash) {
+                return Err(CircuitError::ParameterError(
+                    "decider_circuit hash failure".to_string(),
+                ));
+            }
+
             circuit.enforce_equal(pi_native, pi_hash)
         },
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfied in decider circuit after hash reformation".to_string(),
+        ));
+    }
+
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
