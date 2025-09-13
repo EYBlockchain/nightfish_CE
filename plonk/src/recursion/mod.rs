@@ -36,7 +36,7 @@ use crate::{
     errors::PlonkError,
     nightfall::{
         accumulation::accumulation_structs::{AtomicInstance, PCSWitness},
-        ipa_structs::{ProvingKey, VerifyingKey},
+        ipa_structs::{ProvingKey, VerifyingKey, VK},
         mle::{
             mle_structs::{GateInfo, MLEProvingKey, MLEVerifyingKey},
             MLEPlonk,
@@ -668,6 +668,10 @@ pub trait RecursiveProver {
             let grumpkin_circuit = &grumpkin_out[0].0;
             let (new_grumpkin_pk, _) =
                 MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+            ark_std::println!(
+                "merge grumpkin vk hash {}",
+                new_grumpkin_pk.verifying_key.hash()
+            );
             merge_grumpkin_pks.push(new_grumpkin_pk.clone());
             current_grumpkin_pk = new_grumpkin_pk;
 
@@ -718,6 +722,10 @@ pub trait RecursiveProver {
 
         let grumpkin_circuit = &decider_input[0].0;
         let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+        ark_std::println!(
+            "final grumpkin vk hash {}",
+            new_grumpkin_pk.verifying_key.hash()
+        );
         merge_grumpkin_pks.push(new_grumpkin_pk.clone());
         current_grumpkin_pk = new_grumpkin_pk;
 
@@ -926,6 +934,10 @@ pub trait RecursiveProver {
                 })
                 .collect::<Result<_, _>>()?;
             current_grumpkin_pk = merge_grumpkin_pk.clone();
+            ark_std::println!(
+                "merge grumpkin vk hash {}",
+                current_grumpkin_pk.verifying_key.hash()
+            );
 
             current_bn254_out = cfg_into_iter!(grumpkin_chunks)
                 .map(|chunk| {
@@ -955,6 +967,11 @@ pub trait RecursiveProver {
         let decider_input_exact: [GrumpkinOut; 2] = decider_input.try_into().map_err(|_| {
             PlonkError::InvalidParameters("Could not create final decider input".to_string())
         })?;
+
+        ark_std::println!(
+            "final grumpkin vk hash {}",
+            final_grumpkin_pk.verifying_key.hash()
+        );
 
         let DeciderOut {
             circuit,
