@@ -984,6 +984,8 @@ pub trait RecursiveProver {
             &current_bn254_pk,
         )?;
 
+        ark_std::println!("Constructed decider circuit");
+
         let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
             PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
         })?;
