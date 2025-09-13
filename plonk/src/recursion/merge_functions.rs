@@ -9,6 +9,7 @@ use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
+use itertools::Itertools;
 use jf_primitives::{
     circuit::{rescue::RescueNativeGadget, sha256::Sha256HashGadget},
     pcs::{
@@ -613,13 +614,20 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
         let old_acc_vars = old_accumulators_commitments_vars
-            .into_iter()
-            .zip(old_accumulators_proof_vars)
-            .map(|(comm, proof)| [comm.get_x(), comm.get_y(), proof.get_x(), proof.get_y()])
-            .collect::<Vec<[Variable; 4]>>()
+            .iter()
+            .zip(old_accumulators_proof_vars.iter())
             .chunks(2)
-            .map(|c| c.concat())
-            .collect::<Vec<Vec<Variable>>>();
+            .into_iter()
+            .map(|pair_chunk| {
+                let mut flat = Vec::with_capacity(16);
+                for (comm, proof) in pair_chunk {
+                    for var in [comm.get_x(), comm.get_y(), proof.get_x(), proof.get_y()] {
+                        flat.extend_from_slice(&convert_to_hash_form_fq254(circuit, var)?);
+                    }
+                }
+                Ok(flat)
+            })
+            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
         let forwarded_accs: Vec<Vec<Variable>> = bn254info
             .forwarded_acumulators
