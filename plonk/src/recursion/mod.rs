@@ -106,7 +106,7 @@ pub trait RecursiveProver {
     /// Retrieves the base Bn254 proving key.
     fn get_base_bn254_pk() -> ProvingKey<Kzg>;
     /// Retrieves the merge Grumpkin proving key.
-    fn get_merge_grumpkin_pk() -> MLEProvingKey<Zmorph>;
+    fn get_merge_grumpkin_pks() -> Vec<MLEProvingKey<Zmorph>>;
     /// Retrieves the merge Bn254 proving keys.
     fn get_merge_bn254_pks() -> Vec<ProvingKey<Kzg>>;
     /// Retrieves the final proving key.
@@ -116,7 +116,7 @@ pub trait RecursiveProver {
     /// Stores the base Bn254 proving key.
     fn store_base_bn254_pk(pk: ProvingKey<Kzg>) -> Option<()>;
     /// Stores the merge Grumpkin proving key.
-    fn store_merge_grumpkin_pk(pk: MLEProvingKey<Zmorph>) -> Option<()>;
+    fn store_merge_grumpkin_pks(pks: Vec<MLEProvingKey<Zmorph>>) -> Option<()>;
     /// Stores the merge Bn254 proving key.
     fn store_merge_bn254_pks(pks: Vec<ProvingKey<Kzg>>) -> Option<()>;
     /// Stores the decider proving key.
@@ -641,6 +641,7 @@ pub trait RecursiveProver {
         let mut current_bn254_pk = base_bn254_pk;
         let mut current_grumpkin_pk = base_grumpkin_pk;
         let mut merge_bn254_pks = vec![];
+        let mut merge_grumpkin_pks = vec![];
         let intermediate_group = (outputs.len().ilog2() - 4) / 2;
 
         for _ in 0..intermediate_group {
@@ -667,6 +668,7 @@ pub trait RecursiveProver {
             let grumpkin_circuit = &grumpkin_out[0].0;
             let (new_grumpkin_pk, _) =
                 MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+            merge_grumpkin_pks.push(new_grumpkin_pk.clone());
             current_grumpkin_pk = new_grumpkin_pk;
 
             // 2. Merge Grumpkin → Bn254
@@ -714,6 +716,11 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
+        let grumpkin_circuit = &decider_input[0].0;
+        let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+        merge_grumpkin_pks.push(new_grumpkin_pk.clone());
+        current_grumpkin_pk = new_grumpkin_pk;
+
         // Check the length is exactly 2
         if decider_input.len() != 2 {
             return Err(PlonkError::InvalidParameters(format!(
@@ -734,7 +741,7 @@ pub trait RecursiveProver {
         let (decider_pk, _) =
             PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit)?;
 
-        Self::store_merge_grumpkin_pk(current_grumpkin_pk).ok_or(PlonkError::InvalidParameters(
+        Self::store_merge_grumpkin_pks(merge_grumpkin_pks).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Grumpkin proving key".to_string(),
         ))?;
 
@@ -794,7 +801,7 @@ pub trait RecursiveProver {
 
         let base_grumpkin_pk = Self::get_base_grumpkin_pk();
         let base_bn254_pk = Self::get_base_bn254_pk();
-        let merge_grumpkin_pk = Self::get_merge_grumpkin_pk();
+        let mut merge_grumpkin_pks = Self::get_merge_grumpkin_pks();
         let merge_bn254_pks = Self::get_merge_bn254_pks();
         let decider_pk = Self::get_decider_pk();
 
@@ -876,7 +883,19 @@ pub trait RecursiveProver {
             )
         })?;
 
-        for merge_bn254_pk in merge_bn254_pks.iter().take(intermediate_rounds) {
+        // We first retrieve the final `merge_grumpkin_pk`
+        let final_grumpkin_pk = merge_grumpkin_pks
+            .pop()
+            .ok_or(PlonkError::InvalidParameters(
+                "No final merge grumpkin pk found".to_string(),
+            ))?
+            .clone();
+
+        for (merge_bn254_pk, merge_grumpkin_pk) in merge_bn254_pks
+            .iter()
+            .zip(merge_grumpkin_pks)
+            .take(intermediate_rounds)
+        {
             let bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
                 .into_iter()
                 .chunks(2)
@@ -906,7 +925,7 @@ pub trait RecursiveProver {
                     })
                 })
                 .collect::<Result<_, _>>()?;
-            current_grumpkin_pk = Self::get_merge_grumpkin_pk();
+            current_grumpkin_pk = merge_grumpkin_pk.clone();
 
             current_bn254_out = cfg_into_iter!(grumpkin_chunks)
                 .map(|chunk| {
@@ -944,7 +963,7 @@ pub trait RecursiveProver {
         } = Self::decider_circuit(
             decider_input_exact,
             extra_decider_info,
-            &merge_grumpkin_pk,
+            &final_grumpkin_pk,
             &current_bn254_pk,
         )?;
 
@@ -1351,14 +1370,19 @@ mod tests {
                     .clone()
             }
 
-            fn get_merge_grumpkin_pk() -> MLEProvingKey<Zmorph> {
-                get_key_store()
-                    .read()
-                    .unwrap()
-                    .get("grumpkin merge")
-                    .unwrap()
-                    .get_mle_pk()
-                    .clone()
+            fn get_merge_grumpkin_pks() -> Vec<MLEProvingKey<Zmorph>> {
+                let store = get_key_store().read().unwrap();
+                let mut pks = Vec::new();
+
+                for i in 0.. {
+                    let key_name = format!("grumpkin merge {}", i);
+                    match store.get(&key_name) {
+                        Some(Key::MLE(pk)) => pks.push(pk.clone()),
+                        _ => break, // stop when key doesn't exist or isn't MLE
+                    }
+                }
+
+                pks
             }
 
             fn get_merge_bn254_pks() -> Vec<ProvingKey<Kzg>> {
@@ -1394,11 +1418,13 @@ mod tests {
                 Some(())
             }
 
-            fn store_merge_grumpkin_pk(pk: MLEProvingKey<Zmorph>) -> Option<()> {
-                get_key_store()
-                    .write()
-                    .unwrap()
-                    .insert("grumpkin merge".to_string(), Key::MLE(pk));
+            fn store_merge_grumpkin_pks(pks: Vec<MLEProvingKey<Zmorph>>) -> Option<()> {
+                for (i, pk) in pks.into_iter().enumerate() {
+                    get_key_store()
+                        .write()
+                        .unwrap()
+                        .insert(format!("grumpkin merge {}", i), Key::MLE(pk.clone()));
+                }
                 Some(())
             }
 
