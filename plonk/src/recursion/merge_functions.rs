@@ -1638,10 +1638,10 @@ pub fn decider_circuit(
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
 
+    ark_std::println!("Checking circuit satisfiability one");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable before calculate_recursion_scalars".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after creating bn254 proof variables");
     }
 
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
@@ -1667,19 +1667,19 @@ pub fn decider_circuit(
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
+    ark_std::println!("Checking circuit satisfiability two");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after calculate_recursion_scalars".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after calculate_recursion_scalars");
     }
 
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
 
+    ark_std::println!("Checking circuit satisfiability three");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after MLE vk generation".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after MLE vk generation");
     }
 
     // Now we make variables for the specific pi as we will have to use these in the following for loop and later on.
@@ -1876,10 +1876,10 @@ pub fn decider_circuit(
         },
     )?;
 
+    ark_std::println!("Checking circuit satisfiability four");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after hash reformation".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after hash reformation",);
     }
 
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
@@ -1888,10 +1888,10 @@ pub fn decider_circuit(
         &pk_grumpkin.pcs_prover_params,
     )?;
 
+    ark_std::println!("Checking circuit satisfiability five");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after perform_accumulation".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after perform_accumulation",);
     }
 
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
@@ -1901,10 +1901,10 @@ pub fn decider_circuit(
         circuit,
     )?;
 
+    ark_std::println!("Checking circuit satisfiability six");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after emulated_combine_mle_proof_scalars".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after emulated_combine_mle_proof_scalars",);
     }
 
     // Create the variables for the commitments in the two proofs
@@ -1936,10 +1936,10 @@ pub fn decider_circuit(
     let q_lookup_comm =
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
 
+    ark_std::println!("Checking circuit satisfiability seven");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after lookup constant vk".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after lookup constant vk",);
     }
 
     let lookup_bases = &[
@@ -1968,10 +1968,10 @@ pub fn decider_circuit(
         &msm_scalars,
     )?;
 
+    ark_std::println!("Checking circuit satisfiability eight");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after msm".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after msm",);
     }
 
     let (opening_proof, _) = Zmorph::open(
@@ -2002,10 +2002,10 @@ pub fn decider_circuit(
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
     let specific_pi = specific_pi_fn(&impl_spec_pi, circuit, &mut lookup_vars)?;
 
+    ark_std::println!("Checking circuit satisfiability nine");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable before verify zeromorph".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable before verify zeromorph",);
     }
 
     verify_zeromorph_circuit(
@@ -2017,10 +2017,10 @@ pub fn decider_circuit(
         opening_proof,
     )?;
 
+    ark_std::println!("Checking circuit satisfiability ten");
+
     if circuit.check_circuit_satisfiability(&[]).is_err() {
-        return Err(PlonkError::InvalidParameters(
-            "Circuit not satisfiable after verify zeromorph".to_string(),
-        ));
+        ark_std::println!("Circuit not satisfiable after verify zeromorph",);
     }
 
     // Now to make on chain verification easier we perform a Keccak hash of the specific pi with forwarded accumulators and set it as the public input
