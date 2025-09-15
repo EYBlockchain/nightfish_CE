@@ -1638,6 +1638,12 @@ pub fn decider_circuit(
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable before calculate_recursion_scalars".to_string(),
+        ));
+    }
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = izip!(
         output_scalar_vars.chunks_exact(2),
@@ -1661,8 +1667,20 @@ pub fn decider_circuit(
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after calculate_recursion_scalars".to_string(),
+        ));
+    }
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after MLE vk generation".to_string(),
+        ));
+    }
 
     // Now we make variables for the specific pi as we will have to use these in the following for loop and later on.
     let impl_specific_pi = grumpkin_info
@@ -1857,17 +1875,37 @@ pub fn decider_circuit(
             circuit.enforce_equal(pi_native, pi_hash)
         },
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after hash reformation".to_string(),
+        ));
+    }
+
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after perform_accumulation".to_string(),
+        ));
+    }
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
         &pk_grumpkin.verifying_key,
         circuit,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after emulated_combine_mle_proof_scalars".to_string(),
+        ));
+    }
 
     // Create the variables for the commitments in the two proofs
     let proof_one =
@@ -1898,6 +1936,12 @@ pub fn decider_circuit(
     let q_lookup_comm =
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after lookup constant vk".to_string(),
+        ));
+    }
+
     let lookup_bases = &[
         range_table_comm,
         key_table_comm,
@@ -1923,6 +1967,12 @@ pub fn decider_circuit(
         &proof_msm_bases,
         &msm_scalars,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after msm".to_string(),
+        ));
+    }
 
     let (opening_proof, _) = Zmorph::open(
         &pk_grumpkin.pcs_prover_params,
@@ -1952,6 +2002,12 @@ pub fn decider_circuit(
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
     let specific_pi = specific_pi_fn(&impl_spec_pi, circuit, &mut lookup_vars)?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable before verify zeromorph".to_string(),
+        ));
+    }
+
     verify_zeromorph_circuit(
         circuit,
         &pk_grumpkin.verifying_key.pcs_verifier_params,
@@ -1960,6 +2016,12 @@ pub fn decider_circuit(
         &acc_eval,
         opening_proof,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit not satisfiable after verify zeromorph".to_string(),
+        ));
+    }
 
     // Now to make on chain verification easier we perform a Keccak hash of the specific pi with forwarded accumulators and set it as the public input
     let field_pi_out = specific_pi

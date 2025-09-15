@@ -476,6 +476,15 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_arithmetization()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Decider circuit is not satisfiable".to_string(),
+            ));
+        } else {
+            ark_std::println!("Decider circuit is satisfiable");
+        }
+
         // Run the following code only when testing
         #[cfg(test)]
         {
@@ -992,7 +1001,12 @@ pub trait RecursiveProver {
         ark_std::println!("Constructed decider circuit");
 
         // Just to get poly hash prints:
-        let _ = PlonkKzgSnark::<Bn254>::preprocess(&kzg_srs, None, &circuit)?;
+        let (temp_dec_pk, _) = PlonkKzgSnark::<Bn254>::preprocess(&kzg_srs, None, &circuit)?;
+        if temp_dec_pk == decider_pk {
+            ark_std::println!("Decider pk matches expected");
+        } else {
+            ark_std::println!("Decider pk does not match expected");
+        }
 
         let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
             PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
