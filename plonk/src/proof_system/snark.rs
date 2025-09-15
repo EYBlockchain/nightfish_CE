@@ -528,24 +528,29 @@ where
             return Err(PlonkError::IndexTooLarge);
         }
 
+        let rand_chall = E::ScalarField::from(123456789u64);
         // 1. Compute selector and permutation polynomials.
         let selectors_polys = circuit.compute_selector_polynomials()?;
         let mut sum = E::ScalarField::zero();
+        let mut multiplier = E::ScalarField::one();
         for poly in selectors_polys.iter() {
             for &coeff in poly.coeffs.iter() {
-                sum += coeff;
+                sum += coeff * multiplier;
+                multiplier *= rand_chall;
             }
         }
-        ark_std::println!("Selector polys sum (for debugging purpose): {:?}", sum);
+        ark_std::println!("Selector polys hash (for debugging purpose): {:?}", sum);
 
         let sigma_polys = circuit.compute_extended_permutation_polynomials()?;
         let mut sum = E::ScalarField::zero();
+        let mut multiplier = E::ScalarField::one();
         for poly in sigma_polys.iter() {
             for &coeff in poly.coeffs.iter() {
-                sum += coeff;
+                sum += coeff * multiplier;
+                multiplier *= rand_chall;
             }
         }
-        ark_std::println!("Permutation polys sum (for debugging purpose): {:?}", sum);
+        ark_std::println!("Permutation polys hash (for debugging purpose): {:?}", sum);
 
         // Compute Plookup proving key if support lookup.
         let plookup_pk = if circuit.support_lookup() {
