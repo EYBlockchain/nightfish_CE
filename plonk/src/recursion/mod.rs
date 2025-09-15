@@ -723,7 +723,7 @@ pub trait RecursiveProver {
         let grumpkin_circuit = &decider_input[0].0;
         let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
 
-        ark_std::println!("final grumpkin vk hash {}", current_bn254_pk.vk.hash());
+        ark_std::println!("final bn254 vk hash {}", current_bn254_pk.vk.hash());
 
         ark_std::println!(
             "final grumpkin vk hash {}",
@@ -990,6 +990,9 @@ pub trait RecursiveProver {
         )?;
 
         ark_std::println!("Constructed decider circuit");
+
+        // Just to get poly hash prints:
+        let _ = PlonkKzgSnark::<Bn254>::preprocess(&kzg_srs, None, &circuit)?;
 
         let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
             PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))

@@ -20,7 +20,6 @@ use crate::{
     proof_system::{structs::UniversalSrs, VerificationKeyId},
     transcript::*,
 };
-use ark_bn254::Fr as Fr254;
 use ark_ec::{
     pairing::Pairing,
     short_weierstrass::{Affine, Projective},
@@ -33,6 +32,7 @@ use ark_std::{
     string::ToString,
     vec,
     vec::Vec,
+    Zero,
 };
 use jf_primitives::{
     pcs::{prelude::UnivariateKzgPCS, PolynomialCommitmentScheme, StructuredReferenceString},
@@ -530,27 +530,22 @@ where
 
         // 1. Compute selector and permutation polynomials.
         let selectors_polys = circuit.compute_selector_polynomials()?;
-
-        let mut transcript = RescueTranscript::<Fr254>::new_transcript(b"sel_poly_check");
+        let mut sum = E::ScalarField::zero();
         for poly in selectors_polys.iter() {
-            transcript.push_message(b"coeff", &poly.coeffs)?;
+            for &coeff in poly.coeffs.iter() {
+                sum += coeff;
+            }
         }
-        let sel_poly_hash = transcript.squeeze_scalar_challenge::<P>(b"sel_poly_check")?;
-        ark_std::println!(
-            "Selector polys hash (for debugging purpose): {:?}",
-            sel_poly_hash
-        );
+        ark_std::println!("Selector polys sum (for debugging purpose): {:?}", sum);
 
         let sigma_polys = circuit.compute_extended_permutation_polynomials()?;
-        let mut transcript = RescueTranscript::<Fr254>::new_transcript(b"perm_poly_check");
+        let mut sum = E::ScalarField::zero();
         for poly in sigma_polys.iter() {
-            transcript.push_message(b"coeff", &poly.coeffs)?;
+            for &coeff in poly.coeffs.iter() {
+                sum += coeff;
+            }
         }
-        let sel_poly_hash = transcript.squeeze_scalar_challenge::<P>(b"perm_poly_check")?;
-        ark_std::println!(
-            "Permutation polys hash (for debugging purpose): {:?}",
-            sel_poly_hash
-        );
+        ark_std::println!("Permutation polys sum (for debugging purpose): {:?}", sum);
 
         // Compute Plookup proving key if support lookup.
         let plookup_pk = if circuit.support_lookup() {
