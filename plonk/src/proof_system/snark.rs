@@ -20,6 +20,7 @@ use crate::{
     proof_system::{structs::UniversalSrs, VerificationKeyId},
     transcript::*,
 };
+use ark_bn254::Fr as Fr254;
 use ark_ec::{
     pairing::Pairing,
     short_weierstrass::{Affine, Projective},
@@ -526,9 +527,30 @@ where
         if srs.max_degree() < circuit.srs_size()? {
             return Err(PlonkError::IndexTooLarge);
         }
+
         // 1. Compute selector and permutation polynomials.
         let selectors_polys = circuit.compute_selector_polynomials()?;
+
+        let mut transcript = RescueTranscript::<Fr254>::new_transcript(b"sel_poly_check");
+        for poly in selectors_polys.iter() {
+            transcript.push_message(b"coeff", &poly.coeffs)?;
+        }
+        let sel_poly_hash = transcript.squeeze_scalar_challenge::<P>(b"sel_poly_check")?;
+        ark_std::println!(
+            "Selector polys hash (for debugging purpose): {:?}",
+            sel_poly_hash
+        );
+
         let sigma_polys = circuit.compute_extended_permutation_polynomials()?;
+        let mut transcript = RescueTranscript::<Fr254>::new_transcript(b"perm_poly_check");
+        for poly in sigma_polys.iter() {
+            transcript.push_message(b"coeff", &poly.coeffs)?;
+        }
+        let sel_poly_hash = transcript.squeeze_scalar_challenge::<P>(b"perm_poly_check")?;
+        ark_std::println!(
+            "Permutation polys hash (for debugging purpose): {:?}",
+            sel_poly_hash
+        );
 
         // Compute Plookup proving key if support lookup.
         let plookup_pk = if circuit.support_lookup() {

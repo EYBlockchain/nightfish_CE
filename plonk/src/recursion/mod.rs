@@ -722,6 +722,9 @@ pub trait RecursiveProver {
 
         let grumpkin_circuit = &decider_input[0].0;
         let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+
+        ark_std::println!("final grumpkin vk hash {}", current_bn254_pk.vk.hash());
+
         ark_std::println!(
             "final grumpkin vk hash {}",
             new_grumpkin_pk.verifying_key.hash()
@@ -967,6 +970,8 @@ pub trait RecursiveProver {
         let decider_input_exact: [GrumpkinOut; 2] = decider_input.try_into().map_err(|_| {
             PlonkError::InvalidParameters("Could not create final decider input".to_string())
         })?;
+
+        ark_std::println!("final bn254 vk hash {}", current_bn254_pk.vk.hash());
 
         ark_std::println!(
             "final grumpkin vk hash {}",
