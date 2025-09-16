@@ -1548,10 +1548,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let new_public_input: F = H::hash_public_inputs::<F>(&public_input)
             .map_err(|_| CircuitError::InternalError("Public input hashing failed".to_string()))?;
 
-        ark_std::println!(
+        /*ark_std::println!(
             "bn254 hash calculated during arithmetisation: {:?}",
             new_public_input
-        );
+        );*/
 
         self.pub_input_indices = vec![];
         let _ = self.create_public_variable(new_public_input)?;
@@ -1678,10 +1678,10 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let new_public_input: F = H::hash_public_inputs::<F>(&public_input)
             .map_err(|_| CircuitError::InternalError("Public input hashing failed".to_string()))?;
 
-        ark_std::println!(
+        /*ark_std::println!(
             "grumpkin hash calculated during arithmetisation: {:?}",
             new_public_input
-        );
+        );*/
 
         self.pub_input_indices = vec![];
         let _ = self.create_public_variable(new_public_input)?;

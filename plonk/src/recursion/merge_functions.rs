@@ -647,10 +647,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 output_pair
                     .iter()
                     .map(|output| {
-                        ark_std::println!(
+                        /*ark_std::println!(
                             "grumpkin hash called from grumpkin merge circuit {:?}",
                             output.pi_hash
-                        );
+                        );*/
                         circuit.create_variable(output.pi_hash)
                     })
                     .collect::<Result<Vec<Variable>, CircuitError>>()
@@ -715,7 +715,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         )
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
-        for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
+        /*for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
             ark_std::println!(
                 "bn254 hash calculated in grumpkin merge circuit: {:?}",
                 circuit.witness(*circuit_hash)?
@@ -724,7 +724,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 "bn254 hash passed into grumpkin merge circuit: {:?}",
                 fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
             );
-        }
+        }*/
 
         // For checking correctness during testing
         #[cfg(test)]
@@ -869,7 +869,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
-        for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
+        /*for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
             ark_std::println!(
                 "bn254 hash calculated in grumpkin base circuit: {:?}",
                 circuit.witness(*circuit_hash)?
@@ -878,7 +878,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 "bn254 hash passed into grumpkin base circuit: {:?}",
                 fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
             );
-        }
+        }*/
 
         // For checking correctness during testing
         #[cfg(test)]
@@ -1455,7 +1455,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 let bn254_pi_hashes = bn254_outputs
                     .iter()
                     .map(|bn| {
-                        ark_std::println!("bn254 hash called from bn254 circuit: {:?}", bn.pi_hash);
+                        //ark_std::println!("bn254 hash called from bn254 circuit: {:?}", bn.pi_hash);
                         circuit.create_variable(bn.pi_hash)
                     })
                     .collect::<Result<Vec<Variable>, CircuitError>>()?;
@@ -1477,6 +1477,14 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     bn254_acc,
                     bn_pi_hashes_prepped,
                 ];
+
+                if IS_BASE {
+                    for vars in data_vars.clone() {
+                        for var in vars {
+                            ark_std::println!("var value: {:?}", circuit.witness(var)?);
+                        }
+                    }
+                }
 
                 let calc_pi_hash = RescueNativeGadget::<Fr254>::rescue_sponge_with_padding(
                     circuit,
@@ -1511,8 +1519,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 
                 pi_hash_vars.push(pi_hash);
 
-                ark_std::println!("grumpkin hash calculated in bn254 circuit: {:?}", circuit.witness(pi_hash)?);
-                ark_std::println!("grumpkin hash passed into bn254 circuit: {:?}", fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash));
+                //ark_std::println!("grumpkin hash calculated in bn254 circuit: {:?}", circuit.witness(pi_hash)?);
+                //ark_std::println!("grumpkin hash passed into bn254 circuit: {:?}", fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash));
 
                 // For checking correctness during testing
                 #[cfg(test)]
@@ -1858,7 +1866,7 @@ pub fn decider_circuit(
             let bn254_pi_hashes = bn254_outputs
                 .iter()
                 .map(|bn| {
-                    ark_std::println!("bn254 hash called from decider circuit {:?}", bn.pi_hash);
+                    //ark_std::println!("bn254 hash called from decider circuit {:?}", bn.pi_hash);
                     circuit.create_variable(bn.pi_hash)
                 })
                 .collect::<Result<Vec<Variable>, CircuitError>>()?;
@@ -1911,14 +1919,14 @@ pub fn decider_circuit(
             let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
             let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
 
-            ark_std::println!(
+            /*ark_std::println!(
                 "grumpkin hash calculated in decider circuit: {:?}",
                 circuit.witness(pi_hash)?
             );
             ark_std::println!(
                 "grumpkin hash passed to the decider circuit: {:?}",
                 circuit.witness(pi_native)?
-            );
+            );*/
 
             circuit.enforce_equal(pi_native, pi_hash)
         },
