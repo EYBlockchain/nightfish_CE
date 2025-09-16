@@ -54,11 +54,14 @@ impl<F: RescueParameter> RecursionHasher for RescueCRHF<F> {
 
                 let f = bytes_to_field_elements(writer.as_slice());
 
-                ark_std::println!("val in arith: {:?}", f[1..].to_vec());
-
                 input.extend_from_slice(&f[1..]);
             }
         }
+
+        if !size_check {
+            ark_std::println!("val in arith: {:?}", input);
+        }
+
         let output = Self::sponge_with_bit_padding(&input, 1)[0];
 
         // Find the byte length of the scalar field (minus one).
