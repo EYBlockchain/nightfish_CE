@@ -1478,13 +1478,16 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     bn_pi_hashes_prepped,
                 ];
 
+                let mut data_vec = Vec::<Fr254>::new();
                 if IS_BASE {
                     for vars in data_vars.clone() {
                         for var in vars {
-                            ark_std::println!("var value: {:?}", circuit.witness(var)?);
+                            data_vec.push(circuit.witness(var)?);
                         }
                     }
                 }
+
+                ark_std::println!("PIs from vars: {:?}", data_vec);
 
                 let calc_pi_hash = RescueNativeGadget::<Fr254>::rescue_sponge_with_padding(
                     circuit,

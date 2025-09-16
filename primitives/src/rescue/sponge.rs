@@ -54,9 +54,7 @@ impl<F: RescueParameter> RecursionHasher for RescueCRHF<F> {
 
                 let f = bytes_to_field_elements(writer.as_slice());
 
-                for elem in f.iter().skip(1) {
-                    ark_std::println!("val in arith: {:?}", elem);
-                }
+                ark_std::println!("val in arith: {:?}", f[1..].to_vec());
 
                 input.extend_from_slice(&f[1..]);
             }
