@@ -1842,6 +1842,10 @@ pub fn decider_circuit(
                 bn_pi_hashes_prepped,
             ]
             .concat();
+            for var in data_vars.clone() {
+                ark_std::println!("var value: {:?}", circuit.witness(var)?);
+            }
+
             let calc_pi_hash =
                 RescueNativeGadget::<Fr254>::rescue_sponge_with_padding(circuit, &data_vars, 1)?[0];
 
