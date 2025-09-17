@@ -460,9 +460,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     // Now we merge the transcripts from the two proofs. we do this to avoid having to re-append all the commitments to a new transcript.
     // TODO:  Double check that this still provides adequate security.
 
-    // Unwrap is safe here because we checked tht the slice was non-empty at the beginning.
     let transcript = &mut output_vars[0].transcript.clone();
-
     transcript.merge(&output_vars[1].transcript)?;
 
     // Append the old bn254 accumulators to the transcript.
@@ -986,7 +984,7 @@ type CombineScalars = (Vec<Fr254>, Vec<PointVariable>);
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars(
+pub fn combine_fft_proof_scalars(
     pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
     r_powers: &[Fr254],
 ) -> CombineScalars {
@@ -1078,7 +1076,7 @@ fn combine_fft_proof_scalars(
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars_round_one(
+pub fn combine_fft_proof_scalars_round_one(
     pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
     r_powers: &[Fr254],
 ) -> CombineScalars {
