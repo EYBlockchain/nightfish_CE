@@ -457,6 +457,19 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .map(|(_, pcs_info)| pcs_info.clone())
         .collect::<Vec<PcsInfoBasesVar<Kzg>>>();
 
+    if IS_FIRST_ROUND {
+        ark_std::println!(
+            "scalars_0 in prove_bn254_acc: {:?}",
+            pcs_info_vars[0].comm_scalars_and_bases.scalars
+        );
+        ark_std::println!(
+            "scalars_1 in prove_bn254_acc: {:?}",
+            pcs_info_vars[1].comm_scalars_and_bases.scalars
+        );
+        ark_std::println!("u_0 in prove_bn254_acc: {:?}", pcs_info_vars[0].u);
+        ark_std::println!("u_1 in prove_bn254_acc: {:?}", pcs_info_vars[1].u);
+    }
+
     // Now we merge the transcripts from the two proofs. we do this to avoid having to re-append all the commitments to a new transcript.
     // TODO:  Double check that this still provides adequate security.
 
@@ -470,6 +483,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     })?;
 
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
+
+    if IS_FIRST_ROUND {
+        ark_std::println!("r challenge in first round: {:?}", r);
+    }
 
     // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
     let r_powers = iter::successors(Some(Fr254::one()), |x| Some(*x * r))
@@ -1476,7 +1493,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     bn_pi_hashes_prepped,
                 ];
 
-                if IS_BASE {
+                /*if IS_BASE {
                     let mut data_vec = Vec::<Fr254>::new();
                     for vars in data_vars.clone() {
                         ark_std::println!("Individual PI length: {:?}", vars.len());
@@ -1485,7 +1502,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                         }
                     }
                     ark_std::println!("PIs from vars: {:?}", data_vec);
-                }
+                }*/
 
                 let calc_pi_hash = RescueNativeGadget::<Fr254>::rescue_sponge_with_padding(
                     circuit,

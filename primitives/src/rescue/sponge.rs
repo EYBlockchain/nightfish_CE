@@ -58,9 +58,9 @@ impl<F: RescueParameter> RecursionHasher for RescueCRHF<F> {
             }
         }
 
-        if !size_check {
+        /*if !size_check {
             ark_std::println!("val in arith: {:?}", input);
-        }
+        }*/
 
         let output = Self::sponge_with_bit_padding(&input, 1)[0];
 

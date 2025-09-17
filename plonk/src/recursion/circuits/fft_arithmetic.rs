@@ -246,6 +246,23 @@ pub(crate) fn calculate_recursion_scalars_base(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    let scalars_0 = pcs_infos[0]
+        .scalars()
+        .iter()
+        .map(|var| circuit.witness(*var))
+        .collect::<Result<Vec<_>, _>>()?;
+    let scalars_1 = pcs_infos[1]
+        .scalars()
+        .iter()
+        .map(|var| circuit.witness(*var))
+        .collect::<Result<Vec<_>, _>>()?;
+    let opening_0 = circuit.witness(pcs_infos[0].opening_point())?;
+    let opening_1 = circuit.witness(pcs_infos[1].opening_point())?;
+    ark_std::println!("PCS info 0 scalars: {:?}", scalars_0);
+    ark_std::println!("PCS info 0 opening: {:?}", opening_0);
+    ark_std::println!("PCS info 1 scalars: {:?}", scalars_1);
+    ark_std::println!("PCS info 1 opening: {:?}", opening_1);
+
     // Now we transform the 'old_accs' into the relevant circuit variables
     let acc_vars: Vec<(_, _, _, _)> = old_accs
         .iter()
@@ -277,6 +294,11 @@ pub(crate) fn calculate_recursion_scalars_base(
 
     // Generate the challenge
     let batching_challenge = transcript.squeeze_scalar_challenge::<BnConfig>(circuit)?;
+
+    ark_std::println!(
+        "Batching challenge: {:?}",
+        circuit.witness(batching_challenge)?
+    );
 
     // Now we rescale the scalars and combine as necessary
     let combined_scalars = combine_fft_scalars_base(
