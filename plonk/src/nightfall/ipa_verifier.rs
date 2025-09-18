@@ -10,7 +10,7 @@ use super::ipa_structs::{
 use crate::{
     constants::EXTRA_TRANSCRIPT_MSG_LABEL,
     errors::{PlonkError, SnarkError::ParameterError},
-    nightfall::ipa_structs::MapKey,
+    nightfall::ipa_structs::{MapKey, VerificationKeyId},
     transcript::*,
 };
 
@@ -72,7 +72,7 @@ pub(crate) struct FFTVerifier<PCS: PolynomialCommitmentScheme> {
 
 /// Function used to reproduce the end state of a transcript, used in recursive proving and verification.
 pub fn reproduce_transcript<PCS, E, F, T>(
-    vk_hash: E::ScalarField,
+    vk_id: Option<VerificationKeyId>,
     public_input: E::ScalarField,
     proof: &Proof<PCS>,
 ) -> Result<T, PlonkError>
@@ -90,7 +90,9 @@ where
     T: Transcript,
 {
     let mut transcript = T::new_transcript(b"PlonkProof");
-    transcript.push_message(b"verifying key", &vk_hash)?;
+    if let Some(id) = vk_id {
+        transcript.push_message(b"vk_id", &E::ScalarField::from(id as u8))?;
+    }
     transcript.push_message(b"public_input", &public_input)?;
 
     transcript.append_curve_points(b"witness_poly_comms", &proof.wires_poly_comms)?;
@@ -410,7 +412,9 @@ where
             transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
         }
 
-        transcript.append_visitor(verify_key)?;
+        if verify_key.id.is_some() {
+            transcript.append_visitor(verify_key)?;
+        }
 
         for pub_input in public_inputs.iter() {
             transcript.push_message(b"public_input", pub_input)?;
@@ -716,7 +720,7 @@ type CommitsAndPoints<PCS> = Vec<(
     Vec<<PCS as PolynomialCommitmentScheme>::Evaluation>,
 )>;
 
-/// Private helper methods
+/// Helper methods
 impl<E, F, PCS> FFTVerifier<PCS>
 where
     E: HasTEForm<BaseField = F>,
@@ -881,7 +885,7 @@ where
     /// * pub_input[l/2+i]
     ///
     /// TODO: reuse the lagrange values
-    fn evaluate_pi_poly(
+    pub(crate) fn evaluate_pi_poly(
         &self,
         pub_input: &[E::ScalarField],
         z: &E::ScalarField,
@@ -930,7 +934,7 @@ where
         )
     }
 
-    fn lagrange_interpolate(
+    pub(crate) fn lagrange_interpolate(
         points: &[E::ScalarField],
         evals: &[E::ScalarField],
     ) -> Result<DensePolynomial<E::ScalarField>, PlonkError> {
