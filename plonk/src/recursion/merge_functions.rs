@@ -957,7 +957,7 @@ type CombineScalars = (Vec<Fr254>, Vec<PointVariable>);
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars(
+pub fn combine_fft_proof_scalars(
     pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
     r_powers: &[Fr254],
 ) -> CombineScalars {
@@ -1049,7 +1049,7 @@ fn combine_fft_proof_scalars(
 ///
 /// NOTE: Currently this function is very fragile and will break if any of the proving system is changed. In the future we should
 /// aim to make this something that is read from the gate info or such.
-fn combine_fft_proof_scalars_round_one(
+pub fn combine_fft_proof_scalars_round_one(
     pcs_info_vars: &[PcsInfoBasesVar<Kzg>],
     r_powers: &[Fr254],
 ) -> CombineScalars {
