@@ -8,7 +8,6 @@ use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
 use crate::{
     nightfall::{
-        accumulation::accumulation_structs::AtomicInstance,
         circuit::plonk_partial_verifier::{
             compute_scalars_for_native_field, compute_scalars_for_native_field_base, ChallengesVar,
             ProofScalarsVarNative, ProofVarNative, VerifyingKeyNativeScalarsVar,
@@ -17,9 +16,7 @@ use crate::{
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
 };
-use ark_std::{string::ToString, vec::Vec};
 use itertools::izip;
-use jf_relation::{errors::CircuitError, gadgets::ecc::Point, Circuit, PlonkCircuit, Variable};
 
 use super::Kzg;
 
@@ -147,7 +144,6 @@ pub fn calculate_recursion_scalars(
     scalar_vars: &[ProofScalarsVarNative; 2],
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk: &VerifyingKey<Kzg>,
-    old_accs: &[AtomicInstance<Kzg>; 4],
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
     // First prepare the pcs_infos for each proof
@@ -217,7 +213,6 @@ pub(crate) fn calculate_recursion_scalars_base(
     scalar_vars: &[ProofScalarsVarNative; 2],
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk_vars: &[VerifyingKeyNativeScalarsVar; 2],
-    old_accs: &[AtomicInstance<Kzg>; 4],
     max_domain_size: usize,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Variable>, CircuitError> {
@@ -376,11 +371,11 @@ mod tests {
         proof_system::UniversalSNARK,
         recursion::{
             merge_functions::{combine_fft_proof_scalars, combine_fft_proof_scalars_round_one},
-            FFTPlonk,
+            AtomicInstance, FFTPlonk,
         },
         transcript::{RescueTranscript, Transcript},
     };
-    use ark_bn254::{g1::Config as BnConfig, Bn254};
+    use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254};
     use ark_ec::{
         short_weierstrass::{Affine, Projective},
         AffineRepr, CurveGroup, VariableBaseMSM,
@@ -622,12 +617,6 @@ mod tests {
 
             transcript.merge(&output_vars[1].transcript)?;
 
-            // Append the old bn254 accumulators to the transcript.
-            old_accs.iter().try_for_each(|acc| {
-                transcript.append_curve_point(b"comm", &acc.comm)?;
-                transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
-            })?;
-
             let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
             // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
@@ -676,7 +665,6 @@ mod tests {
                 &output_scalar_vars,
                 &output_base_vars,
                 &vk,
-                &old_accs,
                 &mut scalars_verifier_circuit,
             )?;
             let (instance_scalar_vars, proof_scalar_vars) =
@@ -918,12 +906,6 @@ mod tests {
             let transcript = &mut output_vars[0].transcript.clone();
             transcript.merge(&output_vars[1].transcript)?;
 
-            // Append the old bn254 accumulators to the transcript.
-            old_accs.iter().try_for_each(|acc| {
-                transcript.append_curve_point(b"comm", &acc.comm)?;
-                transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
-            })?;
-
             let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
             // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
@@ -976,7 +958,6 @@ mod tests {
                 &output_scalar_vars,
                 &output_base_vars,
                 &[vk_var_one, vk_var_two],
-                &old_accs,
                 1 << 10,
                 &mut scalars_verifier_circuit,
             )?;

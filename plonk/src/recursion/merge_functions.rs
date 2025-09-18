@@ -465,12 +465,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
     transcript.merge(&output_vars[1].transcript)?;
 
-    // Append the old bn254 accumulators to the transcript.
-    bn254info.old_accumulators.iter().try_for_each(|acc| {
-        transcript.append_curve_point(b"comm", &acc.comm)?;
-        transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
-    })?;
-
     let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
 
     // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
@@ -1218,9 +1212,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         izip!(
             output_scalar_vars.chunks_exact(2),
             output_base_vars.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4),
         )
-        .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
+        .map(|(scalar_vars_pair, base_vars_pair)| {
             calculate_recursion_scalars(
                 scalar_vars_pair
                     .try_into()
@@ -1229,9 +1222,6 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     .try_into()
                     .expect("base_vars_pair length verified by chunks_exact"),
                 &bn254_vks[0],
-                old_accs
-                    .try_into()
-                    .expect("old_accs length verified by chunks_exact"),
                 circuit,
             )
         })
@@ -1241,28 +1231,22 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             output_scalar_vars.chunks_exact(2),
             output_base_vars.chunks_exact(2),
             vk_scalars_vars.chunks_exact(2),
-            grumpkin_info.transcript_accumulators.chunks_exact(4),
         )
-        .map(
-            |(scalar_vars_pair, base_vars_pair, vk_vars_pair, old_accs)| {
-                calculate_recursion_scalars_base(
-                    scalar_vars_pair
-                        .try_into()
-                        .expect("scalar_vars_pair length verified by chunks_exact"),
-                    base_vars_pair
-                        .try_into()
-                        .expect("base_vars_pair length verified by chunks_exact"),
-                    vk_vars_pair
-                        .try_into()
-                        .expect("vk_vars_pair length verified by chunks_exact"),
-                    old_accs
-                        .try_into()
-                        .expect("old_accs length verified by chunks_exact"),
-                    max_domain_size,
-                    circuit,
-                )
-            },
-        )
+        .map(|(scalar_vars_pair, base_vars_pair, vk_vars_pair)| {
+            calculate_recursion_scalars_base(
+                scalar_vars_pair
+                    .try_into()
+                    .expect("scalar_vars_pair length verified by chunks_exact"),
+                base_vars_pair
+                    .try_into()
+                    .expect("base_vars_pair length verified by chunks_exact"),
+                vk_vars_pair
+                    .try_into()
+                    .expect("vk_vars_pair length verified by chunks_exact"),
+                max_domain_size,
+                circuit,
+            )
+        })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
 
@@ -1642,9 +1626,8 @@ pub fn decider_circuit(
     let recursion_scalars = izip!(
         output_scalar_vars.chunks_exact(2),
         output_base_vars.chunks_exact(2),
-        grumpkin_info.transcript_accumulators.chunks_exact(4),
     )
-    .map(|(scalar_vars_pair, base_vars_pair, old_accs)| {
+    .map(|(scalar_vars_pair, base_vars_pair)| {
         calculate_recursion_scalars(
             scalar_vars_pair
                 .try_into()
@@ -1653,9 +1636,6 @@ pub fn decider_circuit(
                 .try_into()
                 .expect("base_vars_pair length verified by chunks_exact"),
             vk_bn254,
-            old_accs
-                .try_into()
-                .expect("old_accs length verified by chunks_exact"),
             circuit,
         )
     })
