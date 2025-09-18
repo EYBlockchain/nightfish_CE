@@ -366,21 +366,29 @@ mod tests {
     use crate::{
         errors::PlonkError,
         nightfall::{
-            ipa_snark::test::gen_circuit_for_test, ipa_structs::VerificationKeyId,
+            circuit::plonk_partial_verifier::{
+                Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar, VerifyingKeyScalarsAndBasesVar,
+            },
+            ipa_snark::test::gen_circuit_for_test,
+            ipa_structs::VerificationKeyId,
             ipa_verifier::FFTVerifier,
         },
         proof_system::UniversalSNARK,
-        recursion::FFTPlonk,
-        transcript::RescueTranscript,
+        recursion::{
+            merge_functions::{combine_fft_proof_scalars, combine_fft_proof_scalars_round_one},
+            FFTPlonk,
+        },
+        transcript::{RescueTranscript, Transcript},
     };
     use ark_bn254::{g1::Config as BnConfig, Bn254};
     use ark_ec::{
         short_weierstrass::{Affine, Projective},
-        CurveGroup, VariableBaseMSM,
+        AffineRepr, CurveGroup, VariableBaseMSM,
     };
     use ark_ff::PrimeField;
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
-    use ark_std::Zero;
+    use ark_std::{One, Zero};
+    use core::iter;
     use jf_primitives::pcs::{
         errors::PCSError,
         prelude::{UnivariateKzgPCS, UnivariateKzgProof},
@@ -543,7 +551,10 @@ mod tests {
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let accs: [AtomicInstance<Kzg>; 4] = (0..4)
+
+            // We construct some random accumulators to simulate the old accumulators from the previous layer.
+            // We ensure they have a zero constant term so that they can be opened to zero at zero.
+            let old_accs: [AtomicInstance<Kzg>; 4] = (0..4)
                 .map(|_| {
                     let mut poly = DensePolynomial::<Fr254>::rand(srs_size, rng);
 
@@ -570,14 +581,72 @@ mod tests {
                     )
                 })?;
 
-            let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
+            // We construct an intermediate circuit to process the bases computations of the verification.
+            let mut bases_verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+            // This is not the first round, so we constrain the `VerifyingKeyBasesVar`s to be constant.
+            let vk_var =
+                VerifyingKeyScalarsAndBasesVar::new_constant(&mut bases_verifier_circuit, &vk)?;
+            let vk_bases_var = [vk_var.clone(), vk_var];
+
+            // We store the scalars and bases from the proofs into the relevant struct.
+            // In particular, the bases are stored as `Variable`s in the circuit, as we
+            // need to reuse them later in the circuit and in the next circuit.
+            // We also prepare the relevant info from each of the proofs.
+            let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = outputs.iter()
+                .zip(vk_bases_var.iter())
+                .map(|(output, vk)| {
+                    let verifier = FFTVerifier::new(vk.domain_size)?;
+                    verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
+                        vk,
+                        &[output.pi_hash],
+                        output,
+                        &None,
+                        &mut bases_verifier_circuit,
+                    )
+                })
+                .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
+                .try_into()
+                .map_err(|_| PlonkError::InvalidParameters("outputs must have length 2".to_string()))?;
+
+            let output_vars = output_pcs_info_var_pair
+                .iter()
+                .map(|(output, _)| output.clone())
+                .collect::<Vec<Bn254OutputScalarsAndBasesVar>>();
+            let pcs_info_vars = output_pcs_info_var_pair
+                .iter()
+                .map(|(_, pcs_info)| pcs_info.clone())
+                .collect::<Vec<PcsInfoBasesVar<Kzg>>>();
+
+            // Unwrap is safe here because we checked tht the slice was non-empty at the beginning.
+            let transcript = &mut output_vars[0].transcript.clone();
+
+            transcript.merge(&output_vars[1].transcript)?;
+
+            // Append the old bn254 accumulators to the transcript.
+            old_accs.iter().try_for_each(|acc| {
+                transcript.append_curve_point(b"comm", &acc.comm)?;
+                transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
+            })?;
+
+            let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
+
+            // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
+            let r_powers = iter::successors(Some(Fr254::one()), |x| Some(*x * r))
+                .take(6)
+                .collect::<Vec<Fr254>>();
+
+            let (scalars, instance_base_vars) =
+                combine_fft_proof_scalars(&pcs_info_vars, &r_powers);
+
+            // We construct out final circuit to process the scalars computations of the verification.
+            let mut scalars_verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
 
             // Create variables from the proofs
             let output_var_pairs = outputs
                 .iter()
                 .map(|output| {
-                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut verifier_circuit)?;
-                    let proof = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
+                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut scalars_verifier_circuit)?;
+                    let proof = ProofVarNative::from_struct(&output.proof, &mut scalars_verifier_circuit)?;
                     Ok((proof_evals, proof))
                 })
                 .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
@@ -607,26 +676,57 @@ mod tests {
                 &output_scalar_vars,
                 &output_base_vars,
                 &vk,
-                &accs,
-                &mut verifier_circuit,
+                &old_accs,
+                &mut scalars_verifier_circuit,
             )?;
-            let (instance_scalars, proof_scalars) =
+            let (instance_scalar_vars, proof_scalar_vars) =
                 recursion_scalars.split_at(recursion_scalars.len() - 6);
 
-            let non_acc_bigints = instance_scalars
+            // We check the witness values of the scalars are as expected.
+            assert_eq!(instance_scalar_vars.len(), scalars.len());
+            assert_eq!(proof_scalar_vars.len(), r_powers.len());
+
+            for (var, &expected) in instance_scalar_vars.iter().zip(scalars.iter()) {
+                let witness = scalars_verifier_circuit.witness(*var)?;
+                assert_eq!(witness, expected);
+            }
+            for (var, &expected) in proof_scalar_vars
                 .iter()
-                .map(|s| verifier_circuit.witness(*s).unwrap().into_bigint())
+                .skip(4)
+                .zip(r_powers.iter().take(2))
+            {
+                let witness = scalars_verifier_circuit.witness(*var)?;
+                assert_eq!(witness, expected);
+            }
+            for (var, &expected) in proof_scalar_vars
+                .iter()
+                .take(4)
+                .zip(r_powers.iter().skip(2))
+            {
+                let witness = scalars_verifier_circuit.witness(*var)?;
+                assert_eq!(witness, expected);
+            }
+
+            let non_acc_bigints = instance_scalar_vars
+                .iter()
+                .map(|s| scalars_verifier_circuit.witness(*s).unwrap().into_bigint())
                 .collect::<Vec<_>>();
 
-            let acc_bigints = proof_scalars[..4]
+            let acc_bigints = proof_scalar_vars[..4]
                 .iter()
-                .map(|s| verifier_circuit.witness(*s).unwrap().into_bigint())
+                .map(|s| scalars_verifier_circuit.witness(*s).unwrap().into_bigint())
                 .collect::<Vec<_>>();
 
-            let proof_bigints = proof_scalars[4..]
+            let proof_bigints = proof_scalar_vars[4..]
                 .iter()
-                .chain(proof_scalars[..4].iter())
-                .map(|s| verifier_circuit.witness(*s).unwrap().into_bigint())
+                .chain(proof_scalar_vars[..4].iter())
+                .map(|s| scalars_verifier_circuit.witness(*s).unwrap().into_bigint())
+                .collect::<Vec<_>>();
+
+            let opening_proofs = outputs
+                .iter()
+                .map(|output| output.proof.opening_proof.proof)
+                .chain(old_accs.iter().map(|acc| acc.opening_proof.proof))
                 .collect::<Vec<_>>();
 
             let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
@@ -647,12 +747,6 @@ mod tests {
             pcs_infos.iter().for_each(|pcs_info| {
                 assert!(FFTVerifier::<Kzg>::verify_opening_proofs(&vk.open_key, pcs_info).unwrap());
             });
-
-            let opening_proofs = outputs
-                .iter()
-                .map(|output| output.proof.opening_proof.proof)
-                .chain(accs.iter().map(|acc| acc.opening_proof.proof))
-                .collect::<Vec<_>>();
 
             let comms_lists = pcs_infos
                 .iter()
@@ -681,10 +775,19 @@ mod tests {
             comms.extend_from_slice(&appended_comms);
             comms.extend_from_slice(&opening_proofs[..2]);
 
+            // We now check the commitments match up with those computed in-circuit
+            assert_eq!(comms.len(), instance_base_vars.len());
+            for (comm, var) in comms.iter().zip(instance_base_vars.iter()) {
+                let x_val = bases_verifier_circuit.witness(var.get_x())?;
+                let y_val = bases_verifier_circuit.witness(var.get_y())?;
+                assert_eq!(x_val, *comm.x().unwrap());
+                assert_eq!(y_val, *comm.y().unwrap());
+            }
+
             let proof_part =
                 Projective::<BnConfig>::msm_bigint(&comms, &non_acc_bigints).into_affine();
             let acc_part = Projective::<BnConfig>::msm_bigint(
-                &accs.iter().map(|a| a.comm).collect::<Vec<_>>(),
+                &old_accs.iter().map(|a| a.comm).collect::<Vec<_>>(),
                 &acc_bigints,
             )
             .into_affine();
@@ -711,12 +814,16 @@ mod tests {
     #[test]
     fn test_scalar_combiner_base() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for (m, vk_id) in (2..8).zip(
+        for (m, vk_id_one, vk_id_two) in izip!(
+            (2..8),
             [
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
-            ]
-            .iter(),
+            ],
+            [
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+            ],
         ) {
             let circuit_one = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fr254>(m, 4, PlonkType::UltraPlonk, true)?;
@@ -727,30 +834,34 @@ mod tests {
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit_one)?;
+            let (pk_one, vk_one) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one)?;
+            let (pk_two, vk_two) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two)?;
 
             let circuits = [circuit_one, circuit_two];
+            let pks = [pk_one.clone(), pk_two.clone()];
+            let vks = [vk_one.clone(), vk_two.clone()];
             let pis = [pi_one, pi_two];
 
             let outputs = circuits
                 .iter()
-                .map(|circuit| {
+                .zip(pks)
+                .map(|(circuit, pk)| {
                     FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
                         rng, circuit, &pk, None,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            let accs: [AtomicInstance<Kzg>; 4] = (0..4)
+            let old_accs: [AtomicInstance<Kzg>; 4] = (0..4)
                 .map(|_| {
                     let mut poly = DensePolynomial::<Fr254>::rand(srs_size, rng);
 
                     poly[0] = Fr254::zero();
-                    let comm: Affine<BnConfig> = Kzg::commit(&pk.commit_key, &poly)?;
+                    let comm: Affine<BnConfig> = Kzg::commit(&pk_one.commit_key, &poly)?;
                     let (proof, eval): (UnivariateKzgProof<Bn254>, Fr254) =
-                        Kzg::open(&pk.commit_key, &poly, &Fr254::zero())?;
+                        Kzg::open(&pk_one.commit_key, &poly, &Fr254::zero())?;
                     assert_eq!(eval, Fr254::zero());
                     assert!(Kzg::verify(
-                        &vk.open_key,
+                        &vk_one.open_key,
                         &comm,
                         &Fr254::zero(),
                         &Fr254::zero(),
@@ -767,15 +878,74 @@ mod tests {
                     )
                 })?;
 
-            let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
-            let vk_var = VerifyingKeyNativeScalarsVar::new(&mut verifier_circuit, &vk)?;
+            // We construct an intermediate circuit to process the bases computations of the verification.
+            let mut bases_verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+            // This is the first round, so the `VerifyingKeyBasesVar`s can be different.
+            let vk_bases_var = vks
+                .iter()
+                .map(|vk| VerifyingKeyScalarsAndBasesVar::new(&mut bases_verifier_circuit, vk))
+                .collect::<Result<Vec<VerifyingKeyScalarsAndBasesVar<Kzg>>, CircuitError>>()?;
+
+            // We store the scalars and bases from the proofs into the relevant struct.
+            // In particular, the bases are stored as `Variable`s in the circuit, as we
+            // need to reuse them later in the circuit and in the next circuit.
+            // We also prepare the relevant info from each of the proofs.
+            let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = outputs.iter()
+                .zip(vk_bases_var.iter())
+                .map(|(output, vk)| {
+                    let verifier = FFTVerifier::new(vk.domain_size)?;
+                    verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
+                        vk,
+                        &[output.pi_hash],
+                        output,
+                        &None,
+                        &mut bases_verifier_circuit,
+                    )
+                })
+                .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
+                .try_into()
+                .map_err(|_| PlonkError::InvalidParameters("outputs must have length 2".to_string()))?;
+
+            let output_vars = output_pcs_info_var_pair
+                .iter()
+                .map(|(output, _)| output.clone())
+                .collect::<Vec<Bn254OutputScalarsAndBasesVar>>();
+            let pcs_info_vars = output_pcs_info_var_pair
+                .iter()
+                .map(|(_, pcs_info)| pcs_info.clone())
+                .collect::<Vec<PcsInfoBasesVar<Kzg>>>();
+
+            let transcript = &mut output_vars[0].transcript.clone();
+            transcript.merge(&output_vars[1].transcript)?;
+
+            // Append the old bn254 accumulators to the transcript.
+            old_accs.iter().try_for_each(|acc| {
+                transcript.append_curve_point(b"comm", &acc.comm)?;
+                transcript.append_curve_point(b"opening proof", &acc.opening_proof.proof)
+            })?;
+
+            let r = transcript.squeeze_scalar_challenge::<BnConfig>(b"r")?;
+
+            // Calculate the various powers of r needed, they start at 1 and end at r^(pcs_infos.len()).
+            let r_powers = iter::successors(Some(Fr254::one()), |x| Some(*x * r))
+                .take(6)
+                .collect::<Vec<Fr254>>();
+
+            let (scalars, instance_base_vars) =
+                combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers);
+
+            let mut scalars_verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
+            let vk_var_one =
+                VerifyingKeyNativeScalarsVar::new(&mut scalars_verifier_circuit, &vk_one)?;
+            let vk_var_two =
+                VerifyingKeyNativeScalarsVar::new(&mut scalars_verifier_circuit, &vk_two)?;
 
             // Create variables from the proofs
             let output_var_pairs = outputs
                 .iter()
                 .map(|output| {
-                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut verifier_circuit)?;
-                    let proof = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
+                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut scalars_verifier_circuit)?;
+                    let proof = ProofVarNative::from_struct(&output.proof, &mut scalars_verifier_circuit)?;
                     Ok((proof_evals, proof))
                 })
                 .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
@@ -805,36 +975,64 @@ mod tests {
             let recursion_scalars = calculate_recursion_scalars_base(
                 &output_scalar_vars,
                 &output_base_vars,
-                &[vk_var.clone(), vk_var],
-                &accs,
+                &[vk_var_one, vk_var_two],
+                &old_accs,
                 1 << 10,
-                &mut verifier_circuit,
+                &mut scalars_verifier_circuit,
             )?;
-            let (instance_scalars, proof_scalars) =
+            let (instance_scalar_vars, proof_scalar_vars) =
                 recursion_scalars.split_at(recursion_scalars.len() - 6);
 
-            let non_acc_bigints = instance_scalars
+            // We check the witness values of the scalars are as expected.
+            assert_eq!(instance_scalar_vars.len(), scalars.len());
+            assert_eq!(proof_scalar_vars.len(), r_powers.len());
+
+            for (var, &expected) in instance_scalar_vars.iter().zip(scalars.iter()) {
+                let witness = scalars_verifier_circuit.witness(*var)?;
+                assert_eq!(witness, expected);
+            }
+            for (var, &expected) in proof_scalar_vars
                 .iter()
-                .map(|s| verifier_circuit.witness(*s).unwrap().into_bigint())
+                .skip(4)
+                .zip(r_powers.iter().take(2))
+            {
+                let witness = scalars_verifier_circuit.witness(*var)?;
+                assert_eq!(witness, expected);
+            }
+            for (var, &expected) in proof_scalar_vars
+                .iter()
+                .take(4)
+                .zip(r_powers.iter().skip(2))
+            {
+                let witness = scalars_verifier_circuit.witness(*var)?;
+                assert_eq!(witness, expected);
+            }
+
+            let non_acc_bigints = instance_scalar_vars
+                .iter()
+                .map(|s| scalars_verifier_circuit.witness(*s).unwrap().into_bigint())
                 .collect::<Vec<_>>();
 
-            let acc_bigints = proof_scalars[..4]
+            let acc_bigints = proof_scalar_vars[..4]
                 .iter()
-                .map(|s| verifier_circuit.witness(*s).unwrap().into_bigint())
+                .map(|s| scalars_verifier_circuit.witness(*s).unwrap().into_bigint())
                 .collect::<Vec<_>>();
 
-            let proof_bigints = proof_scalars[4..]
+            let proof_bigints = proof_scalar_vars[4..]
                 .iter()
-                .chain(proof_scalars[..4].iter())
-                .map(|s| verifier_circuit.witness(*s).unwrap().into_bigint())
+                .chain(proof_scalar_vars[..4].iter())
+                .map(|s| scalars_verifier_circuit.witness(*s).unwrap().into_bigint())
                 .collect::<Vec<_>>();
 
-            let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
-
-            let pcs_infos = outputs
+            let opening_proofs = outputs
                 .iter()
-                .zip(pis.iter())
-                .map(|(output, &pi)| {
+                .map(|output| output.proof.opening_proof.proof)
+                .chain(old_accs.iter().map(|acc| acc.opening_proof.proof))
+                .collect::<Vec<_>>();
+
+            let pcs_infos = izip!(outputs, pis, vks)
+                .map(|(output, pi, vk)| {
+                    let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
                     fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                         &vk,
                         &[pi],
@@ -845,14 +1043,10 @@ mod tests {
                 .collect::<Result<Vec<_>, _>>()?;
 
             pcs_infos.iter().for_each(|pcs_info| {
-                assert!(FFTVerifier::<Kzg>::verify_opening_proofs(&vk.open_key, pcs_info).unwrap());
+                assert!(
+                    FFTVerifier::<Kzg>::verify_opening_proofs(&vk_one.open_key, pcs_info).unwrap()
+                );
             });
-
-            let opening_proofs = outputs
-                .iter()
-                .map(|output| output.proof.opening_proof.proof)
-                .chain(accs.iter().map(|acc| acc.opening_proof.proof))
-                .collect::<Vec<_>>();
 
             let comms_lists = pcs_infos
                 .iter()
@@ -868,10 +1062,19 @@ mod tests {
             comms.extend_from_slice(&comms_lists[1]);
             comms.extend_from_slice(&opening_proofs[..2]);
 
+            // We now check the commitments match up with those computed in-circuit
+            assert_eq!(comms.len(), instance_base_vars.len());
+            for (comm, var) in comms.iter().zip(instance_base_vars.iter()) {
+                let x_val = bases_verifier_circuit.witness(var.get_x())?;
+                let y_val = bases_verifier_circuit.witness(var.get_y())?;
+                assert_eq!(x_val, *comm.x().unwrap());
+                assert_eq!(y_val, *comm.y().unwrap());
+            }
+
             let proof_part =
                 Projective::<BnConfig>::msm_bigint(&comms, &non_acc_bigints).into_affine();
             let acc_part = Projective::<BnConfig>::msm_bigint(
-                &accs.iter().map(|a| a.comm).collect::<Vec<_>>(),
+                &old_accs.iter().map(|a| a.comm).collect::<Vec<_>>(),
                 &acc_bigints,
             )
             .into_affine();
@@ -884,7 +1087,7 @@ mod tests {
             let pcs_proof = UnivariateKzgProof::<Bn254> { proof: new_proof };
 
             assert!(Kzg::verify(
-                &vk.open_key,
+                &vk_one.open_key,
                 &instance.into_affine(),
                 &Fr254::zero(),
                 &Fr254::zero(),
