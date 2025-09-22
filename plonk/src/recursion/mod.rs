@@ -100,6 +100,7 @@ pub trait RecursiveProver {
     /// This function applies the final implementation specific checks that are run in the decider circuit.
     fn decider_circuit_checks(
         specific_pis: &[Vec<Variable>],
+        root_m_proof_length: usize,
         circuit: &mut PlonkCircuit<Fr254>,
         lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>;
@@ -1333,6 +1334,7 @@ mod tests {
 
             fn decider_circuit_checks(
                 _specific_pis: &[Vec<Variable>],
+                _root_m_proof_length: usize,
                 _circuit: &mut PlonkCircuit<Fr254>,
                 _lookup_vars: &mut Vec<(Variable, Variable, Variable)>,
             ) -> Result<Vec<Variable>, CircuitError> {
