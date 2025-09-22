@@ -31,6 +31,7 @@ use merge_functions::{
     Bn254Output, Bn254RecursiveInfo, GrumpkinCircuitOutput, GrumpkinOutput, GrumpkinRecursiveInfo,
 };
 use nf_curves::grumpkin::Grumpkin;
+use num_bigint::BigUint;
 
 use crate::{
     errors::PlonkError,
@@ -76,6 +77,9 @@ pub trait RecursiveProver {
     /// This function is for any extra checks that require more information than those supplied in the base proofs.
     fn base_bn254_extra_checks(
         specific_pis: &[Variable],
+        root_m_proof_length: usize,
+        commitment_info_length: usize,
+        nullifier_info_length: usize,
         circuit: &mut PlonkCircuit<Fr254>,
     ) -> Result<Vec<Variable>, CircuitError>;
     /// This function applies implementation specific checks in the first Grumpkin circuit in the recursive prover.
@@ -235,11 +239,24 @@ pub trait RecursiveProver {
             Self::generate_vk_check_constraint(vk.hash(), &hash_list, &mut circuit)?;
         }
         // Perform any extra checks that only happen at base level.
-        let extra_checks_pi = extra_base_info
-            .iter()
+        let (first_extra_checks, second_extra_checks) = extra_base_info.split_at(extra_base_info.len() / 2);
+        for (first_len, second_len) in first_extra_checks.iter().zip(second_extra_checks.iter()).take(3) {
+            if first_len != second_len {
+                return Err(PlonkError::InvalidParameters(
+                    "The two extra_base_info do not encode the same lengths".to_string(),
+                ));
+            }
+        }
+        let extra_checks_pi = first_extra_checks.iter().skip(3).chain(second_extra_checks.iter().skip(3))
             .map(|ei| circuit.create_variable(*ei))
             .collect::<Result<Vec<Variable>, CircuitError>>()?;
-        let extra_checks_pi_out = Self::base_bn254_extra_checks(&extra_checks_pi, &mut circuit)?;
+        let extra_checks_pi_out = Self::base_bn254_extra_checks(
+            &extra_checks_pi,
+            BigUint::from(first_extra_checks[0]).to_u32_digits()[0] as usize,
+            BigUint::from(first_extra_checks[1]).to_u32_digits()[0] as usize,
+            BigUint::from(first_extra_checks[2]).to_u32_digits()[0] as usize,
+            &mut circuit,
+        )?;
         extra_checks_pi_out
             .iter()
             .try_for_each(|pi| circuit.set_variable_public(*pi))?;
@@ -1276,6 +1293,9 @@ mod tests {
 
             fn base_bn254_extra_checks(
                 _specific_pis: &[Variable],
+                _root_m_proof_length: usize,
+                _commitment_info_length: usize,
+                _nullifier_info_length: usize,
                 _circuit: &mut PlonkCircuit<Fr254>,
             ) -> Result<Vec<Variable>, CircuitError> {
                 Ok(vec![])
