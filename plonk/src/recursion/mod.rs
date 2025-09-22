@@ -240,15 +240,23 @@ pub trait RecursiveProver {
             Self::generate_vk_check_constraint(vk.hash(), &hash_list, &mut circuit)?;
         }
         // Perform any extra checks that only happen at base level.
-        let (first_extra_checks, second_extra_checks) = extra_base_info.split_at(extra_base_info.len() / 2);
-        for (first_len, second_len) in first_extra_checks.iter().zip(second_extra_checks.iter()).take(3) {
+        let (first_extra_checks, second_extra_checks) =
+            extra_base_info.split_at(extra_base_info.len() / 2);
+        for (first_len, second_len) in first_extra_checks
+            .iter()
+            .zip(second_extra_checks.iter())
+            .take(3)
+        {
             if first_len != second_len {
                 return Err(PlonkError::InvalidParameters(
                     "The two extra_base_info do not encode the same lengths".to_string(),
                 ));
             }
         }
-        let extra_checks_pi = first_extra_checks.iter().skip(3).chain(second_extra_checks.iter().skip(3))
+        let extra_checks_pi = first_extra_checks
+            .iter()
+            .skip(3)
+            .chain(second_extra_checks.iter().skip(3))
             .map(|ei| circuit.create_variable(*ei))
             .collect::<Result<Vec<Variable>, CircuitError>>()?;
         let extra_checks_pi_out = Self::base_bn254_extra_checks(
