@@ -460,6 +460,14 @@ where
         let num_vars = commitments.len() - 2;
         let max_degree = verifier_param.max_degree() - 1;
 
+        if point.len() != num_vars {
+            return Err(PCSError::InvalidParameters(format!(
+                "Point length {} does not match number of variables {}",
+                point.len(),
+                num_vars
+            )));
+        }
+
         // We initiate a new transcript that uses a sponge based rescue hash.
         let mut transcript: RescueTranscript<E::BaseField> =
             <RescueTranscript<E::BaseField> as Transcript>::new_transcript(&[]);
