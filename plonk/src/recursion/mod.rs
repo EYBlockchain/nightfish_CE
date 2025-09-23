@@ -45,7 +45,7 @@ use crate::{
         FFTPlonk, UnivariateUniversalIpaParams,
     },
     proof_system::{
-        structs::{Proof, ProvingKey as JFProvingKey},
+        structs::{Proof, ProvingKey as JFProvingKey, VerifyingKey as PlonkVerifyingKey},
         PlonkKzgSnark, UniversalSNARK,
     },
     transcript::SolidityTranscript,
@@ -116,6 +116,8 @@ pub trait RecursiveProver {
     fn get_merge_bn254_pks() -> Vec<ProvingKey<Kzg>>;
     /// Retrieves the final proving key.
     fn get_decider_pk() -> JFProvingKey<Bn254>;
+    /// Retrieves the final verifying key.
+    fn get_decider_vk() -> PlonkVerifyingKey<Bn254>;
     /// Stores the base Grumpkin proving key.
     fn store_base_grumpkin_pk(pk: MLEProvingKey<Zmorph>) -> Option<()>;
     /// Stores the base Bn254 proving key.
@@ -126,6 +128,8 @@ pub trait RecursiveProver {
     fn store_merge_bn254_pks(pks: Vec<ProvingKey<Kzg>>) -> Option<()>;
     /// Stores the decider proving key.
     fn store_decider_pk(pk: JFProvingKey<Bn254>) -> Option<()>;
+    /// Stores the decider verifying key.
+    fn store_decider_vk(vk: &PlonkVerifyingKey<Bn254>);
     /// This function takes in the input proofs and outputs [`GrumpkinCircuitOutput`] to be taken in by the next function.
     fn base_grumpkin_circuit(
         outputs: &[Bn254Output; 2],
@@ -764,7 +768,7 @@ pub trait RecursiveProver {
             &current_bn254_pk,
         )?;
 
-        let (decider_pk, _) =
+        let (decider_pk, decider_vk) =
             PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit)?;
 
         Self::store_merge_grumpkin_pks(merge_grumpkin_pks).ok_or(PlonkError::InvalidParameters(
@@ -774,6 +778,8 @@ pub trait RecursiveProver {
         Self::store_merge_bn254_pks(merge_bn254_pks).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Bn254 proving keys".to_string(),
         ))?;
+
+        Self::store_decider_vk(&decider_vk);
 
         Self::store_decider_pk(decider_pk).ok_or(PlonkError::InvalidParameters(
             "Could not store decider proving key".to_string(),
@@ -1440,6 +1446,17 @@ mod tests {
                     .clone()
             }
 
+            fn get_decider_vk() -> PlonkVerifyingKey<Bn254> {
+                get_key_store()
+                    .read()
+                    .unwrap()
+                    .get("decider")
+                    .unwrap()
+                    .get_decider_pk()
+                    .vk
+                    .clone()
+            }
+
             fn store_base_grumpkin_pk(pk: MLEProvingKey<Zmorph>) -> Option<()> {
                 get_key_store()
                     .write()
@@ -1474,6 +1491,10 @@ mod tests {
                     .unwrap()
                     .insert("decider".to_string(), Key::Decider(pk));
                 Some(())
+            }
+
+            fn store_decider_vk(_vk: &PlonkVerifyingKey<Bn254>) {
+                // Do nothing for this test
             }
         }
 
