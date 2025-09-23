@@ -190,10 +190,10 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         epsilon: EmulatedVariable<E>,
     ) -> Self {
         Self {
-            beta,
             gamma,
             alpha,
             tau,
+            beta,
             delta,
             epsilon,
         }
@@ -216,7 +216,7 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         let delta = circuit.create_emulated_variable(challenges.delta)?;
         let epsilon = circuit.create_emulated_variable(challenges.epsilon)?;
 
-        Ok(Self::new(beta, gamma, alpha, tau, delta, epsilon))
+        Ok(Self::new(gamma, alpha, tau, beta, delta, epsilon))
     }
 
     /// Computes challenges from a proof.
