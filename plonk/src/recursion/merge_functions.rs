@@ -31,6 +31,7 @@ use jf_relation::{
 };
 use jf_utils::{bytes_to_field_elements, fq_to_fr, fr_to_fq};
 use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
+use num_bigint::BigUint;
 use rayon::prelude::*;
 
 use crate::{
@@ -1398,6 +1399,7 @@ pub fn decider_circuit(
     extra_data: &[Fr254],
     specific_pi_fn: impl Fn(
         &[Vec<Variable>],
+        usize,
         &mut PlonkCircuit<Fr254>,
         &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>,
@@ -1677,7 +1679,7 @@ pub fn decider_circuit(
     let impl_spec_pi = grumpkin_info
         .specific_pi
         .iter()
-        .chain([extra_data.to_vec()].iter())
+        .chain([extra_data[1..].to_vec()].iter())
         .map(|pi_vec| {
             pi_vec
                 .iter()
@@ -1687,7 +1689,12 @@ pub fn decider_circuit(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
-    let specific_pi = specific_pi_fn(&impl_spec_pi, circuit, &mut lookup_vars)?;
+    let specific_pi = specific_pi_fn(
+        &impl_spec_pi,
+        BigUint::from(extra_data[0]).to_u32_digits()[0] as usize,
+        circuit,
+        &mut lookup_vars,
+    )?;
 
     verify_zeromorph_circuit(
         circuit,
