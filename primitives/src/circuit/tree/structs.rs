@@ -210,6 +210,39 @@ impl CircuitInsertionInfoVar {
         Ok(Self::new(old_root, new_root, leaves, proof))
     }
 
+    /// Create a new circuit insertion info variable from a slice of variables. Here `height` is the height of the tree.
+    pub fn from_vars<F: PrimeField>(
+        circuit: &mut PlonkCircuit<F>,
+        vars: &[Variable],
+        height: usize,
+    ) -> Result<Self, CircuitError> {
+        // The length of the `vars` vector should be at least 5 + height * 2.
+        if vars.len() < 5 + height * 2 {
+            return Err(CircuitError::ParameterError(format!(
+                "Length of vars: ({}) must be at least 5 + 2 * height ({})",
+                vars.len(),
+                height,
+            )));
+        }
+        let old_root = vars[0];
+        let new_root = vars[1];
+
+        // We can calculate the number of leaves because the last 2 + height * 2 elements are the membership proof.
+        let membership_proof_size = 2 + height * 2;
+        let leaves = vars[3..vars.len() - membership_proof_size].to_vec();
+
+        let proof = MembershipProofVar::from_vars(
+            circuit,
+            &vars[(vars.len() - membership_proof_size)..vars.len()],
+        )?;
+        Ok(CircuitInsertionInfoVar {
+            old_root,
+            new_root,
+            leaves,
+            proof,
+        })
+    }
+
     /// Verifies an insertion into a tree using supplied [`CircuitInsertionInfo`].
     pub fn verify_subtree_insertion_gadget<F: PoseidonParams>(
         &self,
@@ -668,6 +701,92 @@ mod tests {
                 assert_eq!(
                     circuit.witness(path_var.value).unwrap(),
                     circuit.witness(path_var_from_proof.value).unwrap()
+                );
+            }
+        }
+        circuit.check_circuit_satisfiability(&[]).unwrap();
+    }
+
+    #[test]
+    fn test_circuit_insertion_info_from_vars() {
+        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut rng = ark_std::test_rng();
+        for _ in 0..25 {
+            let poseidon = Poseidon::<Fr254>::new();
+            let mut tree = Timber::new(poseidon, 32);
+            let start_amount = usize::rand(&mut rng) % 2usize.pow(10);
+            let leaves: Vec<Fr254> = (0..start_amount).map(|_| Fr254::rand(&mut rng)).collect();
+
+            let subtree_leaves: Vec<Fr254> = (0..8).map(|_| Fr254::rand(&mut rng)).collect();
+            tree.insert_leaves(&leaves).unwrap();
+
+            let circuit_insertion_info = tree.insert_for_circuit(&subtree_leaves).unwrap();
+            let field_elems = Vec::from(&circuit_insertion_info);
+            let vars = field_elems
+                .iter()
+                .map(|&elem| circuit.create_variable(elem))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+                .unwrap();
+            let circuit_insertion_info_var =
+                CircuitInsertionInfoVar::from_vars(&mut circuit, &vars, 32 - 3).unwrap();
+            let circuit_insertion_info_var_from_info =
+                CircuitInsertionInfoVar::from_circuit_insertion_info(
+                    &mut circuit,
+                    &circuit_insertion_info,
+                )
+                .unwrap();
+            assert_eq!(
+                circuit
+                    .witness(circuit_insertion_info_var.old_root)
+                    .unwrap(),
+                circuit
+                    .witness(circuit_insertion_info_var_from_info.old_root)
+                    .unwrap()
+            );
+            assert_eq!(
+                circuit
+                    .witness(circuit_insertion_info_var.new_root)
+                    .unwrap(),
+                circuit
+                    .witness(circuit_insertion_info_var_from_info.new_root)
+                    .unwrap()
+            );
+            assert_eq!(
+                circuit_insertion_info_var.leaves.len(),
+                circuit_insertion_info_var_from_info.leaves.len()
+            );
+            for (leaf, leaf_from_info) in circuit_insertion_info_var
+                .leaves
+                .iter()
+                .zip(circuit_insertion_info_var_from_info.leaves.iter())
+            {
+                assert_eq!(
+                    circuit.witness(*leaf).unwrap(),
+                    circuit.witness(*leaf_from_info).unwrap()
+                );
+            }
+            assert_eq!(
+                circuit_insertion_info_var.proof.path_elements.len(),
+                circuit_insertion_info_var_from_info
+                    .proof
+                    .path_elements
+                    .len()
+            );
+            for (path_var, path_var_from_info) in
+                circuit_insertion_info_var.proof.path_elements.iter().zip(
+                    circuit_insertion_info_var_from_info
+                        .proof
+                        .path_elements
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(path_var.direction.0).unwrap(),
+                    circuit.witness(path_var_from_info.direction.0).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(path_var.value).unwrap(),
+                    circuit.witness(path_var_from_info.value).unwrap()
                 );
             }
         }
