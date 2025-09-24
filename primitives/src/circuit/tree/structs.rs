@@ -337,6 +337,16 @@ impl LeafDBEntryVar {
         Ok(Self::new(value, index, next_index, next_value))
     }
 
+    /// Create a new leaf database entry variable from a slice of variables.
+    pub fn from_vars(vars: &[Variable]) -> Result<Self, CircuitError> {
+        if vars.len() != 4 {
+            return Err(CircuitError::ParameterError(
+                "Vector of vars length should be 4".to_string(),
+            ));
+        }
+        Ok(Self::new(vars[0], vars[1], vars[2], vars[3]))
+    }
+
     /// Hashes the variable.
     pub fn hash<F: PoseidonParams>(
         &self,
