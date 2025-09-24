@@ -1,7 +1,7 @@
 //! Circuit version of various merkle tree related structs that we require.
 
 use ark_ff::PrimeField;
-use ark_std::{string::ToString, vec, vec::Vec};
+use ark_std::{format, string::ToString, vec, vec::Vec};
 use jf_relation::{errors::CircuitError, BoolVar, Circuit, PlonkCircuit, Variable};
 
 use crate::{
@@ -84,6 +84,44 @@ impl MembershipProofVar {
             .map(|path_element| PathElementVar::from_path_element(circuit, path_element))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self::new(path_elements))
+    }
+
+    /// Create a new membership proof variable from a vector of variables.
+    pub fn from_vars<F: PrimeField>(
+        circuit: &mut PlonkCircuit<F>,
+        vars: &[Variable],
+    ) -> Result<Self, CircuitError> {
+        if vars.len() < 4 {
+            return Err(CircuitError::ParameterError(format!(
+                "Vector of vars length: ({}) must be at least 4",
+                vars.len(),
+            )));
+        }
+        if vars.len() % 2 != 0 {
+            return Err(CircuitError::ParameterError(format!(
+                "Vector of vars length: ({}) should be even",
+                vars.len(),
+            )));
+        }
+
+        let mut path_elements = Vec::new();
+        // We skip the first `var`, as it represents the value of the MembershipProof,
+        // which is not a part of MembershipProofVar
+        let path_vars = vars[1..vars.len() - 1].to_vec();
+        for chunk in path_vars.chunks_exact(2) {
+            let direction_var = chunk[0];
+            circuit.enforce_bool(direction_var)?;
+
+            let value_var = chunk[1];
+
+            let path_element_var = PathElementVar {
+                direction: BoolVar(direction_var),
+                value: value_var,
+            };
+            path_elements.push(path_element_var);
+        }
+
+        Ok(MembershipProofVar { path_elements })
     }
 
     /// Verifies a membership proof against a supplied value and root.
@@ -580,6 +618,61 @@ mod tests {
     };
     use ark_bn254::Fr as Fr254;
     use ark_std::{collections::HashMap, rand::seq::SliceRandom, UniformRand};
+
+    #[test]
+    fn test_membership_proof_from_vars() {
+        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut rng = ark_std::test_rng();
+        let poseidon = Poseidon::<Fr254>::new();
+        let mut tree = Timber::new(poseidon, 32);
+        let mut proofs = Vec::new();
+        let leaves: Vec<Fr254> = (0..48).map(|_| Fr254::rand(&mut rng)).collect();
+        tree.insert_leaves(&leaves).unwrap();
+        for (i, leaf) in leaves.iter().enumerate() {
+            let sibling_path = get_node_sibling_path(&tree.tree, 32, i, tree.get_tree_hasher());
+            let proof = MembershipProof {
+                sibling_path,
+                node_value: *leaf,
+                leaf_index: i,
+            };
+            proofs.push(proof);
+        }
+
+        for proof in proofs.iter() {
+            let field_elems = Vec::from(proof);
+            let vars = field_elems
+                .iter()
+                .map(|&elem| circuit.create_variable(elem))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+                .unwrap();
+
+            let proof_var_from_proof =
+                MembershipProofVar::from_membership_proof(&mut circuit, proof).unwrap();
+
+            let proof_var = MembershipProofVar::from_vars(&mut circuit, &vars).unwrap();
+
+            assert_eq!(
+                proof_var.path_elements.len(),
+                proof_var_from_proof.path_elements.len()
+            );
+
+            for (path_var, path_var_from_proof) in proof_var
+                .path_elements
+                .iter()
+                .zip(proof_var_from_proof.path_elements.iter())
+            {
+                assert_eq!(
+                    circuit.witness(path_var.direction.0).unwrap(),
+                    circuit.witness(path_var_from_proof.direction.0).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(path_var.value).unwrap(),
+                    circuit.witness(path_var_from_proof.value).unwrap()
+                );
+            }
+        }
+        circuit.check_circuit_satisfiability(&[]).unwrap();
+    }
 
     #[test]
     fn test_verify_membership_proof() {
