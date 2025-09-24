@@ -432,6 +432,60 @@ impl IMTCircuitInsertionInfoVar {
         ))
     }
 
+    /// Create a new IMT circuit insertion info variable from a vector of variables.
+    pub fn from_vars<F: PrimeField>(
+        circuit: &mut PlonkCircuit<F>,
+        vars: &[Variable],
+        height: usize,
+        no_leaves: usize,
+    ) -> Result<Self, CircuitError> {
+        if vars.len() < 5 + height * 2 {
+            return Err(CircuitError::ParameterError(
+                "Vector of vars length is too small".to_string(),
+            ));
+        }
+        let old_root = vars[0];
+
+        let circuit_info_height = height - no_leaves.ilog2() as usize;
+        let circuit_info_length = 3 + no_leaves + 2 + 2 * circuit_info_height;
+
+        let circuit_info = CircuitInsertionInfoVar::from_vars(
+            circuit,
+            &vars[1..1 + circuit_info_length],
+            circuit_info_height,
+        )?;
+        let first_index = vars[1 + circuit_info_length];
+
+        let low_nullifiers_length = (6 + 2 * height) * no_leaves;
+
+        let mut low_nullifiers = vec![];
+        vars[2 + circuit_info_length..2 + circuit_info_length + low_nullifiers_length]
+            .chunks(6 + 2 * height)
+            .try_for_each(|chunk| {
+                let entry = LeafDBEntryVar::from_vars(&chunk[..4])?;
+                let proof = MembershipProofVar::from_vars(circuit, &chunk[4..])?;
+                low_nullifiers.push((entry, proof));
+                Result::<(), CircuitError>::Ok(())
+            })?;
+
+        let mut pending_inserts = vec![];
+        vars[2 + circuit_info_length + low_nullifiers_length..]
+            .chunks(4)
+            .try_for_each(|chunk| {
+                let entry = LeafDBEntryVar::from_vars(chunk)?;
+                pending_inserts.push(entry);
+                Result::<(), CircuitError>::Ok(())
+            })?;
+
+        Ok(IMTCircuitInsertionInfoVar {
+            old_root,
+            circuit_info,
+            first_index,
+            low_nullifiers,
+            pending_inserts,
+        })
+    }
+
     /// Verify the insertion of a subtree into an Indexed Merkle Tree is correct.
     /// Here, we assume the subtree depth is 3.
     pub fn verify_subtree_insertion_gadget<F: PoseidonParams>(
@@ -793,6 +847,247 @@ mod tests {
                     circuit.witness(path_var.value).unwrap(),
                     circuit.witness(path_var_from_info.value).unwrap()
                 );
+            }
+        }
+        circuit.check_circuit_satisfiability(&[]).unwrap();
+    }
+
+    #[test]
+    fn test_imt_circuit_insertion_info_from_vars() {
+        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut rng = ark_std::test_rng();
+        for _ in 0..25 {
+            let poseidon = Poseidon::<Fr254>::new();
+            let mut tree: IndexedMerkleTree<Fr254, Poseidon<Fr254>, HashMap<Fr254, LeafDBEntry<Fr254>>> = IndexedMerkleTree::<
+                Fr254,
+                Poseidon<Fr254>,
+                HashMap<Fr254, LeafDBEntry<Fr254>>,
+            >::new(poseidon, 32)
+            .unwrap();
+
+            let start_amount = u32::rand(&mut rng) % 2u32.pow(10);
+
+            let leaves: Vec<Fr254> = (0..start_amount).map(|_| Fr254::rand(&mut rng)).collect();
+
+            let subtree_leaves = (0..8)
+                .map(|j| {
+                    if j % 3 != 0 {
+                        Fr254::rand(&mut rng) + Fr254::from(start_amount)
+                    } else {
+                        Fr254::from(0u8)
+                    }
+                })
+                .collect::<Vec<Fr254>>();
+
+            tree.insert_leaves(&leaves).unwrap();
+
+            let imt_circuit_insertion_info = tree.insert_for_circuit(&subtree_leaves).unwrap();
+            let field_elems = Vec::from(&imt_circuit_insertion_info);
+
+            let vars = field_elems
+                .iter()
+                .map(|&elem| circuit.create_variable(elem))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+                .unwrap();
+            let imt_circuit_insertion_info_var =
+                IMTCircuitInsertionInfoVar::from_vars(&mut circuit, &vars, 32, 8).unwrap();
+            let imt_circuit_insertion_info_var_from_info =
+                IMTCircuitInsertionInfoVar::from_imt_circuit_insertion_info(
+                    &mut circuit,
+                    &imt_circuit_insertion_info,
+                )
+                .unwrap();
+
+            assert_eq!(
+                circuit
+                    .witness(imt_circuit_insertion_info_var.old_root)
+                    .unwrap(),
+                circuit
+                    .witness(imt_circuit_insertion_info_var_from_info.old_root)
+                    .unwrap(),
+            );
+
+            assert_eq!(
+                circuit
+                    .witness(imt_circuit_insertion_info_var.circuit_info.old_root)
+                    .unwrap(),
+                circuit
+                    .witness(
+                        imt_circuit_insertion_info_var_from_info
+                            .circuit_info
+                            .old_root
+                    )
+                    .unwrap()
+            );
+            assert_eq!(
+                circuit
+                    .witness(
+                        imt_circuit_insertion_info_var_from_info
+                            .circuit_info
+                            .new_root
+                    )
+                    .unwrap(),
+                circuit
+                    .witness(
+                        imt_circuit_insertion_info_var_from_info
+                            .circuit_info
+                            .new_root
+                    )
+                    .unwrap()
+            );
+            assert_eq!(
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .leaves
+                    .len(),
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .leaves
+                    .len()
+            );
+            for (leaf, leaf_from_info) in imt_circuit_insertion_info_var_from_info
+                .circuit_info
+                .leaves
+                .iter()
+                .zip(
+                    imt_circuit_insertion_info_var_from_info
+                        .circuit_info
+                        .leaves
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(*leaf).unwrap(),
+                    circuit.witness(*leaf_from_info).unwrap()
+                );
+            }
+            assert_eq!(
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .proof
+                    .path_elements
+                    .len(),
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .proof
+                    .path_elements
+                    .len()
+            );
+            for (path_var, path_var_from_info) in imt_circuit_insertion_info_var_from_info
+                .circuit_info
+                .proof
+                .path_elements
+                .iter()
+                .zip(
+                    imt_circuit_insertion_info_var_from_info
+                        .circuit_info
+                        .proof
+                        .path_elements
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(path_var.direction.0).unwrap(),
+                    circuit.witness(path_var_from_info.direction.0).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(path_var.value).unwrap(),
+                    circuit.witness(path_var_from_info.value).unwrap()
+                );
+            }
+
+            assert_eq!(
+                circuit
+                    .witness(imt_circuit_insertion_info_var.first_index)
+                    .unwrap(),
+                circuit
+                    .witness(imt_circuit_insertion_info_var_from_info.first_index)
+                    .unwrap(),
+            );
+
+            assert_eq!(
+                imt_circuit_insertion_info_var.pending_inserts.len(),
+                imt_circuit_insertion_info_var_from_info
+                    .pending_inserts
+                    .len()
+            );
+            for (pending_insert, pending_insert_from_info) in
+                imt_circuit_insertion_info_var.pending_inserts.iter().zip(
+                    imt_circuit_insertion_info_var_from_info
+                        .pending_inserts
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(pending_insert.value).unwrap(),
+                    circuit.witness(pending_insert_from_info.value).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(pending_insert.index).unwrap(),
+                    circuit.witness(pending_insert_from_info.index).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(pending_insert.next_index).unwrap(),
+                    circuit
+                        .witness(pending_insert_from_info.next_index)
+                        .unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(pending_insert.next_value).unwrap(),
+                    circuit
+                        .witness(pending_insert_from_info.next_value)
+                        .unwrap()
+                );
+            }
+
+            assert_eq!(
+                imt_circuit_insertion_info_var.low_nullifiers.len(),
+                imt_circuit_insertion_info_var_from_info
+                    .low_nullifiers
+                    .len()
+            );
+            for (
+                (leaf_db_entry, membership_proof),
+                (leaf_db_entry_from_info, membership_proof_from_info),
+            ) in imt_circuit_insertion_info_var.low_nullifiers.iter().zip(
+                imt_circuit_insertion_info_var_from_info
+                    .low_nullifiers
+                    .iter(),
+            ) {
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.value).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.value).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.index).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.index).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.next_index).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.next_index).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.next_value).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.next_value).unwrap()
+                );
+                assert_eq!(
+                    membership_proof.path_elements.len(),
+                    membership_proof_from_info.path_elements.len()
+                );
+                for (path_var, path_var_from_info) in membership_proof
+                    .path_elements
+                    .iter()
+                    .zip(membership_proof_from_info.path_elements.iter())
+                {
+                    assert_eq!(
+                        circuit.witness(path_var.direction.0).unwrap(),
+                        circuit.witness(path_var_from_info.direction.0).unwrap()
+                    );
+                    assert_eq!(
+                        circuit.witness(path_var.value).unwrap(),
+                        circuit.witness(path_var_from_info.value).unwrap()
+                    );
+                }
             }
         }
         circuit.check_circuit_satisfiability(&[]).unwrap();
