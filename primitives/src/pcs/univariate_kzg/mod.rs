@@ -451,7 +451,7 @@ fn convert_to_bigints<F: PrimeField>(p: &[F]) -> Vec<F::BigInt> {
 use crate::pcs::univariate_kzg::ptau::parse_ptau_file;
 use ark_bn254::{g1::Config as Bn254ConfigOne, g2::Config as Bn254ConfigTwo, Fq};
 
-const KZG_CACHE_FORMAT_VERSION: u32 = 1; // bump if you change serialization
+const KZG_CACHE_FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug)]
 struct KzgCacheHeader {
