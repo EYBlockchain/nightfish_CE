@@ -175,8 +175,9 @@ pub fn calculate_recursion_scalars(
         circuit,
     )?;
 
-    let mut challenge_powers = (0..5)
-        .scan(circuit.one(), |state, _| {
+    // We need 6 challenge powers, to batch the 4 old accumulators and the 2 new proofs.
+    let mut challenge_powers = (0..4)
+        .scan(batching_challenge, |state, _| {
             if let Ok(challenge_power) = circuit.mul(*state, batching_challenge) {
                 *state = challenge_power;
                 Some(challenge_power)
@@ -186,6 +187,8 @@ pub fn calculate_recursion_scalars(
         })
         .collect::<Vec<Variable>>();
 
+    // We only now add the first two powers, r^0 and r^1, to the start of the list to avoid extra calls to `mul`
+    challenge_powers.insert(0, batching_challenge);
     challenge_powers.insert(0, circuit.one());
 
     let points = pcs_infos
@@ -243,8 +246,9 @@ pub(crate) fn calculate_recursion_scalars_base(
         circuit,
     )?;
 
-    let mut challenge_powers = (0..5)
-        .scan(circuit.one(), |state, _| {
+    // We need 6 challenge powers, to batch the 4 old accumulators and the 2 new proofs.
+    let mut challenge_powers = (0..4)
+        .scan(batching_challenge, |state, _| {
             if let Ok(challenge_power) = circuit.mul(*state, batching_challenge) {
                 *state = challenge_power;
                 Some(challenge_power)
@@ -254,6 +258,8 @@ pub(crate) fn calculate_recursion_scalars_base(
         })
         .collect::<Vec<Variable>>();
 
+    // We only now add the first two powers, r^0 and r^1, to the start of the list to avoid extra calls to `mul`
+    challenge_powers.insert(0, batching_challenge);
     challenge_powers.insert(0, circuit.one());
 
     let points = pcs_infos
