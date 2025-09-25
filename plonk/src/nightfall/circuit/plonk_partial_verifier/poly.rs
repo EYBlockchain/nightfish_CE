@@ -8,18 +8,16 @@
 
 use ark_ff::PrimeField;
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
-use ark_std::{format, string::ToString, vec, vec::Vec};
+use ark_std::{format, iter, string::ToString, vec, vec::Vec};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{
     errors::CircuitError,
     gadgets::{ecc::HasTEForm, EmulatedVariable, EmulationConfig},
     Circuit, PlonkCircuit, Variable,
 };
+use num_bigint::BigUint;
 
-use super::{
-    ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative, DEPOSIT_DOMAIN_SIZE,
-    TRANSFER_DOMAIN_SIZE,
-};
+use super::{ChallengesVar, PlookupEvalsVarNative, ProofEvalsVarNative};
 
 /// This helper function generate the variables for the following data
 /// - Circuit evaluation of vanishing polynomial at point `zeta` i.e., output =
@@ -135,11 +133,11 @@ where
 ///
 /// Note that evaluation at n is commented out as we don't need it for
 /// partial verification circuit.
-pub(super) fn evaluate_poly_helper_native<F, const IS_BASE: bool>(
+pub(super) fn evaluate_poly_helper_native<F>(
     circuit: &mut PlonkCircuit<F>,
     zeta_var: Variable,
-    gen_inv_var: Variable,
-    domain_size_var: Variable,
+    gen_inv: F,
+    domain_size: usize,
 ) -> Result<[Variable; 4], CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -147,49 +145,71 @@ where
     // ================================
     // compute zeta^n - 1
     // ================================
+    // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
+    let mut zeta_n_var = zeta_var;
+    let mut ctr = 1;
+    while ctr < domain_size {
+        ctr *= 2;
+        zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
+    }
 
-    let domain_size = circuit.witness(domain_size_var)?;
-    let zeta_n_var = if IS_BASE {
-        // In the base case, `domain_size` must be either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        if domain_size != F::from(TRANSFER_DOMAIN_SIZE as u32)
-            && domain_size != F::from(DEPOSIT_DOMAIN_SIZE as u32)
-        {
-            return Err(CircuitError::ParameterError(
-                "Invalid domain size for base case".to_string(),
-            ));
-        }
-        let transfer_domain_const_var =
-            circuit.create_constant_variable(F::from(TRANSFER_DOMAIN_SIZE as u32))?;
-        let deposit_domain_const_var =
-            circuit.create_constant_variable(F::from(DEPOSIT_DOMAIN_SIZE as u32))?;
-        let is_transfer_var = circuit.is_equal(domain_size_var, transfer_domain_const_var)?;
-        let is_deposit_var = circuit.is_equal(domain_size_var, deposit_domain_const_var)?;
-        // We constrain `domain_size_var` to represent either TRANSFER_DOMAIN_SIZE or DEPOSIT_DOMAIN_SIZE.
-        circuit.add_gate(is_transfer_var.into(), is_deposit_var.into(), circuit.one())?;
-        let mut zeta_transfer_var = zeta_var;
-        let mut ctr = 1;
-        while ctr < TRANSFER_DOMAIN_SIZE {
-            ctr <<= 1;
-            zeta_transfer_var = circuit.mul(zeta_transfer_var, zeta_transfer_var)?;
-        }
-        // Here is where we are assuming TRANSFER_DOMAIN_SIZE is at most DEPOSIT_DOMAIN_SIZE.
-        let mut zeta_deposit_var = zeta_transfer_var;
-        let mut ctr = TRANSFER_DOMAIN_SIZE;
-        while ctr < DEPOSIT_DOMAIN_SIZE {
-            ctr <<= 1;
-            zeta_deposit_var = circuit.mul(zeta_deposit_var, zeta_deposit_var)?;
-        }
-        circuit.conditional_select(is_transfer_var, zeta_deposit_var, zeta_transfer_var)?
-    } else {
-        // In the non-base case, `domain_size` is considered constant. It only depends on the layer of recursion.
-        let mut zeta_n_var = zeta_var;
-        let mut ctr = F::from(1u8);
-        while ctr < domain_size {
-            ctr *= F::from(2u8);
-            zeta_n_var = circuit.mul(zeta_n_var, zeta_n_var)?;
-        }
-        zeta_n_var
-    };
+    // zeta^n = zeta_n_minus_1 + 1
+    let zeta_n_minus_one_var = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
+
+    // ================================
+    // evaluate lagrange at 1
+    //  lagrange_1_eval = (zeta^n - 1) / (zeta - 1) / domain_size
+    //
+    // which is proven via
+    //  domain_size * lagrange_1_eval * (zeta - 1) = zeta^n - 1 mod Fr::modulus
+    // ================================
+
+    let domain_size = F::from(domain_size as u64);
+
+    // lagrange_1_eval
+
+    let divisor_var = circuit.lin_comb(&[domain_size], &-domain_size, &[zeta_var])?;
+
+    let zeta_n_minus_one = circuit.witness(zeta_n_minus_one_var)?;
+    let divisor = circuit.witness(divisor_var)?;
+
+    let lagrange_1_eval = zeta_n_minus_one / divisor;
+    let lagrange_1_eval_var = circuit.create_variable(lagrange_1_eval)?;
+    // Constrain the lagrange_1_eval to be correct.
+    circuit.mul_gate(divisor_var, lagrange_1_eval_var, zeta_n_minus_one_var)?;
+
+    // Compute lagrange_n_eval
+    let divisor_var = circuit.lin_comb(&[domain_size], &(-domain_size * gen_inv), &[zeta_var])?;
+    let numerator_var = circuit.mul_constant(zeta_n_minus_one_var, &gen_inv)?;
+    let divisor = circuit.witness(divisor_var)?;
+    let numerator = circuit.witness(numerator_var)?;
+    let lagrange_n_eval = numerator / divisor;
+    let lagrange_n_eval_var = circuit.create_variable(lagrange_n_eval)?;
+    // Constrain the lagrange_n_eval to be correct.
+    circuit.mul_gate(divisor_var, lagrange_n_eval_var, numerator_var)?;
+
+    Ok([
+        zeta_n_var,
+        zeta_n_minus_one_var,
+        lagrange_1_eval_var,
+        lagrange_n_eval_var,
+    ])
+}
+
+pub(super) fn evaluate_poly_helper_native_base<F>(
+    circuit: &mut PlonkCircuit<F>,
+    zeta_var: Variable,
+    gen_inv_var: Variable,
+    domain_size_var: Variable,
+    max_domain_size: usize,
+) -> Result<[Variable; 4], CircuitError>
+where
+    F: PrimeField + RescueParameter,
+{
+    // ================================
+    // compute zeta^n - 1
+    // ================================
+    let zeta_n_var = zeta_to_n(circuit, zeta_var, domain_size_var, max_domain_size)?;
 
     // zeta^n = zeta_n_minus_1 + 1
     let zeta_n_minus_one_var = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
@@ -271,7 +291,9 @@ where
     let vanish_eval_var: usize = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
 
     // compute v_i = g^i / n in the clear
-    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+    let domain = Radix2EvaluationDomain::<F>::new(domain_size).ok_or(
+        CircuitError::ParameterError("Domain creation Failed".to_string()),
+    )?;
 
     let pi_len = pub_inputs_var.len();
     let v_i = (0..pub_inputs_var.len())
@@ -406,10 +428,10 @@ where
 #[allow(clippy::too_many_arguments)]
 pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    gen_inv_var: Variable,
+    gen_inv: &F,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
-    pi: Variable,
+    pi: &Variable,
     evals: &[Variable; 4],
     lookup_evals: &Option<PlookupEvalsVarNative>,
 ) -> Result<Variable, CircuitError>
@@ -471,7 +493,7 @@ where
     prod = circuit.mul(tmp, prod)?;
 
     // r_plonk
-    let pi_eval = circuit.mul(pi, evals[2])?;
+    let pi_eval = circuit.mul(*pi, evals[2])?;
     let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
     let non_lookup = circuit.gen_quad_poly(
         &wires,
@@ -495,13 +517,162 @@ where
         )?;
 
         // Now alpha^3 * (zeta  - domain_gen_inv) * prod_lookup_next * (gamma * ( 1 + beta) + h_1 + beta * h_1_next) * (gamma * (1 + beta) + beta * h_2_next)
+        let wires = [
+            challenges.alphas[2],
+            zeta_var,
+            circuit.zero(),
+            circuit.zero(),
+        ];
+        let mut init = circuit.gen_quad_poly(
+            &wires,
+            &[-*gen_inv, F::zero(), F::zero(), F::zero()],
+            &[F::one(), F::zero()],
+            F::zero(),
+        )?;
+        init = circuit.mul(init, lookup_evals.prod_next_eval)?;
+        let g_mul_one_b = circuit.mul_add(
+            &[
+                challenges.gamma,
+                circuit.one(),
+                challenges.gamma,
+                challenges.beta,
+            ],
+            &[F::one(), F::one()],
+        )?;
+        let wires = [
+            g_mul_one_b,
+            lookup_evals.h_1_eval,
+            challenges.beta,
+            lookup_evals.h_1_next_eval,
+        ];
+        let tmp1 = circuit.gen_quad_poly(
+            &wires,
+            &[F::one(), F::one(), F::zero(), F::zero()],
+            &[F::zero(), F::one()],
+            F::zero(),
+        )?;
+        let tmp2 = circuit.mul_add(
+            &[
+                g_mul_one_b,
+                circuit.one(),
+                challenges.beta,
+                lookup_evals.h_2_next_eval,
+            ],
+            &[F::one(), F::one()],
+        )?;
+        let mut term_two = circuit.mul(tmp1, tmp2)?;
+        term_two = circuit.mul(term_two, init)?;
 
+        let final_sum = circuit.sub(term_one, term_two)?;
+        circuit.mul_add(
+            &[final_sum, challenges.alphas[2], non_lookup, circuit.one()],
+            &[F::one(), F::one()],
+        )
+    } else {
+        Ok(non_lookup)
+    }
+}
+
+/// Same as `compute_lin_poly_constant_term_circuit_native` but takes `gen_inv` as a variable.
+/// This is used in the base layer of recursion where `gen_inv` cannot be hardcoded.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn compute_lin_poly_constant_term_circuit_native_base<F>(
+    circuit: &mut PlonkCircuit<F>,
+    gen_inv_var: &Variable,
+    challenges: &ChallengesVar,
+    proof_evals: &ProofEvalsVarNative,
+    pi: &Variable,
+    evals: &[Variable; 4],
+    lookup_evals: &Option<PlookupEvalsVarNative>,
+) -> Result<Variable, CircuitError>
+where
+    F: PrimeField + RescueParameter,
+{
+    let zeta_var = challenges.zeta;
+
+    // r_plonk
+    //  = PI - L1(x) * alpha^2 - alpha *
+    //  \prod_i=1..m-1 (w_{j,i} + beta * sigma_{j,i} + gamma)
+    //  * (w_{j,m} + gamma) * z_j(xw)
+    //
+    // r_0 = r_plonk + r_lookup
+    // where m is the number of instances, and k_j is the number of alpha power
+    // terms added to the first j-1 instances.
+
+    // =====================================================
+    // r_plonk
+    //  = - L1(x) * alpha^2 - alpha *
+    //  \prod_i=1..m-1 (w_{i} + beta * sigma_{i} + gamma)
+    //  * (w_{m} + gamma) * z(xw)
+    // =====================================================
+
+    // \prod_i=1..m-1 (w_{i} + beta * sigma_{i} + gamma)
+    let num_wire_types = proof_evals.wires_evals.len();
+    let mut prod = challenges.alphas[0];
+    for (w_j_i_var, sigma_j_i_var) in proof_evals.wires_evals[..num_wire_types - 1]
+        .iter()
+        .zip(proof_evals.wire_sigma_evals.iter())
+    {
+        let wires = [
+            challenges.gamma,
+            *w_j_i_var,
+            challenges.beta,
+            *sigma_j_i_var,
+        ];
+        let sum = circuit.gen_quad_poly(
+            &wires,
+            &[F::one(), F::one(), F::zero(), F::zero()],
+            &[F::zero(), F::one()],
+            F::zero(),
+        )?;
+        prod = circuit.mul(prod, sum)?;
+    }
+
+    // tmp = (w_{m} + gamma) * z(xw)
+    let wires = [
+        proof_evals.wires_evals[num_wire_types - 1],
+        proof_evals.perm_next_eval,
+        challenges.gamma,
+        proof_evals.perm_next_eval,
+    ];
+    let tmp = circuit.mul_add(&wires, &[F::one(), F::one()])?;
+
+    // tmp = alpha *
+    //  \prod_i=1..m-1 (w_{i} + beta * sigma_{i} + gamma)
+    //  * (w_{m} + gamma) * z(xw)
+    prod = circuit.mul(tmp, prod)?;
+
+    // r_plonk
+    let pi_eval = circuit.mul(*pi, evals[2])?;
+    let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
+    let non_lookup = circuit.gen_quad_poly(
+        &wires,
+        &[F::one(), -F::one(), F::zero(), F::zero()],
+        &[F::zero(), -F::one()],
+        F::zero(),
+    )?;
+
+    if let Some(lookup_evals) = lookup_evals {
+        // We compute L_n(zeta) * (h_1 - h_1_next - alpha^2) - alpha * L_1(zeta)
+        let wires = [
+            lookup_evals.h_1_eval,
+            lookup_evals.h_2_next_eval,
+            challenges.alphas[1],
+            circuit.zero(),
+        ];
+        let tmp = circuit.lc(&wires, &[F::one(), -F::one(), -F::one(), F::zero()])?;
+        let term_one = circuit.mul_add(
+            &[evals[3], tmp, evals[2], challenges.alphas[0]],
+            &[F::one(), -F::one()],
+        )?;
+
+        // Now alpha^3 * (zeta  - domain_gen_inv) * prod_lookup_next * (gamma * ( 1 + beta) + h_1 + beta * h_1_next) * (gamma * (1 + beta) + beta * h_2_next)
         let mut init = circuit.mul_add(
             &[
                 challenges.alphas[2],
                 zeta_var,
                 challenges.alphas[2],
-                gen_inv_var,
+                *gen_inv_var,
             ],
             &[F::one(), -F::one()],
         )?;
@@ -587,13 +758,12 @@ where
 #[allow(clippy::too_many_arguments)]
 pub fn linearization_scalars_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
-    vk_k: &[Variable],
+    vk_k: &[F],
     challenges: &ChallengesVar,
-    zeta: Variable,
     evals: &[Variable; 4],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
-    gen_inv_var: Variable,
+    gen_inv: &F,
 ) -> Result<Vec<Variable>, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -602,7 +772,328 @@ where
     let sigma_evals = &poly_evals.wire_sigma_evals;
     // First we calculate the permutation poly coefficient
     let mut init = circuit.gen_quad_poly(
-        &[challenges.beta, zeta, wire_evals[0], challenges.gamma],
+        &[
+            challenges.beta,
+            challenges.zeta,
+            wire_evals[0],
+            challenges.gamma,
+        ],
+        &[F::zero(), F::zero(), F::one(), F::one()],
+        &[F::one(), F::zero()],
+        F::zero(),
+    )?;
+    for (wire_eval, k) in wire_evals.iter().skip(1).zip(vk_k.iter().skip(1)) {
+        let tmp = circuit.gen_quad_poly(
+            &[
+                challenges.beta,
+                challenges.zeta,
+                *wire_eval,
+                challenges.gamma,
+            ],
+            &[F::zero(), F::zero(), F::one(), F::one()],
+            &[*k, F::zero()],
+            F::zero(),
+        )?;
+        init = circuit.mul(init, tmp)?;
+    }
+
+    let perm_coeff = circuit.mul_add(
+        &[challenges.alphas[1], evals[2], challenges.alphas[0], init],
+        &[F::one(), F::one()],
+    )?;
+
+    // Calculate the coefficient of the final sigma commitment
+    let mut init = circuit.mul(challenges.alphas[0], poly_evals.perm_next_eval)?;
+    init = circuit.mul(init, challenges.beta)?;
+
+    let num_wire_types = wire_evals.len();
+    for (wire_eval, sigma_eval) in wire_evals
+        .iter()
+        .take(num_wire_types - 1)
+        .zip(sigma_evals.iter())
+    {
+        let tmp = circuit.gen_quad_poly(
+            &[challenges.beta, *sigma_eval, *wire_eval, challenges.gamma],
+            &[F::zero(), F::zero(), F::one(), F::one()],
+            &[F::one(), F::zero()],
+            F::zero(),
+        )?;
+
+        init = circuit.mul(init, tmp)?;
+    }
+    let sigma_coeff = circuit.sub(circuit.zero(), init)?;
+
+    // Calculate the coefficients of the selector polynomial commitments
+    let mut q_scalars = Vec::<Variable>::with_capacity(17);
+    q_scalars.extend_from_slice(&wire_evals[0..4]);
+    q_scalars.push(circuit.mul(wire_evals[0], wire_evals[1])?);
+    q_scalars.push(circuit.mul(wire_evals[2], wire_evals[3])?);
+    q_scalars.push(circuit.power_5_gen(wire_evals[0])?);
+    q_scalars.push(circuit.power_5_gen(wire_evals[1])?);
+    q_scalars.push(circuit.power_5_gen(wire_evals[2])?);
+    q_scalars.push(circuit.power_5_gen(wire_evals[3])?);
+    q_scalars.push(circuit.mul_constant(wire_evals[4], &(-F::one()))?);
+    q_scalars.push(circuit.one());
+    let tmp = circuit.mul(q_scalars[4], q_scalars[5])?;
+    q_scalars.push(circuit.mul(tmp, wire_evals[4])?);
+    let ad_wires = circuit.mul(wire_evals[0], wire_evals[3])?;
+    let ac_wires = circuit.mul(wire_evals[0], wire_evals[2])?;
+    let cd_wires = circuit.mul(wire_evals[2], wire_evals[3])?;
+    let bc_wires = circuit.mul(wire_evals[1], wire_evals[2])?;
+    let bd_wires = circuit.mul(wire_evals[1], wire_evals[3])?;
+    let cc_wires = circuit.mul(wire_evals[2], wire_evals[2])?;
+    let dd_wires = circuit.mul(wire_evals[3], wire_evals[3])?;
+    let ab_wires = circuit.mul(wire_evals[0], wire_evals[1])?;
+    q_scalars.push(circuit.mul_add(
+        &[ad_wires, cd_wires, bc_wires, cd_wires],
+        &[F::one(), F::one()],
+    )?);
+    q_scalars.push(circuit.lc(
+        &[ac_wires, bd_wires, ad_wires, bc_wires],
+        &[F::one(), F::one(), F::from(2u8), F::from(2u8)],
+    )?);
+    q_scalars.push(circuit.mul(cc_wires, dd_wires)?);
+    q_scalars.push(circuit.mul_add(
+        &[ab_wires, wire_evals[0], ab_wires, wire_evals[1]],
+        &[F::one(), F::one()],
+    )?);
+
+    // Now calculate lookup scalars if they are present
+    let (lookup_prod_coeff, h_2_coeff) = if let Some(lookup_evals) = lookup_evals {
+        let g_mul_one_plus_b = circuit.mul_add(
+            &[
+                circuit.one(),
+                challenges.gamma,
+                challenges.beta,
+                challenges.gamma,
+            ],
+            &[F::one(), F::one()],
+        )?;
+        // First we calculate the lookup_product poly coefficient.
+        // To do this we calculate the merged lookup wire eal and the merged table eval and merged table next eval
+        let mut mlw = circuit.mul_add(
+            &[circuit.one(), wire_evals[1], challenges.tau, wire_evals[2]],
+            &[F::one(), F::one()],
+        )?;
+        mlw = circuit.mul_add(
+            &[challenges.tau, mlw, wire_evals[0], circuit.one()],
+            &[F::one(), F::one()],
+        )?;
+        mlw = circuit.mul_add(
+            &[
+                challenges.tau,
+                mlw,
+                lookup_evals.q_dom_sep_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+        mlw = circuit.mul(challenges.tau, mlw)?;
+        mlw = circuit.mul_add(
+            &[
+                lookup_evals.q_lookup_eval,
+                mlw,
+                wire_evals[5],
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+
+        let mut mlt = circuit.mul_add(
+            &[circuit.one(), wire_evals[3], challenges.tau, wire_evals[4]],
+            &[F::one(), F::one()],
+        )?;
+        mlt = circuit.mul_add(
+            &[
+                challenges.tau,
+                mlt,
+                lookup_evals.key_table_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+        mlt = circuit.mul_add(
+            &[
+                challenges.tau,
+                mlt,
+                lookup_evals.table_dom_sep_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+        mlt = circuit.mul(challenges.tau, mlt)?;
+        mlt = circuit.mul_add(
+            &[
+                lookup_evals.q_lookup_eval,
+                mlt,
+                lookup_evals.range_table_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+
+        let mut mltn = circuit.mul_add(
+            &[
+                circuit.one(),
+                lookup_evals.w_3_next_eval,
+                challenges.tau,
+                lookup_evals.w_4_next_eval,
+            ],
+            &[F::one(), F::one()],
+        )?;
+        mltn = circuit.mul_add(
+            &[
+                challenges.tau,
+                mltn,
+                lookup_evals.key_table_next_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+        mltn = circuit.mul_add(
+            &[
+                challenges.tau,
+                mltn,
+                lookup_evals.table_dom_sep_next_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+        mltn = circuit.mul(challenges.tau, mltn)?;
+        mltn = circuit.mul_add(
+            &[
+                lookup_evals.q_lookup_next_eval,
+                mltn,
+                lookup_evals.range_table_next_eval,
+                circuit.one(),
+            ],
+            &[F::one(), F::one()],
+        )?;
+
+        let reuse_temp = circuit.gen_quad_poly(
+            &[
+                challenges.alphas[2],
+                challenges.zeta,
+                circuit.zero(),
+                circuit.zero(),
+            ],
+            &[-*gen_inv, F::zero(), F::zero(), F::zero()],
+            &[F::one(), F::zero()],
+            F::zero(),
+        )?;
+
+        let mut term_one = circuit.mul_add(
+            &[reuse_temp, challenges.beta, reuse_temp, circuit.one()],
+            &[F::one(), F::one()],
+        )?;
+        term_one = circuit.mul_add(
+            &[term_one, challenges.gamma, term_one, mlw],
+            &[F::one(), F::one()],
+        )?;
+        let tmp = circuit.gen_quad_poly(
+            &[g_mul_one_plus_b, mlt, challenges.beta, mltn],
+            &[F::one(), F::one(), F::zero(), F::zero()],
+            &[F::zero(), F::one()],
+            F::zero(),
+        )?;
+        term_one = circuit.mul(term_one, tmp)?;
+
+        let term_two = circuit.mul_add(
+            &[
+                challenges.alphas[0],
+                evals[2],
+                challenges.alphas[1],
+                evals[3],
+            ],
+            &[F::one(), F::one()],
+        )?;
+
+        let lookup_prod_coeff = circuit.mul_add(
+            &[
+                challenges.alphas[2],
+                term_one,
+                challenges.alphas[2],
+                term_two,
+            ],
+            &[F::one(), F::one()],
+        )?;
+
+        // Now we calculate the coefficient of h_2
+        term_one = circuit.mul_add(
+            &[
+                reuse_temp,
+                lookup_evals.prod_next_eval,
+                circuit.zero(),
+                circuit.zero(),
+            ],
+            &[-F::one(), F::zero()],
+        )?;
+        let tmp = circuit.gen_quad_poly(
+            &[
+                g_mul_one_plus_b,
+                lookup_evals.h_1_eval,
+                challenges.beta,
+                lookup_evals.h_1_next_eval,
+            ],
+            &[F::one(), F::one(), F::zero(), F::zero()],
+            &[F::zero(), F::one()],
+            F::zero(),
+        )?;
+        term_one = circuit.mul(term_one, tmp)?;
+
+        let h_2_coeff = circuit.mul(challenges.alphas[2], term_one)?;
+        (lookup_prod_coeff, h_2_coeff)
+    } else {
+        (circuit.zero(), circuit.zero())
+    };
+
+    // Now calculate the coefficients of the quotient commitments
+    let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
+    let vanish_eval = evals[1];
+    let zeta_n_plus_two = circuit.mul(zeta_square, evals[0])?;
+    let mut quotient_coeffs = Vec::with_capacity(5);
+    let mut combiner = circuit.sub(circuit.zero(), vanish_eval)?;
+    quotient_coeffs.push(combiner);
+    for _ in 0..(num_wire_types - 1) {
+        combiner = circuit.mul(combiner, zeta_n_plus_two)?;
+        quotient_coeffs.push(combiner);
+    }
+
+    let result = [
+        vec![perm_coeff, sigma_coeff],
+        q_scalars,
+        quotient_coeffs,
+        vec![lookup_prod_coeff, h_2_coeff],
+    ]
+    .concat();
+
+    Ok(result)
+}
+
+/// Same as `linearization_scalars_circuit_native` but takes `gen_inv` as a variable.
+#[allow(clippy::too_many_arguments)]
+pub fn linearization_scalars_circuit_native_base<F>(
+    circuit: &mut PlonkCircuit<F>,
+    vk_k: &[Variable],
+    challenges: &ChallengesVar,
+    evals: &[Variable; 4],
+    poly_evals: &ProofEvalsVarNative,
+    lookup_evals: &Option<PlookupEvalsVarNative>,
+    gen_inv_var: &Variable,
+) -> Result<Vec<Variable>, CircuitError>
+where
+    F: PrimeField + RescueParameter,
+{
+    let wire_evals = &poly_evals.wires_evals;
+    let sigma_evals = &poly_evals.wire_sigma_evals;
+    // First we calculate the permutation poly coefficient
+    let mut init = circuit.gen_quad_poly(
+        &[
+            challenges.beta,
+            challenges.zeta,
+            wire_evals[0],
+            challenges.gamma,
+        ],
         &[F::zero(), F::zero(), F::one(), F::one()],
         &[F::one(), F::zero()],
         F::zero(),
@@ -610,7 +1101,7 @@ where
     for (wire_eval, k) in wire_evals.iter().skip(1).zip(vk_k.iter().skip(1)) {
         let tmp = circuit.mul(challenges.beta, *k)?;
         let tmp = circuit.gen_quad_poly(
-            &[tmp, zeta, *wire_eval, challenges.gamma],
+            &[tmp, challenges.zeta, *wire_eval, challenges.gamma],
             &[F::zero(), F::zero(), F::one(), F::one()],
             &[F::one(), F::zero()],
             F::zero(),
@@ -791,17 +1282,17 @@ where
             &[F::one(), F::one()],
         )?;
 
-        let mut term_one = circuit.mul_add(
+        let reuse_temp = circuit.mul_add(
             &[
                 challenges.alphas[2],
-                zeta,
+                challenges.zeta,
                 challenges.alphas[2],
-                gen_inv_var,
+                *gen_inv_var,
             ],
             &[F::one(), -F::one()],
         )?;
-        term_one = circuit.mul_add(
-            &[term_one, challenges.beta, term_one, circuit.one()],
+        let mut term_one = circuit.mul_add(
+            &[reuse_temp, challenges.beta, reuse_temp, circuit.one()],
             &[F::one(), F::one()],
         )?;
         term_one = circuit.mul_add(
@@ -837,16 +1328,15 @@ where
         )?;
 
         // Now we calculate the coefficient of h_2
-        let mut term_one = circuit.mul_add(
+        term_one = circuit.mul_add(
             &[
-                challenges.alphas[2],
-                zeta,
-                challenges.alphas[2],
-                gen_inv_var,
+                reuse_temp,
+                lookup_evals.prod_next_eval,
+                circuit.zero(),
+                circuit.zero(),
             ],
-            &[-F::one(), F::one()],
+            &[-F::one(), F::zero()],
         )?;
-        term_one = circuit.mul(term_one, lookup_evals.prod_next_eval)?;
         let tmp = circuit.gen_quad_poly(
             &[
                 g_mul_one_plus_b,
@@ -867,7 +1357,7 @@ where
     };
 
     // Now calculate the coefficients of the quotient commitments
-    let zeta_square = circuit.mul(zeta, zeta)?;
+    let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
     let vanish_eval = evals[1];
     let zeta_n_plus_two = circuit.mul(zeta_square, evals[0])?;
     let mut quotient_coeffs = Vec::with_capacity(5);
@@ -1037,12 +1527,72 @@ where
     Ok(eq_eval)
 }
 
+/// This function takes in a `Variable` `zeta_var`, a `domain_size_var` and a `max_domain_size` and returns
+/// a `Variable` representing `zeta^{2^n}`, where `domain_size_var` represents `2^n`.
+pub(crate) fn zeta_to_n<F>(
+    circuit: &mut PlonkCircuit<F>,
+    zeta_var: Variable,
+    domain_size_var: Variable,
+    max_domain_size: usize,
+) -> Result<Variable, CircuitError>
+where
+    F: PrimeField,
+{
+    let domain_size: BigUint = circuit.witness(domain_size_var)?.into_bigint().into();
+
+    let log_domain = domain_size.bits() - 1;
+    let max_log_size = max_domain_size.ilog2() as u64;
+    if log_domain > max_log_size {
+        return Err(CircuitError::ParameterError(format!(
+            "domain size {} is larger than max domain size {}",
+            domain_size, max_domain_size
+        )));
+    }
+    let two_pows = (0..max_log_size + 1)
+        .map(|i| F::from(1u64 << i))
+        .collect::<Vec<F>>();
+
+    let bool_vars = (0..max_log_size + 1)
+        .map(|i| {
+            let bool_var = circuit.create_boolean_variable(i == log_domain)?;
+            Ok(bool_var.0)
+        })
+        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+    circuit.lin_comb_gate(&two_pows, &F::zero(), &bool_vars, &domain_size_var)?;
+
+    let zeta_pow_vars = iter::successors(Some(Ok(zeta_var)), |prev| match prev {
+        Ok(var) => Some(circuit.mul(*var, *var)),
+        _ => None,
+    })
+    .take(max_log_size as usize + 1)
+    .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+    let mut zeta_n_var = circuit.mul_add(
+        &[
+            bool_vars[0],
+            zeta_pow_vars[0],
+            bool_vars[1],
+            zeta_pow_vars[1],
+        ],
+        &[F::one(), F::one()],
+    )?;
+    for (bool_var, zeta_pow_var) in bool_vars.iter().zip(zeta_pow_vars.iter()).skip(2) {
+        zeta_n_var = circuit.mul_add(
+            &[*bool_var, *zeta_pow_var, zeta_n_var, circuit.one()],
+            &[F::one(), F::one()],
+        )?;
+    }
+
+    Ok(zeta_n_var)
+}
+
 #[cfg(test)]
 mod test {
 
     use super::*;
 
-    use ark_bn254::g1::Config as BnConfig;
+    use ark_bn254::{g1::Config as BnConfig, Fr as Fr254};
 
     use ark_poly::{
         DenseMultilinearExtension, DenseUVPolynomial, MultilinearExtension, Polynomial,
@@ -1253,5 +1803,29 @@ mod test {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_zeta_to_n() -> Result<(), CircuitError> {
+        test_zeta_to_n_helper::<Fr254>()
+    }
+
+    fn test_zeta_to_n_helper<F: PrimeField>() -> Result<(), CircuitError> {
+        let mut rng = test_rng();
+        let max_domain_size = 1024;
+        let mut circuit = PlonkCircuit::<F>::new_turbo_plonk();
+        for n in 6..11 {
+            let domain_size = 1_u64 << n;
+            let domain_size_var = circuit.create_variable(F::from(domain_size))?;
+            let zeta = F::rand(&mut rng);
+            let zeta_var = circuit.create_variable(zeta)?;
+
+            let zeta_n_var = zeta_to_n(&mut circuit, zeta_var, domain_size_var, max_domain_size)?;
+            let zeta_n = circuit.witness(zeta_n_var)?;
+
+            assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+            assert_eq!(zeta_n, zeta.pow([domain_size]));
+        }
+        Ok(())
     }
 }

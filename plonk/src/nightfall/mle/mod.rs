@@ -9,8 +9,13 @@ pub mod zeromorph;
 use ark_ec::{short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 use ark_poly::DenseMultilinearExtension;
-use ark_std::rand::{rngs::OsRng, CryptoRng, RngCore, SeedableRng};
-use ark_std::{format, sync::Arc, vec::Vec};
+use ark_std::{
+    format,
+    rand::{rngs::OsRng, CryptoRng, RngCore, SeedableRng},
+    string::ToString,
+    sync::Arc,
+    vec::Vec,
+};
 #[cfg(any(test, feature = "test-srs"))]
 use jf_primitives::pcs::StructuredReferenceString;
 use jf_primitives::{
@@ -24,8 +29,10 @@ use jf_relation::{
 use rand_chacha::ChaCha20Rng;
 pub use snark::MLEPlonk;
 
-use crate::proof_system::RecursiveOutput;
-use crate::{errors::PlonkError, proof_system::UniversalSNARK, transcript::Transcript};
+use crate::errors::PlonkError;
+use crate::nightfall::ipa_structs::VerificationKeyId;
+use crate::proof_system::{RecursiveOutput, UniversalSNARK};
+use crate::transcript::Transcript;
 
 use self::mle_structs::SAMLEProof;
 use self::{
@@ -73,8 +80,14 @@ where
 
     fn preprocess<C: Arithmetization<P::ScalarField>>(
         srs: &Self::UniversalSRS,
+        vk_id: Option<VerificationKeyId>,
         circuit: &C,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if vk_id.is_some() {
+            return Err(PlonkError::InvalidParameters(
+                "MLEPlonk verification keys do not have an ID".to_string(),
+            ));
+        }
         Self::preprocess_helper(circuit, srs)
     }
 

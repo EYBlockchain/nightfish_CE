@@ -17,7 +17,7 @@ use super::{
 use crate::{
     constants::EXTRA_TRANSCRIPT_MSG_LABEL,
     errors::{PlonkError, SnarkError::ParameterError},
-    proof_system::structs::UniversalSrs,
+    proof_system::{structs::UniversalSrs, VerificationKeyId},
     transcript::*,
 };
 use ark_ec::{
@@ -511,8 +511,14 @@ where
     /// key.
     fn preprocess<C: Arithmetization<<E as Pairing>::ScalarField>>(
         srs: &Self::UniversalSRS,
+        vk_id: Option<VerificationKeyId>,
         circuit: &C,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if vk_id.is_some() {
+            return Err(PlonkError::InvalidParameters(
+                "PlonkKzgSnark verification keys do not have an ID".to_string(),
+            ));
+        }
         // Make sure the SRS can support the circuit (with hiding degree of 2 for zk)
         let domain_size = circuit.eval_domain_size()?;
         let srs_size = circuit.srs_size()?;
@@ -820,10 +826,10 @@ pub mod test {
         let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
         let pub_inputs = circuit.public_input().unwrap();
         let (test_pk_plonk_kzg_snark, test_vk_plonk_kzg_snark) =
-            PlonkKzgSnark::<Bn254>::preprocess(&srs, &circuit)
+            PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit)
                 .expect("Failed to preprocess the test circuit");
         let (test_pk_fftplonk, test_vk_fftplonk) =
-            FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, &circuit)
+            FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit)
                 .expect("Failed to preprocess the test circuit");
 
         let proof_plonk_kzg_snark = PlonkKzgSnark::<Bn254>::prove::<_, _, StandardTranscript>(
@@ -872,7 +878,7 @@ pub mod test {
             let circuit = generate_simple_circuit(new_a, new_b, new_c).unwrap();
             // Generate a new proving key and verifying key for the circuit with new inputs
             let (new_pk_plonk_kzg_snark, new_vk_plonk_kzg_snark) =
-                PlonkKzgSnark::<Bn254>::preprocess(&srs, &circuit)
+                PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit)
                     .expect("Failed to preprocess the circuit with new inputs");
 
             // Compare the new PK and VK with the initial ones
@@ -885,7 +891,7 @@ pub mod test {
                 "Verifying keys do not match"
             );
             let (new_pk_fftplonk, new_vk_fftplonk) =
-                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, &circuit).unwrap();
+                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit).unwrap();
             assert_eq!(
                 test_pk_fftplonk, new_pk_fftplonk,
                 "Proving keys do not match"
@@ -928,7 +934,7 @@ pub mod test {
 
         let max_degree = 64 + 2;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, &circuit)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
 
         // check proving key
         assert_eq!(pk.selectors, selectors);
@@ -1071,8 +1077,8 @@ pub mod test {
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
-        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, &circuits[0])?;
-        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, &circuits[3])?;
+        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[0])?;
+        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[3])?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1296,8 +1302,8 @@ pub mod test {
         let size_two = cs2.srs_size()?;
         let size = ark_std::cmp::max(size_one, size_two);
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(size, rng)?;
-        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, &cs1)?;
-        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, &cs2)?;
+        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs1)?;
+        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs2)?;
 
         // 4. Proving
         assert!(PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk1, None).is_err());
@@ -1385,7 +1391,7 @@ pub mod test {
         assert!(circuit.num_gates() <= n);
 
         // 3. Preprocessing
-        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, &circuit)?;
+        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
 
         // 4. Proving
         let (_, oracles, challenges, _) =
@@ -1650,7 +1656,7 @@ pub mod test {
         let max_degree = 80;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, &circuit)?;
+        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
         let proof =
             PlonkKzgSnark::<E>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None)?;
 
@@ -1697,7 +1703,7 @@ pub mod test {
         let max_degree = 80;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, &circuit)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
         let proof = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &circuit, &pk, None)?;
 
         let mut ser_bytes = Vec::new();

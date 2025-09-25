@@ -4,6 +4,7 @@
 // You should have received a copy of the MIT License
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
+use ark_bn254::Fr as Fr254;
 use ark_ec::{pairing::Pairing, short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 
@@ -15,7 +16,7 @@ use jf_primitives::{
 use jf_relation::{
     errors::CircuitError,
     gadgets::{
-        ecc::{EmulatedPointVariable, HasTEForm, Point, PointVariable},
+        ecc::{CircuitPoint, EmulatedPointVariable, HasTEForm, Point, PointVariable},
         EmulatedVariable, EmulationConfig,
     },
     Circuit, PlonkCircuit, Variable,
@@ -29,15 +30,14 @@ use crate::{
             sumcheck::SumCheckGadget,
         },
         hops::srs::UnivariateUniversalIpaParams,
-        ipa_structs::{
-            Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VerifyingKey, VK,
-        },
+        ipa_structs::{Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VK},
         mle::mle_structs::{
             MLEChallenges, MLELookupEvals, MLELookupProof, MLEProofEvals, MLEVerifyingKey,
             SAMLEProof,
         },
     },
     proof_system::structs::{PlookupEvaluations, ProofEvaluations},
+    recursion::merge_functions::Bn254Output,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, CircuitTranscriptVisitor},
 };
 
@@ -107,7 +107,7 @@ impl ChallengesVar {
     /// Computes challenges from a proof.
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
-        vk: &VerifyingKey<PCS>,
+        vk_id: Option<Variable>,
         pi: &Variable,
         proof: &ProofVarNative<P>,
         transcript: &mut C,
@@ -120,9 +120,9 @@ impl ChallengesVar {
         F: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
         C: CircuitTranscript<F>,
     {
-        let vk_hash = circuit.create_variable(vk.hash())?;
-        transcript.push_variable(&vk_hash)?;
-
+        if let Some(id) = vk_id {
+            transcript.push_variable(&id)?;
+        }
         transcript.push_variable(pi)?;
 
         transcript.append_point_variables(&proof.wire_commitments, circuit)?;
@@ -542,8 +542,8 @@ where
 
     /// Creates a new [`ProofVarNative`] variable from a reference to a [`PCSProof`].
     pub fn from_struct<E, F>(
-        circuit: &mut PlonkCircuit<F>,
         proof: &PCSProof<UnivariateKzgPCS<E>>,
+        circuit: &mut PlonkCircuit<F>,
     ) -> Result<Self, CircuitError>
     where
         E: Pairing<G1Affine = Affine<P>, BaseField = P::BaseField, ScalarField = F>,
@@ -584,9 +584,55 @@ where
             poly_evals,
         ))
     }
+
+    /// Converts the `EmulatedPointVariable`s into a vector of `Variable`s that can be absorbed into a transcript.
+    pub fn convert_to_vec_for_transcript<E, F>(
+        &self,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<Vec<Variable>, CircuitError>
+    where
+        E: Pairing<G1Affine = Affine<P>, BaseField = P::BaseField, ScalarField = F>,
+        F: PrimeField + RescueParameter,
+        P: HasTEForm<ScalarField = F>,
+    {
+        let mut vars = vec![];
+        for wire_comm in &self.wire_commitments {
+            vars.extend_from_slice(&circuit.convert_for_transcript(&wire_comm.get_x())?);
+            vars.extend_from_slice(&circuit.convert_for_transcript(&wire_comm.get_y())?);
+        }
+
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.prod_perm_poly_comm.get_x())?);
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.prod_perm_poly_comm.get_y())?);
+
+        for quot_poly_comm in &self.split_quot_poly_comms {
+            vars.extend_from_slice(&circuit.convert_for_transcript(&quot_poly_comm.get_x())?);
+            vars.extend_from_slice(&circuit.convert_for_transcript(&quot_poly_comm.get_y())?);
+        }
+
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.opening_proof.get_x())?);
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.opening_proof.get_y())?);
+
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.q_comm.get_x())?);
+        vars.extend_from_slice(&circuit.convert_for_transcript(&self.q_comm.get_y())?);
+
+        if let Some(plookup_proof) = &self.plookup_proof {
+            for h_poly_comm in &plookup_proof.h_poly_comms {
+                vars.extend_from_slice(&circuit.convert_for_transcript(&h_poly_comm.get_x())?);
+                vars.extend_from_slice(&circuit.convert_for_transcript(&h_poly_comm.get_y())?);
+            }
+
+            vars.extend_from_slice(
+                &circuit.convert_for_transcript(&plookup_proof.prod_lookup_poly_comm.get_x())?,
+            );
+            vars.extend_from_slice(
+                &circuit.convert_for_transcript(&plookup_proof.prod_lookup_poly_comm.get_y())?,
+            );
+        }
+        Ok(vars)
+    }
 }
 
-/// A Plookup argument proof to be passed in to a circuit defined over the scalar field of the commitment curve.
+/// A Plookup argument proof to be passed into a circuit defined over the scalar field of the commitment curve.
 #[derive(Debug, Clone)]
 pub struct PlookupProofVarNative<P>
 where
@@ -695,6 +741,49 @@ impl ProofEvalsVarNative {
         let perm_next_eval = circuit.create_variable(evals.perm_next_eval)?;
 
         Ok(Self::new(wires_evals, wire_sigma_evals, perm_next_eval))
+    }
+}
+
+/// Represent variables for a struct that stores the scalars in a
+/// Plonk proof.
+#[derive(Debug, Clone)]
+pub struct ProofScalarsVarNative {
+    pub(crate) evals: ProofEvalsVarNative,
+    pub(crate) lookup_evals: Option<PlookupEvalsVarNative>,
+    pub(crate) pi_hash: Variable,
+}
+
+impl ProofScalarsVarNative {
+    /// Create a new instance of [`ProofScalarVarNative`].
+    pub fn new(
+        evals: ProofEvalsVarNative,
+        lookup_evals: Option<PlookupEvalsVarNative>,
+        pi_hash: Variable,
+    ) -> Self {
+        Self {
+            evals,
+            lookup_evals,
+            pi_hash,
+        }
+    }
+
+    /// Create a new [`ProofScalarVarNative`] variable from a reference to a [`ProofEvaluations`] and a pi_hash.
+    pub fn from_struct(
+        bn254_output: &Bn254Output,
+        circuit: &mut PlonkCircuit<Fr254>,
+    ) -> Result<Self, CircuitError> {
+        let evals = ProofEvalsVarNative::from_struct(circuit, &bn254_output.proof.poly_evals)?;
+        let lookup_evals = if let Some(plookup_proof) = &bn254_output.proof.plookup_proof {
+            Some(PlookupEvalsVarNative::from_struct(
+                circuit,
+                &plookup_proof.poly_evals,
+            )?)
+        } else {
+            None
+        };
+        let pi_hash = circuit.create_variable(bn254_output.pi_hash)?;
+
+        Ok(Self::new(evals, lookup_evals, pi_hash))
     }
 }
 
@@ -880,6 +969,33 @@ where
         transcript.push_variable(&self.w_3_next_eval)?;
         transcript.push_variable(&self.w_4_next_eval)?;
         Ok(())
+    }
+}
+
+/// A struct containing the bases associated with a Plookup argument proof to be passed
+/// into a circuit defined over the base field of the commitment curve.
+#[derive(Debug, Clone)]
+pub struct PlookupProofScalarsAndBasesVar<PCS>
+where
+    PCS: PolynomialCommitmentScheme,
+{
+    /// The commitments for the polynomials that interpolate the sorted
+    /// concatenation of the lookup table and the witnesses in the lookup gates.
+    pub(crate) h_poly_comms: Vec<PointVariable>,
+
+    /// The product accumulation polynomial commitment for the Plookup argument
+    pub(crate) prod_lookup_poly_comm: PointVariable,
+
+    /// Polynomial evaluations that we store in the clear.
+    pub(crate) poly_evals: PlookupEvaluations<PCS::Evaluation>,
+}
+
+impl<PCS: PolynomialCommitmentScheme> PlookupProofScalarsAndBasesVar<PCS> {
+    /// Convert to vector of point variables.
+    pub fn to_vec(&self) -> Vec<PointVariable> {
+        let mut bases = self.h_poly_comms.clone();
+        bases.push(self.prod_lookup_poly_comm);
+        bases
     }
 }
 
