@@ -48,7 +48,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     // zeta_omega: prod_perm_poly_next_eval,
 
     // Because we are verifying a non-client proof (we're not in the base case) `k`, `domain_size` and `group_gen`
-    // depend only on the layer of the recursion. We can, therefore, treat them as scalars.
+    // depend only on the layer of the recursion. We can, therefore, treat them as circuit selectors.
 
     let domain = Radix2EvaluationDomain::<F>::new(domain_size).ok_or(
         CircuitError::ParameterError("Domain creation Failed".to_string()),
