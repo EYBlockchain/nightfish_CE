@@ -1558,8 +1558,19 @@ mod tests {
         TestProver::preprocess(
             &prove_inputs,
             &hashes,
-            vec![vec![]; prove_inputs.len() / 4].as_slice(),
-            &[],
+            vec![
+                vec![
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one()
+                ];
+                prove_inputs.len() / 4
+            ]
+            .as_slice(),
+            &[Fr254::one()],
             &ipa_srs,
             &kzg_srs,
         )?;
@@ -1568,8 +1579,19 @@ mod tests {
         let proof = TestProver::prove(
             &prove_inputs,
             &hashes,
-            &[],
-            vec![vec![]; prove_inputs.len() / 4].as_slice(),
+            &[Fr254::one()],
+            vec![
+                vec![
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one(),
+                    Fr254::one()
+                ];
+                prove_inputs.len() / 4
+            ]
+            .as_slice(),
         )?;
         ark_std::println!(
             "Time taken to generate 64 recursive proofs: {:?}",
