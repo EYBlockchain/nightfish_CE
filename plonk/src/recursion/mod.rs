@@ -1122,6 +1122,7 @@ mod tests {
         poseidon::{FieldHasher, Poseidon},
     };
 
+    use crate::nightfall::ipa_structs::VerificationKeyId;
     use jf_relation::gadgets::ecc::{EmulMultiScalarMultiplicationCircuit, Point};
     use nf_curves::{ed_on_bn254::BabyJubjub, grumpkin::short_weierstrass::SWGrumpkin};
     use rand_chacha::ChaCha20Rng;
@@ -1327,8 +1328,10 @@ mod tests {
         let ipa_srs: UnivariateUniversalIpaParams<Grumpkin> =
             Zmorph::gen_srs_for_testing(rng, 18).unwrap();
 
-        let (pk_one, input_vk_one) = FFTPlonk::<Kzg>::preprocess(&kzg_srs, None, &circuits[0])?;
-        let (pk_two, input_vk_two) = FFTPlonk::<Kzg>::preprocess(&kzg_srs, None, &circuits[43])?;
+        let (pk_one, input_vk_one) =
+            FFTPlonk::<Kzg>::preprocess(&kzg_srs, Some(VerificationKeyId::Client), &circuits[0])?;
+        let (pk_two, input_vk_two) =
+            FFTPlonk::<Kzg>::preprocess(&kzg_srs, Some(VerificationKeyId::Deposit), &circuits[43])?;
         ark_std::println!("Made proving key in: {:?}", now.elapsed());
         // Scope the lock
         {
