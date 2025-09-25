@@ -548,7 +548,7 @@ impl VerifyingKeyScalarsAndBasesVar<Kzg> {
                     .to_string(),
             ))
         }?;
-        // The remaninder of the function assumes only two verifying keys
+        // The remainder of the function assumes only two verifying keys
         // We will change this when we introduce more possible client keys
         let cond_sel_bool = circuit.create_boolean_variable(idx == 1)?;
         circuit.const_conditional_select_gate(
@@ -786,7 +786,7 @@ impl VerifyingKeyNativeScalarsVar {
                     .to_string(),
             ))
         }?;
-        // The remaninder of the function assumes only two verifying keys
+        // The remainder of the function assumes only two verifying keys
         // We will change this when we introduce more possible client keys
         let cond_sel_bool = circuit.create_boolean_variable(idx == 1)?;
         circuit.const_conditional_select_gate(
