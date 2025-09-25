@@ -41,28 +41,6 @@ pub use proof_to_var::*;
 pub use scalars_and_bases::*;
 pub use structs::*;
 
-/*/// A struct used to represent KZG verification parameters as variables.
-#[derive(Debug, Clone)]
-struct KzgVerificatinParamsVar {
-    /// The generator of G1.
-    g: PointVariable,
-    /// The generator of G2.
-    h: PointVariable,
-    /// beta times the above generator of G2.
-    beta_h: PointVariable,
-}
-
-impl KzgVerificatinParamsVar {
-    /// Create a new `KzgVerificationParamsVar`.
-    /// We constrain these to be constants, as our KZG SRS is fixed across nightfall.
-    pub fn new_constant(vk_param: UnivariateVerifierParam<Bn254>, circuit: &mut PlonkCircuit<Fq254>) -> Result<Self, CircuitError> {
-        let g = circuit.create_constant_point_variable(&Point::from(vk_param.g))?;
-        let h = circuit.create_constant_point_variable(&Point::from(vk_param.h))?;
-        let beta_h = circuit.create_constant_point_variable(&Point::from(vk_param.beta_h))?;
-        Self { g, h, beta_h }
-    }
-}*/
-
 /// Represent variable of a Plonk verifying key.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct VerifyingKeyVar<PCS: PolynomialCommitmentScheme> {
