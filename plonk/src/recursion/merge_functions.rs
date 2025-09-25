@@ -880,6 +880,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
             })?;
 
+        // Since the `id`s only take the value `0` or `1`, we can batch them into a single variable to reduce the number of public inputs.
         let vk_id_var = circuit.lc(
             &[id_0, id_1, circuit.zero(), circuit.zero()],
             &[Fq254::one(), Fq254::from(2u8), Fq254::zero(), Fq254::zero()],
@@ -1355,6 +1356,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 };
 
                 let vk_ids = if IS_BASE {
+                    // We reform the `vk_id` input to the public input hash from the previous layer.
+                    // Since the `id`s only take the value `0` or `1`,
+                    // we batched them into a single variable to reduce the number of public inputs.
+                    // We repeat that procedure here when we reform the hash.
                     let vk_id = circuit.lc(
                         &[vk_vars[0].id, vk_vars[1].id, circuit.zero(), circuit.zero()],
                         &[Fr254::one(), Fr254::from(2u8), Fr254::zero(), Fr254::zero()],
