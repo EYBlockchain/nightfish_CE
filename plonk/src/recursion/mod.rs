@@ -1126,7 +1126,7 @@ mod tests {
     use jf_relation::gadgets::ecc::{EmulMultiScalarMultiplicationCircuit, Point};
     use nf_curves::{ed_on_bn254::BabyJubjub, grumpkin::short_weierstrass::SWGrumpkin};
     use rand_chacha::ChaCha20Rng;
-    use sha3::{Digest, Keccak256};
+    use sha2::{Digest, Sha256};
 
     #[derive(Debug, Clone)]
     #[allow(clippy::upper_case_acronyms)]
@@ -1251,6 +1251,46 @@ mod tests {
         static VK_LIST: OnceLock<RwLock<Vec<VerifyingKey<Kzg>>>> = OnceLock::new();
         VK_LIST.get_or_init(|| RwLock::new(Vec::new()))
     }
+
+    pub fn host_sha_hash(field_pi: Vec<u8>, proof: &RecursiveProof) -> Fr254 {
+        let be32 = |f: &Fr254| {
+            let v = f.into_bigint().to_bytes_be();
+            let mut o = [0u8; 32];
+            o[32 - v.len()..].copy_from_slice(&v);
+            o
+        };
+        let limbs = |q: Fq254| -> [Fr254; 2] {
+            jf_utils::bytes_to_field_elements::<_, Fr254>(q.into_bigint().to_bytes_le())[1..]
+                .try_into()
+                .unwrap()
+        };
+        let mut acc_elems = Vec::new();
+        acc_elems.extend(
+            proof
+                .accumulators
+                .iter()
+                .flat_map(|a| {
+                    [
+                        a.comm.x,
+                        a.comm.y,
+                        a.opening_proof.proof.x,
+                        a.opening_proof.proof.y,
+                    ]
+                })
+                .flat_map(|c| {
+                    let [l, h] = limbs(c);
+                    be32(&l).into_iter().chain(be32(&h))
+                }),
+        );
+        let mut hasher = Sha256::new();
+        hasher.update([field_pi, acc_elems].concat());
+        let buf = hasher.finalize();
+
+        let d: num_bigint::BigUint = num_bigint::BigUint::from_bytes_be(&buf) >> 4;
+
+        Fr254::from_be_bytes_mod_order(&(d).to_bytes_be())
+    }
+
     #[test]
     #[ignore = "Only run this test on powerful machines"]
     #[allow(clippy::type_complexity)]
@@ -1554,27 +1594,8 @@ mod tests {
             .flat_map(|f| f.into_bigint().to_bytes_be())
             .collect::<Vec<u8>>();
 
-        let acc_elems = proof
-            .accumulators
-            .iter()
-            .flat_map(|acc| {
-                let point = Point::<Fq254>::from(acc.comm);
-                let opening_proof = Point::<Fq254>::from(acc.opening_proof.proof);
-                point
-                    .coords()
-                    .iter()
-                    .chain(opening_proof.coords().iter())
-                    .flat_map(|coord| coord.into_bigint().to_bytes_be())
-                    .collect::<Vec<u8>>()
-            })
-            .collect::<Vec<u8>>();
-
-        let mut hasher = Keccak256::new();
-        hasher.update([field_pi, acc_elems].concat());
-        let buf = hasher.finalize();
-
         // Generate challenge from state bytes using little-endian order
-        let pi_hash = Fr254::from_be_bytes_mod_order(&buf);
+        let pi_hash = host_sha_hash(field_pi, &proof);
 
         assert!(PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
             &TestProver::get_decider_pk().vk,
