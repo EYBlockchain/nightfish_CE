@@ -242,7 +242,6 @@ pub trait RecursiveProver {
         grumpkin_info.old_accumulators = old_accumulators;
         let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(12);
 
-        let _vk_list = Self::get_vk_list();
         // Perform any extra checks that only happen at base level.
         let (first_extra_checks, second_extra_checks) =
             extra_base_info.split_at(extra_base_info.len() / 2);
