@@ -291,7 +291,9 @@ where
     let vanish_eval_var: usize = circuit.add_constant(zeta_n_var, &-F::from(1u8))?;
 
     // compute v_i = g^i / n in the clear
-    let domain = Radix2EvaluationDomain::<F>::new(domain_size).unwrap();
+    let domain = Radix2EvaluationDomain::<F>::new(domain_size).ok_or(
+        CircuitError::ParameterError("Domain creation Failed".to_string()),
+    )?;
 
     let pi_len = pub_inputs_var.len();
     let v_i = (0..pub_inputs_var.len())
