@@ -21,7 +21,7 @@ use crate::{
         },
         mle::mle_structs::{MLEChallenges, SAMLEProof},
     },
-    proof_system::{RecursiveOutput, UniversalSNARK},
+    proof_system::UniversalSNARK,
     transcript::{CircuitTranscript, Transcript},
 };
 
@@ -124,7 +124,7 @@ impl<F: PrimeField> MLEProofChallenges<F> {
 /// This function takes in a [`RecursiveOutput`] and returns the challenges that were squeezed from the transcript during the proof.
 /// It is assumed that this circuit is defined over the same field that commitments are. By returning the challenges we mean that it sets the associate variables to be public.
 pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
-    output: &RecursiveOutput<PCS, Scheme, T>,
+    proof_var: &SAMLEProofVar<PCS>,
     vk: &MLEVerifyingKeyVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
     pi_hash: &EmulatedVariable<P::ScalarField>,
@@ -146,11 +146,9 @@ where
     // First lets instantiate the transcript and make the variable version of the proof and pi_commitment.
     let mut transcript = C::new_transcript(circuit);
 
-    let proof_var = SAMLEProofVar::from_struct(circuit, &output.proof)?;
-
     // Now we begin by recovering the circuit version of the MLEChallenges struct.
     let mle_challenges =
-        MLEChallengesVar::compute_challenges(circuit, vk, pi_hash, &proof_var, &mut transcript)?;
+        MLEChallengesVar::compute_challenges(circuit, vk, pi_hash, proof_var, &mut transcript)?;
 
     let mle_challenges_field = mle_challenges.to_field(circuit)?;
     // Next we need to know the number of variables the polynomials used in the proof had, this is the same as `proof_var.opening_point_var.len()`.

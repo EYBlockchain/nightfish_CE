@@ -1,9 +1,5 @@
 //! This module contains code for performing all the scalar arithmetic involved in verifying a [`MLEPlonk`] proof.
 //! We verify the scalar arithmetic as standard and then we check that the scalars used in the previous circuits MSM are correct.
-#![allow(dead_code)]
-use ark_ff::{batch_inversion, PrimeField};
-use ark_std::{string::ToString, vec, vec::Vec, One};
-
 use crate::{
     nightfall::{
         circuit::{
@@ -22,6 +18,8 @@ use crate::{
     transcript::RescueTranscript,
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
+use ark_ff::{batch_inversion, PrimeField};
+use ark_std::{string::ToString, vec, vec::Vec, One};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
@@ -660,9 +658,9 @@ mod tests {
         short_weierstrass::{Affine, Projective},
         CurveGroup, VariableBaseMSM,
     };
-
     use ark_poly::{evaluations::multivariate::DenseMultilinearExtension, MultilinearExtension};
     use ark_std::{sync::Arc, vec, vec::Vec, UniformRand};
+    use itertools::Itertools;
     use jf_primitives::pcs::{Accumulation, PolynomialCommitmentScheme};
     use jf_relation::{
         gadgets::{ecc::HasTEForm, EmulationConfig},
@@ -676,7 +674,7 @@ mod tests {
         nightfall::{
             accumulation::accumulation_structs::PCSWitness,
             circuit::{
-                plonk_partial_verifier::MLEVerifyingKeyVar,
+                plonk_partial_verifier::{MLEVerifyingKeyVar, SAMLEProofVar},
                 subroutine_verifiers::gkr::tests::extract_gkr_challenges,
             },
             mle::{
@@ -920,26 +918,34 @@ mod tests {
                 &pk.pcs_prover_params,
             )?;
 
+            let pi_hashes = outputs.iter().map(|e| e.pi_hash).collect::<Vec<_>>();
+
             let mut challenges_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
-            let vk_var = MLEVerifyingKeyVar::new(&mut challenges_circuit, &vk)?;
-            let mle_proof_challenges = outputs
+            let grumpkin_proofs = outputs
                 .iter()
-                .map(|output| {
+                .map(|output| SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof))
+                .collect::<Result<Vec<SAMLEProofVar<Zmorph>>, CircuitError>>()?;
+
+            let vk_var = MLEVerifyingKeyVar::new(&mut challenges_circuit, &vk)?;
+            let mle_proof_challenges = grumpkin_proofs
+                .iter()
+                .zip_eq(pi_hashes.clone())
+                .map(|(output, pi_hash)| {
                     let pi_hash = challenges_circuit
-                        .create_emulated_variable(output.pi_hash)
+                        .create_emulated_variable(pi_hash)
                         .unwrap();
-                    let (stuff, _) = reconstruct_mle_challenges::<
+                    let (challenges, _) = reconstruct_mle_challenges::<
                         _,
                         _,
-                        _,
-                        _,
+                        Zeromorph<_>,
+                        MLEPlonk<_>,
                         RescueTranscript<Fr254>,
                         RescueTranscriptVar<Fr254>,
                     >(
                         output, &vk_var, &mut challenges_circuit, &pi_hash
                     )
                     .unwrap();
-                    stuff
+                    challenges
                 })
                 .collect::<Vec<MLEProofChallenges<Fq254>>>();
 

@@ -1127,6 +1127,12 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Bn254CircuitOutput, PlonkError> {
+    let grumpkin_proofs: Vec<SAMLEProofVar<_>> = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| SAMLEProofVar::from_struct(circuit, &output.proof))
+        .collect::<Result<Vec<SAMLEProofVar<_>>, CircuitError>>()?;
+
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
         .bn254_outputs
@@ -1274,7 +1280,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
         izip!(
             grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.grumpkin_outputs.iter(),
+            grumpkin_proofs.iter(),
+            grumpkin_info.grumpkin_outputs.clone().map(|o| o.pi_hash),
             impl_specific_pi.iter(),
             grumpkin_info.forwarded_acumulators.iter(),
             grumpkin_info.old_accumulators.chunks_exact(2),
@@ -1285,7 +1292,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .map(
             |(
                 bn254_outputs,
-                output,
+                proof_var,
+                _pi_hash,
                 impl_pi,
                 bn254_accumulator,
                 grumpkin_accumulators,
@@ -1474,7 +1482,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 {
                     assert_eq!(
                         circuit.witness(pi_hash).unwrap(),
-                        fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash)
+                        fr_to_fq::<Fr254, SWGrumpkin>(&_pi_hash)
                     );
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
@@ -1482,11 +1490,11 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 let next_grumpkin_challenges = reconstruct_mle_challenges::<
                     _,
                     _,
-                    _,
-                    _,
+                    Zeromorph<UnivariateIpaPCS<Grumpkin>>,
+                    MLEPlonk<_>,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(output, &vk_var, circuit, &pi_hash_emul)?;
+                >(proof_var, &vk_var, circuit, &pi_hash_emul)?;
                 Ok(next_grumpkin_challenges)
             },
         )
@@ -1507,7 +1515,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     )?;
 
     let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
-        &grumpkin_info.grumpkin_outputs,
+        grumpkin_proofs
+            .as_slice()
+            .try_into()
+            .expect("Expected Vec to have length 2"),
         &grumpkin_info.old_accumulators,
         &deltas,
         &pk_grumpkin.verifying_key,
