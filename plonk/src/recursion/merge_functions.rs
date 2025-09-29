@@ -26,8 +26,8 @@ use crate::{
         circuit::{
             plonk_partial_verifier::{
                 Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar,
-                ProofScalarsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyNativeScalarsVar,
-                VerifyingKeyScalarsAndBasesVar,
+                ProofScalarsVarNative, ProofVarNative, SAMLEProofNative, SAMLEProofVar,
+                VerifyingKeyNativeScalarsVar, VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
@@ -396,6 +396,17 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
+    let grumpkin_proofs: Vec<SAMLEProofNative> = bn254info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| SAMLEProofNative::from_struct(circuit, &output.proof))
+        .collect::<Result<Vec<SAMLEProofNative>, CircuitError>>()?;
+
+    let pi_hashes = bn254info
+        .grumpkin_outputs
+        .iter()
+        .map(|o| circuit.create_variable(o.pi_hash))
+        .collect::<Result<Vec<_>, CircuitError>>()?;
     // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
     let vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
         // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
@@ -559,43 +570,50 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
         let scalars_and_acc_evals: Vec<(Vec<Variable>, Vec<Variable>)> = izip!(
-            bn254info.grumpkin_outputs.chunks_exact(2),
+            grumpkin_proofs.chunks_exact(2),
+            pi_hashes.chunks_exact(2),
             bn254info.challenges.chunks_exact(2),
             bn254info.split_acc_info.iter()
         )
-        .map(|(output_pair, challenges_pair, split_acc_info)| {
-            let (scalars, eval) = combine_mle_proof_scalars(
-                output_pair,
-                challenges_pair,
-                split_acc_info,
-                vk_grumpkin,
-                circuit,
-            )?;
+        .map(
+            |(output_pair, pi_hash_pair, challenges_pair, split_acc_info)| {
+                let (scalars, eval) = combine_mle_proof_scalars(
+                    output_pair
+                        .iter()
+                        .zip_eq(pi_hash_pair.iter().copied())
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    challenges_pair,
+                    split_acc_info,
+                    vk_grumpkin,
+                    circuit,
+                )?;
 
-            // Find the byte length of the scalar field (minus one).
-            let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                // Find the byte length of the scalar field (minus one).
+                let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
 
-            let value = circuit.witness(eval)?;
-            let bytes = value.into_bigint().to_bytes_le();
-            let (low, high) = bytes.split_at(field_bytes_length);
+                let value = circuit.witness(eval)?;
+                let bytes = value.into_bigint().to_bytes_le();
+                let (low, high) = bytes.split_at(field_bytes_length);
 
-            let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
-            let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
+                let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
+                let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
 
-            let bits = field_bytes_length * 8;
-            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+                let bits = field_bytes_length * 8;
+                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
-            circuit.enforce_in_range(low_var, bits)?;
-            circuit.enforce_in_range(high_var, leftover_bits)?;
+                circuit.enforce_in_range(low_var, bits)?;
+                circuit.enforce_in_range(high_var, leftover_bits)?;
 
-            let coeff = Fq254::from(2u32).pow([bits as u64]);
+                let coeff = Fq254::from(2u32).pow([bits as u64]);
 
-            circuit.lc_gate(
-                &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
-                &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
-            )?;
-            Ok((scalars, vec![low_var, high_var]))
-        })
+                circuit.lc_gate(
+                    &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
+                    &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
+                )?;
+                Ok((scalars, vec![low_var, high_var]))
+            },
+        )
         .collect::<Result<Vec<(Vec<Variable>, Vec<Variable>)>, CircuitError>>()?;
 
         let impl_pi_vars: Vec<Vec<Variable>> = bn254info

@@ -1,23 +1,16 @@
 //! This module contains code for performing all the scalar arithmetic involved in verifying a [`MLEPlonk`] proof.
 //! We verify the scalar arithmetic as standard and then we check that the scalars used in the previous circuits MSM are correct.
-use crate::{
-    nightfall::{
-        circuit::{
-            plonk_partial_verifier::{
-                eq_x_r_eval_circuit, MLEChallengesVar, MLELookupEvaluationsNativeVar,
-                MLEProofEvalsNativeVar, SAMLEProofNative,
-            },
-            subroutine_verifiers::{structs::SumCheckProofVar, sumcheck::SumCheckGadget},
+use crate::nightfall::{
+    circuit::{
+        plonk_partial_verifier::{
+            eq_x_r_eval_circuit, MLEChallengesVar, MLELookupEvaluationsNativeVar,
+            MLEProofEvalsNativeVar, SAMLEProofNative,
         },
-        mle::{
-            mle_structs::{GateInfo, MLEVerifyingKey},
-            MLEPlonk,
-        },
+        subroutine_verifiers::{structs::SumCheckProofVar, sumcheck::SumCheckGadget},
     },
-    proof_system::RecursiveOutput,
-    transcript::RescueTranscript,
+    mle::mle_structs::{GateInfo, MLEVerifyingKey},
 };
-use ark_bn254::{Fq as Fq254, Fr as Fr254};
+use ark_bn254::Fq as Fq254;
 use ark_ff::{batch_inversion, PrimeField};
 use ark_std::{string::ToString, vec, vec::Vec, One};
 use jf_primitives::rescue::RescueParameter;
@@ -507,7 +500,7 @@ type MLEScalarsAndAccEval = (Vec<Variable>, Variable);
 /// This function takes in two ['RecursiveOutput']s and some pre-calculated challenges and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn combine_mle_proof_scalars(
-    outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
+    outputs: &[(&SAMLEProofNative, Variable)],
     challenges: &[MLEProofChallenges<Fq254>],
     acc_info: &SplitAccumulationInfo,
     vk: &MLEVerifyingKey<Zmorph>,
@@ -522,11 +515,8 @@ pub fn combine_mle_proof_scalars(
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
     let mut points = Vec::new();
-    for (output, proof_challenges) in outputs.iter().zip(challenges.iter()) {
-        let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
+    for ((proof_var, pi_hash), proof_challenges) in outputs.iter().zip(challenges.iter()) {
         let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
-
-        let pi_hash = circuit.create_variable(output.pi_hash)?;
 
         let zero_eval =
             proof_var
@@ -540,11 +530,11 @@ pub fn combine_mle_proof_scalars(
                     )
                 })?;
 
-        let pi_eval = circuit.mul(pi_hash, zero_eval)?;
+        let pi_eval = circuit.mul(*pi_hash, zero_eval)?;
 
         let (scalars, eval) = verify_mleplonk_scalar_arithmetic(
             circuit,
-            &proof_var,
+            proof_var,
             proof_challenges_var.challenges(),
             proof_challenges_var.gkr_lambda_challenges(),
             proof_challenges_var.gkr_r_challenges(),
@@ -654,6 +644,7 @@ fn combine_scalar_lists(
 
 #[cfg(test)]
 mod tests {
+    use ark_bn254::Fr as Fr254;
     use ark_ec::{
         short_weierstrass::{Affine, Projective},
         CurveGroup, VariableBaseMSM,
@@ -683,7 +674,7 @@ mod tests {
             },
             UnivariateIpaPCS,
         },
-        proof_system::UniversalSNARK,
+        proof_system::{RecursiveOutput, UniversalSNARK},
         recursion::circuits::challenges::reconstruct_mle_challenges,
         transcript::{rescue::RescueTranscriptVar, RescueTranscript, Transcript},
     };
@@ -950,9 +941,21 @@ mod tests {
                 .collect::<Vec<MLEProofChallenges<Fq254>>>();
 
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+            let grumpkin_proofs_native = outputs
+                .iter()
+                .map(|output| SAMLEProofNative::from_struct(&mut verifier_circuit, &output.proof))
+                .collect::<Result<Vec<SAMLEProofNative>, CircuitError>>()?;
 
             let (combined_scalars, combined_eval) = combine_mle_proof_scalars(
-                &outputs,
+                &grumpkin_proofs_native
+                    .iter()
+                    .zip_eq(
+                        pi_hashes
+                            .iter()
+                            .cloned()
+                            .map(|pi| verifier_circuit.create_variable(pi).unwrap()),
+                    )
+                    .collect::<Vec<_>>(),
                 &mle_proof_challenges,
                 &split_acc_info,
                 &vk,
