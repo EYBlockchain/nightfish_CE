@@ -653,16 +653,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_pi_hashes: Vec<Vec<Variable>> = bn254info
-            .grumpkin_outputs
+        let old_pi_hashes: Vec<Vec<Variable>> = pi_hashes
             .chunks_exact(2)
-            .map(|output_pair| {
-                output_pair
-                    .iter()
-                    .map(|output| circuit.create_variable(output.pi_hash))
-                    .collect::<Result<Vec<Variable>, CircuitError>>()
-            })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+            .map(|chunk| chunk.to_vec())
+            .collect();
 
         let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
@@ -1658,6 +1652,12 @@ pub fn decider_circuit(
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
 
+    let pi_hashes = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| circuit.create_emulated_variable(output.pi_hash))
+        .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = izip!(
         output_scalar_vars.chunks_exact(2),
@@ -1697,7 +1697,7 @@ pub fn decider_circuit(
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
         grumpkin_info.bn254_outputs.chunks_exact(2),
-        grumpkin_info.grumpkin_outputs.iter(),
+        pi_hashes.iter(),
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
@@ -1707,7 +1707,7 @@ pub fn decider_circuit(
     .try_for_each(
         |(
             bn254_outputs,
-            output,
+            pi_hash_emul,
             impl_pi,
             bn254_accumulator,
             grumpkin_accumulators,
@@ -1867,8 +1867,7 @@ pub fn decider_circuit(
                 &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
             )?;
 
-            let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
-            let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
+            let pi_native = circuit.mod_to_native_field(pi_hash_emul)?;
 
             circuit.enforce_equal(pi_native, pi_hash)
         },
@@ -1884,12 +1883,6 @@ pub fn decider_circuit(
         .iter()
         .map(|output| SAMLEProofVar::<Zmorph>::from_struct(circuit, &output.proof))
         .collect::<Result<Vec<SAMLEProofVar<Zmorph>>, CircuitError>>()?;
-
-    let pi_hashes = grumpkin_info
-        .grumpkin_outputs
-        .iter()
-        .map(|output| circuit.create_emulated_variable(output.pi_hash))
-        .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
 
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         proof_vars
