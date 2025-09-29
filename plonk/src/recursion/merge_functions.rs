@@ -1878,18 +1878,33 @@ pub fn decider_circuit(
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    let proof_vars = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| SAMLEProofVar::<Zmorph>::from_struct(circuit, &output.proof))
+        .collect::<Result<Vec<SAMLEProofVar<Zmorph>>, CircuitError>>()?;
+
+    let pi_hashes = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| circuit.create_emulated_variable(output.pi_hash))
+        .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
-        &grumpkin_info.grumpkin_outputs,
+        proof_vars
+            .iter()
+            .zip(pi_hashes.iter().cloned())
+            .collect::<Vec<_>>()
+            .as_slice(),
         &split_acc_info,
         &pk_grumpkin.verifying_key,
         circuit,
     )?;
 
     // Create the variables for the commitments in the two proofs
-    let proof_one =
-        SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
-    let proof_two =
-        SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
+    let proof_one = &proof_vars[0];
+    let proof_two = &proof_vars[1];
 
     let acc_comms = grumpkin_info
         .old_accumulators
