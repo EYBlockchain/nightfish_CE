@@ -737,32 +737,24 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         proof_scalar_vars[..2]
             .iter()
             .try_for_each(|var| circuit.set_variable_public(*var))?;
-        scalars_and_acc_evals
-            .iter()
-            .zip(bn254info.forwarded_acumulators.iter())
-            .try_for_each(|((_, acc_eval), forwarded_acc)| {
-                let _ = circuit
-                    .create_public_variable(fq_to_fr::<Fr254, SWGrumpkin>(&forwarded_acc.comm.x))?;
-                let _ = circuit
-                    .create_public_variable(fq_to_fr::<Fr254, SWGrumpkin>(&forwarded_acc.comm.y))?;
+        scalars_and_acc_evals.iter().try_for_each(|(_, acc_eval)| {
+            let low_var = acc_eval[0];
+            let high_var = acc_eval[1];
 
-                let low_var = acc_eval[0];
-                let high_var = acc_eval[1];
+            let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+            let bits = field_bytes_length * 8;
+            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
-                let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
-                let bits = field_bytes_length * 8;
-                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+            circuit.enforce_in_range(low_var, bits)?;
+            circuit.enforce_in_range(high_var, leftover_bits)?;
 
-                circuit.enforce_in_range(low_var, bits)?;
-                circuit.enforce_in_range(high_var, leftover_bits)?;
-
-                let coeff = Fq254::from(2u32).pow([bits as u64]);
-                let actual_eval = circuit.lc(
-                    &[low_var, high_var, circuit.zero(), circuit.zero()],
-                    &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
-                )?;
-                circuit.set_variable_public(actual_eval)
-            })?;
+            let coeff = Fq254::from(2u32).pow([bits as u64]);
+            let actual_eval = circuit.lc(
+                &[low_var, high_var, circuit.zero(), circuit.zero()],
+                &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
+            )?;
+            circuit.set_variable_public(actual_eval)
+        })?;
         acc_instance
             .get_coords()
             .iter()
