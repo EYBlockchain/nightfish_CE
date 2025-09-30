@@ -1,6 +1,7 @@
 //! This file defines functions to take in two `RecursiveOutputs` and perform the necessary accumulation steps,
 //! they return the scalars necessary for the various MSMs in the next circuit.
 
+use ark_std::format;
 use core::iter;
 
 use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254, Fr as Fr254};
@@ -26,8 +27,8 @@ use crate::{
         circuit::{
             plonk_partial_verifier::{
                 Bn254OutputScalarsAndBasesVar, MLEVerifyingKeyVar, PcsInfoBasesVar,
-                ProofScalarsVarNative, ProofVarNative, SAMLEProofVar, VerifyingKeyNativeScalarsVar,
-                VerifyingKeyScalarsAndBasesVar,
+                ProofScalarsVarNative, ProofVarNative, SAMLEProofNative, SAMLEProofVar,
+                VerifyingKeyNativeScalarsVar, VerifyingKeyScalarsAndBasesVar,
             },
             verify_zeromorph::verify_zeromorph_circuit,
         },
@@ -42,7 +43,9 @@ use crate::{
     },
     proof_system::RecursiveOutput,
     recursion::circuits::{
-        challenges::reconstruct_mle_challenges,
+        challenges::{
+            reconstruct_mle_challenges, MLEProofChallengesEmulatedVar, MLEProofChallengesVar,
+        },
         emulated_mle_arithmetic::emulated_combine_mle_proof_scalars,
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript, Transcript},
@@ -396,6 +399,17 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
+    let grumpkin_proofs: Vec<SAMLEProofNative> = bn254info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| SAMLEProofNative::from_struct(circuit, &output.proof))
+        .collect::<Result<Vec<SAMLEProofNative>, CircuitError>>()?;
+
+    let pi_hashes = bn254info
+        .grumpkin_outputs
+        .iter()
+        .map(|o| circuit.create_variable(o.pi_hash))
+        .collect::<Result<Vec<_>, CircuitError>>()?;
     // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
     let vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
         // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
@@ -559,43 +573,50 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
         let scalars_and_acc_evals: Vec<(Vec<Variable>, Vec<Variable>)> = izip!(
-            bn254info.grumpkin_outputs.chunks_exact(2),
+            grumpkin_proofs.chunks_exact(2),
+            pi_hashes.chunks_exact(2),
             bn254info.challenges.chunks_exact(2),
             bn254info.split_acc_info.iter()
         )
-        .map(|(output_pair, challenges_pair, split_acc_info)| {
-            let (scalars, eval) = combine_mle_proof_scalars(
-                output_pair,
-                challenges_pair,
-                split_acc_info,
-                vk_grumpkin,
-                circuit,
-            )?;
+        .map(
+            |(output_pair, pi_hash_pair, challenges_pair, split_acc_info)| {
+                let (scalars, eval) = combine_mle_proof_scalars(
+                    output_pair
+                        .iter()
+                        .zip_eq(pi_hash_pair.iter().copied())
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    challenges_pair,
+                    split_acc_info,
+                    vk_grumpkin,
+                    circuit,
+                )?;
 
-            // Find the byte length of the scalar field (minus one).
-            let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                // Find the byte length of the scalar field (minus one).
+                let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
 
-            let value = circuit.witness(eval)?;
-            let bytes = value.into_bigint().to_bytes_le();
-            let (low, high) = bytes.split_at(field_bytes_length);
+                let value = circuit.witness(eval)?;
+                let bytes = value.into_bigint().to_bytes_le();
+                let (low, high) = bytes.split_at(field_bytes_length);
 
-            let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
-            let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
+                let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
+                let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
 
-            let bits = field_bytes_length * 8;
-            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+                let bits = field_bytes_length * 8;
+                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
-            circuit.enforce_in_range(low_var, bits)?;
-            circuit.enforce_in_range(high_var, leftover_bits)?;
+                circuit.enforce_in_range(low_var, bits)?;
+                circuit.enforce_in_range(high_var, leftover_bits)?;
 
-            let coeff = Fq254::from(2u32).pow([bits as u64]);
+                let coeff = Fq254::from(2u32).pow([bits as u64]);
 
-            circuit.lc_gate(
-                &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
-                &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
-            )?;
-            Ok((scalars, vec![low_var, high_var]))
-        })
+                circuit.lc_gate(
+                    &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
+                    &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
+                )?;
+                Ok((scalars, vec![low_var, high_var]))
+            },
+        )
         .collect::<Result<Vec<(Vec<Variable>, Vec<Variable>)>, CircuitError>>()?;
 
         let impl_pi_vars: Vec<Vec<Variable>> = bn254info
@@ -635,16 +656,30 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_pi_hashes: Vec<Vec<Variable>> = bn254info
-            .grumpkin_outputs
+        let old_pi_hashes: Vec<Vec<Variable>> = pi_hashes
             .chunks_exact(2)
-            .map(|output_pair| {
-                output_pair
-                    .iter()
-                    .map(|output| circuit.create_variable(output.pi_hash))
-                    .collect::<Result<Vec<Variable>, CircuitError>>()
+            .map(|chunk| chunk.to_vec())
+            .collect();
+
+        let mle_plonk_challenges: Vec<MLEProofChallengesVar> = bn254info
+            .challenges
+            .iter()
+            .map(|chals| MLEProofChallengesVar::from_struct(circuit, chals))
+            .collect::<Result<Vec<MLEProofChallengesVar>, CircuitError>>()?;
+
+        let mle_plonk_challenges = mle_plonk_challenges
+            .iter()
+            .map(|c| {
+                [
+                    c.challenges.alpha,
+                    c.challenges.beta,
+                    c.challenges.delta,
+                    c.challenges.epsilon,
+                    c.challenges.gamma,
+                    c.challenges.tau,
+                ]
             })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+            .collect::<Vec<_>>();
 
         let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
@@ -652,9 +687,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             old_acc_vars.iter(),
             forwarded_accs.iter(),
             old_pi_hashes.iter(),
+            mle_plonk_challenges.iter(),
         )
         .map(
-            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes)| {
+            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes, mle_plonk_challenge)| {
                 let prepped_scalars = scalars
                     .iter()
                     .map(|&var| convert_to_hash_form_fq254(circuit, var))
@@ -669,6 +705,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     forwarded_acc.as_slice(),
                     acc_eval.as_slice(),
                     old_hashes.as_slice(),
+                    mle_plonk_challenge,
                 ]
                 .concat();
 
@@ -1127,6 +1164,12 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Bn254CircuitOutput, PlonkError> {
+    let grumpkin_proofs: Vec<SAMLEProofVar<_>> = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| SAMLEProofVar::from_struct(circuit, &output.proof))
+        .collect::<Result<Vec<SAMLEProofVar<_>>, CircuitError>>()?;
+
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
         .bn254_outputs
@@ -1271,226 +1314,237 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     let mut pi_hash_vars = Vec::<Variable>::new();
 
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
-    let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
-        izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
-            grumpkin_info.grumpkin_outputs.iter(),
-            impl_specific_pi.iter(),
-            grumpkin_info.forwarded_acumulators.iter(),
-            grumpkin_info.old_accumulators.chunks_exact(2),
-            recursion_scalars.iter(),
-            vk_scalars_vars.chunks_exact(2),
-            output_base_vars.chunks_exact(2),
-        )
-        .map(
-            |(
-                bn254_outputs,
-                output,
-                impl_pi,
-                bn254_accumulator,
-                grumpkin_accumulators,
-                recursion_scalars,
-                vk_vars,
-                bn254_proofs,
-            )| {
-                let recursion_scalars_prepped = recursion_scalars
-                    .iter()
-                    .map(|&var| convert_to_hash_form(circuit, var))
-                    .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Variable>>();
-
-                let isp_prepped = impl_pi
-                    .iter()
-                    .map(|&var| convert_to_hash_form(circuit, var))
-                    .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Variable>>();
-
-                let grumpkin_accs = if !IS_BASE {
-                    grumpkin_accumulators
-                        .iter()
-                        .map(|acc| {
-                            let comm_x = circuit.create_variable(acc.comm.x)?;
-                            let comm_y = circuit.create_variable(acc.comm.y)?;
-                            let concat_vec = [comm_x, comm_y];
-                            let mut prepped_vec = concat_vec
-                                .iter()
-                                .map(|&var| convert_to_hash_form(circuit, var))
-                                .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
-                                .into_iter()
-                                .flatten()
-                                .collect::<Vec<Variable>>();
-                            let eval_bytes = acc.value.into_bigint().to_bytes_le();
-                            let [low_eval, high_eval]: [Fr254; 2] =
-                                bytes_to_field_elements::<_, Fr254>(eval_bytes)[1..]
-                                    .try_into()
-                                    .map_err(|_| {
-                                        CircuitError::ParameterError(
-                                            "Could not convert slice to fixed length array"
-                                                .to_string(),
-                                        )
-                                    })?;
-                            let low_var = circuit.create_variable(low_eval)?;
-                            let high_var = circuit.create_variable(high_eval)?;
-
-                            let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
-                            let bits = field_bytes_length * 8;
-                            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
-
-                            circuit.enforce_in_range(low_var, bits)?;
-                            circuit.enforce_in_range(high_var, leftover_bits)?;
-
-                            prepped_vec.push(low_var);
-                            prepped_vec.push(high_var);
-                            Result::<Vec<Variable>, CircuitError>::Ok(prepped_vec)
-                        })
-                        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<Variable>>()
-                } else {
-                    vec![]
-                };
-
-                let vk_ids = if IS_BASE {
-                    // We reform the `vk_id` input to the public input hash from the previous layer.
-                    // Since the `id`s only take the value `0` or `1`,
-                    // we batched them into a single variable to reduce the number of public inputs.
-                    // We repeat that procedure here when we reform the hash.
-                    let vk_id = circuit.lc(
-                        &[vk_vars[0].id, vk_vars[1].id, circuit.zero(), circuit.zero()],
-                        &[Fr254::one(), Fr254::from(2u8), Fr254::zero(), Fr254::zero()],
-                    )?;
-                    Ok::<_, CircuitError>(convert_to_hash_form(circuit, vk_id)?.to_vec())
-                } else {
-                    Ok(vec![])
-                }?;
-
-                let bn254_pfs = bn254_proofs
-                    .iter()
-                    .map(|bn254_proof| bn254_proof.convert_to_vec_for_transcript::<Bn254, Fr254>(circuit))
-                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<Variable>>();
-
-                let bn254_acc = [
-                    bn254_accumulator.comm.x,
-                    bn254_accumulator.comm.y,
-                    bn254_accumulator.opening_proof.proof.x,
-                    bn254_accumulator.opening_proof.proof.y,
-                ]
+    let next_grumpkin_challenges: Vec<(
+        MLEProofChallengesEmulatedVar<Fq254>,
+        RescueTranscriptVar<Fr254>,
+    )> = izip!(
+        grumpkin_info.bn254_outputs.chunks_exact(2),
+        grumpkin_proofs.iter(),
+        grumpkin_info.grumpkin_outputs.clone().map(|o| o.pi_hash),
+        impl_specific_pi.iter(),
+        grumpkin_info.forwarded_acumulators.iter(),
+        grumpkin_info.old_accumulators.chunks_exact(2),
+        recursion_scalars.iter(),
+        vk_scalars_vars.chunks_exact(2),
+        output_base_vars.chunks_exact(2),
+    )
+    .map(
+        |(
+            bn254_outputs,
+            proof_var,
+            _pi_hash,
+            impl_pi,
+            bn254_accumulator,
+            grumpkin_accumulators,
+            recursion_scalars,
+            vk_vars,
+            bn254_proofs,
+        )| {
+            let recursion_scalars_prepped = recursion_scalars
                 .iter()
-                .map(|f| {
-                    let eval_bytes = f.into_bigint().to_bytes_le();
-                    let [low_eval, high_eval]: [Fr254; 2] =
-                        bytes_to_field_elements::<_, Fr254>(eval_bytes)[1..]
-                            .try_into()
-                            .map_err(|_| {
-                                CircuitError::ParameterError(
-                                    "Could not convert slice to fixed length array".to_string(),
-                                )
-                            })?;
-                    let low_var = circuit.create_variable(low_eval)?;
-                    let high_var = circuit.create_variable(high_eval)?;
-
-                    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
-                    let bits = field_bytes_length * 8;
-                    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
-
-                    circuit.enforce_in_range(low_var, bits)?;
-                    circuit.enforce_in_range(high_var, leftover_bits)?;
-
-                    Result::<[Variable; 2], CircuitError>::Ok([low_var, high_var])
-                })
+                .map(|&var| convert_to_hash_form(circuit, var))
                 .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
                 .into_iter()
                 .flatten()
                 .collect::<Vec<Variable>>();
 
-                bn254_acc_vars.extend_from_slice(&bn254_acc);
+            let isp_prepped = impl_pi
+                .iter()
+                .map(|&var| convert_to_hash_form(circuit, var))
+                .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Variable>>();
 
-                let bn254_pi_hashes = bn254_outputs
+            let grumpkin_accs = if !IS_BASE {
+                grumpkin_accumulators
                     .iter()
-                    .map(|bn| circuit.create_variable(bn.pi_hash))
-                    .collect::<Result<Vec<Variable>, CircuitError>>()?;
+                    .map(|acc| {
+                        let comm_x = circuit.create_variable(acc.comm.x)?;
+                        let comm_y = circuit.create_variable(acc.comm.y)?;
+                        let concat_vec = [comm_x, comm_y];
+                        let mut prepped_vec = concat_vec
+                            .iter()
+                            .map(|&var| convert_to_hash_form(circuit, var))
+                            .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<Variable>>();
+                        let eval_bytes = acc.value.into_bigint().to_bytes_le();
+                        let [low_eval, high_eval]: [Fr254; 2] =
+                            bytes_to_field_elements::<_, Fr254>(eval_bytes)[1..]
+                                .try_into()
+                                .map_err(|_| {
+                                    CircuitError::ParameterError(
+                                        "Could not convert slice to fixed length array".to_string(),
+                                    )
+                                })?;
+                        let low_var = circuit.create_variable(low_eval)?;
+                        let high_var = circuit.create_variable(high_eval)?;
 
-                let bn_pi_hashes_prepped = bn254_pi_hashes
-                    .iter()
-                    .map(|&var| convert_to_hash_form(circuit, var))
-                    .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
+                        let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                        let bits = field_bytes_length * 8;
+                        let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                        circuit.enforce_in_range(low_var, bits)?;
+                        circuit.enforce_in_range(high_var, leftover_bits)?;
+
+                        prepped_vec.push(low_var);
+                        prepped_vec.push(high_var);
+                        Result::<Vec<Variable>, CircuitError>::Ok(prepped_vec)
+                    })
+                    .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
                     .into_iter()
                     .flatten()
-                    .collect::<Vec<Variable>>();
+                    .collect::<Vec<Variable>>()
+            } else {
+                vec![]
+            };
 
-                let data_vars = [
-                    isp_prepped,
-                    vk_ids,
-                    bn254_pfs,
-                    recursion_scalars_prepped,
-                    grumpkin_accs,
-                    bn254_acc,
-                    bn_pi_hashes_prepped,
-                ];
-
-                let calc_pi_hash = RescueNativeGadget::<Fr254>::rescue_sponge_with_padding(
-                    circuit,
-                    &data_vars.concat(),
-                    1,
-                )?[0];
-
-                let value = circuit.witness(calc_pi_hash)?;
-                let bytes = value.into_bigint().to_bytes_le();
-                let (challenge, leftover) = bytes.split_at(31);
-
-                let pi_hash = circuit.create_variable(Fr254::from_le_bytes_mod_order(challenge))?;
-
-                let leftover_var =
-                    circuit.create_variable(Fr254::from_le_bytes_mod_order(leftover))?;
-
-                circuit.enforce_in_range(pi_hash, 8 * 31)?;
-                circuit.enforce_in_range(leftover_var, 6)?;
-
-                let coeff = Fr254::from(2u32).pow([248u64]);
-
-                circuit.lc_gate(
-                    &[
-                        pi_hash,
-                        leftover_var,
-                        circuit.zero(),
-                        circuit.zero(),
-                        calc_pi_hash,
-                    ],
-                    &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
+            let vk_ids = if IS_BASE {
+                // We reform the `vk_id` input to the public input hash from the previous layer.
+                // Since the `id`s only take the value `0` or `1`,
+                // we batched them into a single variable to reduce the number of public inputs.
+                // We repeat that procedure here when we reform the hash.
+                let vk_id = circuit.lc(
+                    &[vk_vars[0].id, vk_vars[1].id, circuit.zero(), circuit.zero()],
+                    &[Fr254::one(), Fr254::from(2u8), Fr254::zero(), Fr254::zero()],
                 )?;
+                Ok::<_, CircuitError>(convert_to_hash_form(circuit, vk_id)?.to_vec())
+            } else {
+                Ok(vec![])
+            }?;
 
-                pi_hash_vars.push(pi_hash);
+            let bn254_pfs = bn254_proofs
+                .iter()
+                .map(|bn254_proof| {
+                    bn254_proof.convert_to_vec_for_transcript::<Bn254, Fr254>(circuit)
+                })
+                .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Variable>>();
 
-                // For checking correctness during testing
-                #[cfg(test)]
-                {
-                    assert_eq!(
-                        circuit.witness(pi_hash).unwrap(),
-                        fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash)
-                    );
-                }
-                let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
+            let bn254_acc = [
+                bn254_accumulator.comm.x,
+                bn254_accumulator.comm.y,
+                bn254_accumulator.opening_proof.proof.x,
+                bn254_accumulator.opening_proof.proof.y,
+            ]
+            .iter()
+            .map(|f| {
+                let eval_bytes = f.into_bigint().to_bytes_le();
+                let [low_eval, high_eval]: [Fr254; 2] =
+                    bytes_to_field_elements::<_, Fr254>(eval_bytes)[1..]
+                        .try_into()
+                        .map_err(|_| {
+                            CircuitError::ParameterError(
+                                "Could not convert slice to fixed length array".to_string(),
+                            )
+                        })?;
+                let low_var = circuit.create_variable(low_eval)?;
+                let high_var = circuit.create_variable(high_eval)?;
 
-                let next_grumpkin_challenges = reconstruct_mle_challenges::<
+                let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                let bits = field_bytes_length * 8;
+                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+                circuit.enforce_in_range(low_var, bits)?;
+                circuit.enforce_in_range(high_var, leftover_bits)?;
+
+                Result::<[Variable; 2], CircuitError>::Ok([low_var, high_var])
+            })
+            .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<Variable>>();
+
+            bn254_acc_vars.extend_from_slice(&bn254_acc);
+
+            let bn254_pi_hashes = bn254_outputs
+                .iter()
+                .map(|bn| circuit.create_variable(bn.pi_hash))
+                .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+            let bn_pi_hashes_prepped = bn254_pi_hashes
+                .iter()
+                .map(|&var| convert_to_hash_form(circuit, var))
+                .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Variable>>();
+
+            let data_vars = [
+                isp_prepped,
+                vk_ids,
+                bn254_pfs,
+                recursion_scalars_prepped,
+                grumpkin_accs,
+                bn254_acc,
+                bn_pi_hashes_prepped,
+            ];
+
+            let calc_pi_hash = RescueNativeGadget::<Fr254>::rescue_sponge_with_padding(
+                circuit,
+                &data_vars.concat(),
+                1,
+            )?[0];
+
+            let value = circuit.witness(calc_pi_hash)?;
+            let bytes = value.into_bigint().to_bytes_le();
+            let (challenge, leftover) = bytes.split_at(31);
+
+            let pi_hash = circuit.create_variable(Fr254::from_le_bytes_mod_order(challenge))?;
+
+            let leftover_var = circuit.create_variable(Fr254::from_le_bytes_mod_order(leftover))?;
+
+            circuit.enforce_in_range(pi_hash, 8 * 31)?;
+            circuit.enforce_in_range(leftover_var, 6)?;
+
+            let coeff = Fr254::from(2u32).pow([248u64]);
+
+            circuit.lc_gate(
+                &[
+                    pi_hash,
+                    leftover_var,
+                    circuit.zero(),
+                    circuit.zero(),
+                    calc_pi_hash,
+                ],
+                &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
+            )?;
+
+            pi_hash_vars.push(pi_hash);
+
+            // For checking correctness during testing
+            #[cfg(test)]
+            {
+                assert_eq!(
+                    circuit.witness(pi_hash).unwrap(),
+                    fr_to_fq::<Fr254, SWGrumpkin>(&_pi_hash)
+                );
+            }
+            let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
+
+            let next_grumpkin_challenges =
+                reconstruct_mle_challenges::<
                     _,
                     _,
-                    _,
-                    _,
+                    Zeromorph<UnivariateIpaPCS<Grumpkin>>,
+                    MLEPlonk<_>,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(output, &vk_var, circuit, &pi_hash_emul)?;
-                Ok(next_grumpkin_challenges)
-            },
-        )
-        .collect::<Result<Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)>, CircuitError>>()?;
+                >(proof_var, &vk_var, circuit, &pi_hash_emul)?;
+            Ok(next_grumpkin_challenges)
+        },
+    )
+    .collect::<Result<
+        Vec<(
+            MLEProofChallengesEmulatedVar<Fq254>,
+            RescueTranscriptVar<Fr254>,
+        )>,
+        CircuitError,
+    >>()?;
 
     let mut transcript = next_grumpkin_challenges[0].1.clone();
 
@@ -1498,8 +1552,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 
     let deltas = next_grumpkin_challenges
         .iter()
-        .map(|challenges| challenges.0.challenges.delta)
-        .collect::<Vec<Fq254>>();
+        .map(|challenges| challenges.0.challenges.delta.clone())
+        .collect::<Vec<EmulatedVariable<Fq254>>>();
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
@@ -1507,7 +1561,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     )?;
 
     let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
-        &grumpkin_info.grumpkin_outputs,
+        grumpkin_proofs
+            .as_slice()
+            .try_into()
+            .expect("Expected Vec to have length 2"),
         &grumpkin_info.old_accumulators,
         &deltas,
         &pk_grumpkin.verifying_key,
@@ -1523,6 +1580,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     // forwarded accumulators
     // new accumulator
     // old_pi_hashes
+    // MLE PLONK challenges
 
     specific_pi
         .iter()
@@ -1567,15 +1625,29 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
     let challenges: [MLEProofChallenges<Fq254>; 2] = next_grumpkin_challenges
-        .into_iter()
-        .map(|(challenges, _)| challenges)
-        .collect::<Vec<MLEProofChallenges<Fq254>>>()
-        .try_into()
-        .map_err(|_| {
-            CircuitError::ParameterError(
-                "Could not create an array of length 2 of MLEProofChallenges".to_string(),
-            )
-        })?;
+            .iter()
+            .map(|(chals, _)| chals.to_struct::<SWGrumpkin>(circuit))
+            .collect::<Result<Vec<_>, CircuitError>>()?   // <-- turn Result<Vec<_>, _> into Vec<_>
+            .try_into()
+            .map_err(|v: Vec<_>| {
+                CircuitError::ParameterError(format!("expected 2, got {}", v.len()))
+            })?;
+
+    for challenge in next_grumpkin_challenges {
+        let alpha_native = circuit.mod_to_native_field(&challenge.0.challenges.alpha)?;
+        let beta_native = circuit.mod_to_native_field(&challenge.0.challenges.beta)?;
+        let delta_native = circuit.mod_to_native_field(&challenge.0.challenges.delta)?;
+        let epsilon_native = circuit.mod_to_native_field(&challenge.0.challenges.epsilon)?;
+        let gamma_native = circuit.mod_to_native_field(&challenge.0.challenges.gamma)?;
+        let tau_native = circuit.mod_to_native_field(&challenge.0.challenges.tau)?;
+        circuit.set_variable_public(alpha_native)?;
+        circuit.set_variable_public(beta_native)?;
+        circuit.set_variable_public(delta_native)?;
+        circuit.set_variable_public(epsilon_native)?;
+        circuit.set_variable_public(gamma_native)?;
+        circuit.set_variable_public(tau_native)?;
+    }
+
     Ok(Bn254CircuitOutput::new(
         specific_pi_field,
         grumpkin_info.forwarded_acumulators.clone(),
@@ -1629,6 +1701,12 @@ pub fn decider_circuit(
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
 
+    let pi_hashes = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| circuit.create_emulated_variable(output.pi_hash))
+        .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = izip!(
         output_scalar_vars.chunks_exact(2),
@@ -1668,7 +1746,7 @@ pub fn decider_circuit(
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
         grumpkin_info.bn254_outputs.chunks_exact(2),
-        grumpkin_info.grumpkin_outputs.iter(),
+        pi_hashes.iter(),
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
@@ -1678,7 +1756,7 @@ pub fn decider_circuit(
     .try_for_each(
         |(
             bn254_outputs,
-            output,
+            pi_hash_emul,
             impl_pi,
             bn254_accumulator,
             grumpkin_accumulators,
@@ -1838,8 +1916,7 @@ pub fn decider_circuit(
                 &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
             )?;
 
-            let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
-            let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
+            let pi_native = circuit.mod_to_native_field(pi_hash_emul)?;
 
             circuit.enforce_equal(pi_native, pi_hash)
         },
@@ -1849,18 +1926,27 @@ pub fn decider_circuit(
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    let proof_vars = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|output| SAMLEProofVar::<Zmorph>::from_struct(circuit, &output.proof))
+        .collect::<Result<Vec<SAMLEProofVar<Zmorph>>, CircuitError>>()?;
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
-        &grumpkin_info.grumpkin_outputs,
+        proof_vars
+            .iter()
+            .zip(pi_hashes.iter().cloned())
+            .collect::<Vec<_>>()
+            .as_slice(),
         &split_acc_info,
         &pk_grumpkin.verifying_key,
         circuit,
     )?;
 
     // Create the variables for the commitments in the two proofs
-    let proof_one =
-        SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
-    let proof_two =
-        SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
+    let proof_one = &proof_vars[0];
+    let proof_two = &proof_vars[1];
 
     let acc_comms = grumpkin_info
         .old_accumulators

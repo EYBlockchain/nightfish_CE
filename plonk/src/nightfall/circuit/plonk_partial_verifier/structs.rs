@@ -38,7 +38,7 @@ use crate::{
     },
     proof_system::structs::{PlookupEvaluations, ProofEvaluations},
     recursion::merge_functions::Bn254Output,
-    transcript::{rescue::RescueTranscriptVar, CircuitTranscript, CircuitTranscriptVisitor},
+    transcript::{CircuitTranscript, CircuitTranscriptVisitor},
 };
 
 use super::ProofToVar;
@@ -169,7 +169,7 @@ impl ChallengesVar {
 }
 
 /// Struct used to represent [`MLEChallenges`] as [`EmulatedVariable`]s.
-#[allow(dead_code)]
+#[derive(Debug, Clone)]
 pub struct EmulatedMLEChallenges<E: PrimeField> {
     pub(crate) gamma: EmulatedVariable<E>,
     pub(crate) alpha: EmulatedVariable<E>,
@@ -219,19 +219,49 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         Ok(Self::new(gamma, alpha, tau, beta, delta, epsilon))
     }
 
+    /// Reconstruct a concrete `MLEChallenges` from the emulated variables.
+    pub fn to_struct<P>(
+        &self,
+        circuit: &mut PlonkCircuit<P::BaseField>,
+    ) -> Result<MLEChallenges<P::ScalarField>, CircuitError>
+    where
+        P: HasTEForm<ScalarField = E>,
+        P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
+        P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
+    {
+        let read = |v| circuit.emulated_witness::<P::ScalarField>(v);
+
+        let gamma = read(&self.gamma)?;
+        let alpha = read(&self.alpha)?;
+        let tau = read(&self.tau)?;
+        let beta = read(&self.beta)?;
+        let delta = read(&self.delta)?;
+        let epsilon = read(&self.epsilon)?;
+
+        Ok(MLEChallenges {
+            gamma,
+            alpha,
+            tau,
+            beta,
+            delta,
+            epsilon,
+        })
+    }
+
     /// Computes challenges from a proof.
-    pub fn compute_challenges_vars<PCS, P>(
+    pub fn compute_challenges_vars<PCS, P, C>(
         circuit: &mut PlonkCircuit<P::BaseField>,
         vk_var: &MLEVerifyingKeyVar<PCS>,
         pi: &EmulatedVariable<P::ScalarField>,
         proof_var: &SAMLEProofVar<PCS>,
-        transcript_var: &mut RescueTranscriptVar<P::BaseField>,
+        transcript_var: &mut C,
     ) -> Result<EmulatedMLEChallenges<E>, CircuitError>
     where
         PCS: PolynomialCommitmentScheme<Commitment = Affine<P>, Evaluation = P::ScalarField>,
         P: HasTEForm<ScalarField = E>,
         P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
         P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
+        C: CircuitTranscript<P::BaseField>,
     {
         transcript_var.append_visitor(vk_var, circuit)?;
         transcript_var.push_emulated_variable(pi, circuit)?;
