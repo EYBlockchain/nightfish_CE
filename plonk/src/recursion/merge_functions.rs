@@ -1642,9 +1642,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         let tau_native = circuit.mod_to_native_field(&challenge.0.challenges.tau)?;
         circuit.set_variable_public(alpha_native)?;
         circuit.set_variable_public(beta_native)?;
-        circuit.set_variable_public(gamma_native)?;
         circuit.set_variable_public(delta_native)?;
         circuit.set_variable_public(epsilon_native)?;
+        circuit.set_variable_public(gamma_native)?;
         circuit.set_variable_public(tau_native)?;
     }
 
