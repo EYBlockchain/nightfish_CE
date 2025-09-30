@@ -28,7 +28,6 @@ use ark_std::{
     marker::PhantomData,
     rand::{CryptoRng, RngCore},
     string::ToString,
-    vec,
     vec::Vec,
     One,
 };
@@ -234,7 +233,6 @@ where
 
         // Round 2.5
         // Plookup: compute Plookup product accumulation polynomial
-        let mut prod_lookup_poly_comms_vec = vec![];
 
         let prod_lookup_poly_comm = if circuits.support_lookup() {
             let (prod_lookup_poly_comm, prod_lookup_poly) = prover.run_plookup_2nd_round(
@@ -251,7 +249,6 @@ where
         } else {
             None
         };
-        prod_lookup_poly_comms_vec.push(prod_lookup_poly_comm);
 
         // Round 3
         challenges.alpha = transcript.squeeze_scalar_challenge::<P>(b"alpha")?;
@@ -451,7 +448,6 @@ where
 
         // Round 2.5
         // Plookup: compute Plookup product accumulation polynomial
-        let mut prod_lookup_poly_comms_vec = vec![];
 
         let prod_lookup_poly_comm = if circuits.support_lookup() {
             let (prod_lookup_poly_comm, prod_lookup_poly) = prover.run_plookup_2nd_round(
@@ -468,7 +464,6 @@ where
         } else {
             None
         };
-        prod_lookup_poly_comms_vec.push(prod_lookup_poly_comm);
 
         // Round 3
         challenges.alpha = transcript.squeeze_scalar_challenge::<P>(b"alpha")?;
@@ -803,7 +798,7 @@ pub mod test {
         Radix2EvaluationDomain,
     };
 
-    use ark_std::{format, string::ToString, vec::Vec};
+    use ark_std::{format, string::ToString, vec, vec::Vec};
     use core::ops::{Mul, Neg};
     use jf_primitives::{
         pcs::{prelude::UnivariateKzgPCS, PolynomialCommitmentScheme},
