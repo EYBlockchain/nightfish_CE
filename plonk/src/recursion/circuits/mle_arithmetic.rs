@@ -937,6 +937,8 @@ mod tests {
                     )
                     .unwrap();
                     challenges
+                        .to_struct::<SWGrumpkin>(&mut challenges_circuit)
+                        .unwrap()
                 })
                 .collect::<Vec<MLEProofChallenges<Fq254>>>();
 

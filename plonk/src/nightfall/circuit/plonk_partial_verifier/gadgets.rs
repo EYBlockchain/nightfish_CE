@@ -779,7 +779,11 @@ mod test {
             let mut transcript_var = RescueTranscriptVar::<F>::new_transcript(&mut plonk_circuit);
             let pi_var = plonk_circuit.create_emulated_variable(pi)?;
             let mle_challenges_var =
-                EmulatedMLEChallenges::<E::ScalarField>::compute_challenges_vars::<PCS, P>(
+                EmulatedMLEChallenges::<E::ScalarField>::compute_challenges_vars::<
+                    PCS,
+                    P,
+                    RescueTranscriptVar<F>,
+                >(
                     &mut plonk_circuit,
                     &vk_var,
                     &pi_var,
