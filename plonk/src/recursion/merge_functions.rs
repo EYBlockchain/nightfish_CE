@@ -43,7 +43,9 @@ use crate::{
     },
     proof_system::RecursiveOutput,
     recursion::circuits::{
-        challenges::{reconstruct_mle_challenges, MLEProofChallengesEmulatedVar},
+        challenges::{
+            reconstruct_mle_challenges, MLEProofChallengesEmulatedVar, MLEProofChallengesVar,
+        },
         emulated_mle_arithmetic::emulated_combine_mle_proof_scalars,
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript, Transcript},
@@ -659,15 +661,36 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .map(|chunk| chunk.to_vec())
             .collect();
 
+        let mle_plonk_challenges: Vec<MLEProofChallengesVar> = bn254info
+            .challenges
+            .iter()
+            .map(|chals| MLEProofChallengesVar::from_struct(circuit, chals))
+            .collect::<Result<Vec<MLEProofChallengesVar>, CircuitError>>()?;
+
+        let mle_plonk_challenges = mle_plonk_challenges
+            .iter()
+            .map(|c| {
+                [
+                    c.challenges.alpha,
+                    c.challenges.beta,
+                    c.challenges.delta,
+                    c.challenges.epsilon,
+                    c.challenges.gamma,
+                    c.challenges.tau,
+                ]
+            })
+            .collect::<Vec<_>>();
+
         let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
             impl_pi_vars.iter(),
             old_acc_vars.iter(),
             forwarded_accs.iter(),
             old_pi_hashes.iter(),
+            mle_plonk_challenges.iter(),
         )
         .map(
-            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes)| {
+            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes, mle_plonk_challenge)| {
                 let prepped_scalars = scalars
                     .iter()
                     .map(|&var| convert_to_hash_form_fq254(circuit, var))
@@ -682,6 +705,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     forwarded_acc.as_slice(),
                     acc_eval.as_slice(),
                     old_hashes.as_slice(),
+                    mle_plonk_challenge,
                 ]
                 .concat();
 
@@ -1556,6 +1580,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     // forwarded accumulators
     // new accumulator
     // old_pi_hashes
+    // MLE PLONK challenges
 
     specific_pi
         .iter()
@@ -1600,13 +1625,28 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
     let challenges: [MLEProofChallenges<Fq254>; 2] = next_grumpkin_challenges
-            .into_iter()
+            .iter()
             .map(|(chals, _)| chals.to_struct::<SWGrumpkin>(circuit))
             .collect::<Result<Vec<_>, CircuitError>>()?   // <-- turn Result<Vec<_>, _> into Vec<_>
             .try_into()
             .map_err(|v: Vec<_>| {
                 CircuitError::ParameterError(format!("expected 2, got {}", v.len()))
             })?;
+
+    for challenge in next_grumpkin_challenges {
+        let alpha_native = circuit.mod_to_native_field(&challenge.0.challenges.alpha)?;
+        let beta_native = circuit.mod_to_native_field(&challenge.0.challenges.beta)?;
+        let delta_native = circuit.mod_to_native_field(&challenge.0.challenges.delta)?;
+        let epsilon_native = circuit.mod_to_native_field(&challenge.0.challenges.epsilon)?;
+        let gamma_native = circuit.mod_to_native_field(&challenge.0.challenges.gamma)?;
+        let tau_native = circuit.mod_to_native_field(&challenge.0.challenges.tau)?;
+        circuit.set_variable_public(alpha_native)?;
+        circuit.set_variable_public(beta_native)?;
+        circuit.set_variable_public(gamma_native)?;
+        circuit.set_variable_public(delta_native)?;
+        circuit.set_variable_public(epsilon_native)?;
+        circuit.set_variable_public(tau_native)?;
+    }
 
     Ok(Bn254CircuitOutput::new(
         specific_pi_field,
