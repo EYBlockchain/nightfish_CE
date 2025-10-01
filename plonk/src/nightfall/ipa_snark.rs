@@ -17,7 +17,7 @@ use crate::{
         },
         ipa_verifier::FFTVerifier,
     },
-    proof_system::{RecursiveOutput, UniversalSNARK},
+    proof_system::{RecursiveOutput, UniversalRecursiveSNARK, UniversalSNARK},
     transcript::*,
 };
 
@@ -593,7 +593,6 @@ where
     PCS::SRS: StructuredReferenceString<Item = PCS::Commitment>,
 {
     type Proof = Proof<PCS>;
-    type RecursiveProof = Proof<PCS>;
     type ProvingKey = ProvingKey<PCS>;
     type VerifyingKey = VerifyingKey<PCS>;
     type UniversalSRS = PCS::SRS;
@@ -728,6 +727,34 @@ where
         })
     }
 
+    fn verify<T>(
+        verify_key: &Self::VerifyingKey,
+        public_input: &[P::ScalarField],
+        proof: &Self::Proof,
+        extra_transcript_init_msg: Option<Vec<u8>>,
+    ) -> Result<(), Self::Error>
+    where
+        T: Transcript,
+    {
+        Self::verify_proof::<T>(verify_key, public_input, proof, extra_transcript_init_msg)
+    }
+}
+
+impl<PCS, F, P> UniversalRecursiveSNARK<PCS> for FFTPlonk<PCS>
+where
+    F: RescueParameter,
+    P: HasTEForm<BaseField = F>,
+    P::ScalarField: EmulationConfig<F>,
+    PCS: PolynomialCommitmentScheme<
+        Evaluation = P::ScalarField,
+        Polynomial = DensePolynomial<P::ScalarField>,
+        Point = P::ScalarField,
+        Commitment = Affine<P>,
+    >,
+    PCS::SRS: StructuredReferenceString<Item = PCS::Commitment>,
+{
+    type RecursiveProof = Proof<PCS>;
+
     fn recursive_prove<C, R, T>(
         rng: &mut R,
         circuit: &C,
@@ -753,18 +780,6 @@ where
         let pi_hash = circuit.public_input()?[0];
 
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))
-    }
-
-    fn verify<T>(
-        verify_key: &Self::VerifyingKey,
-        public_input: &[P::ScalarField],
-        proof: &Self::Proof,
-        extra_transcript_init_msg: Option<Vec<u8>>,
-    ) -> Result<(), Self::Error>
-    where
-        T: Transcript,
-    {
-        Self::verify_proof::<T>(verify_key, public_input, proof, extra_transcript_init_msg)
     }
 }
 
