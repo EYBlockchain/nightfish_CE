@@ -583,7 +583,7 @@ mod tests {
             accumulation::accumulation_structs::PCSWitness,
             mle::{snark::tests::gen_circuit_for_test, MLEPlonk},
         },
-        proof_system::{RecursiveOutput, UniversalSNARK},
+        proof_system::{RecursiveOutput, UniversalRecursiveSNARK, UniversalSNARK},
         transcript::RescueTranscript,
     };
     use ark_ff::PrimeField;

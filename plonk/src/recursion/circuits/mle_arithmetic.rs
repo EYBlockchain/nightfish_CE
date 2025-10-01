@@ -685,7 +685,7 @@ mod tests {
             },
             UnivariateIpaPCS,
         },
-        proof_system::UniversalSNARK,
+        proof_system::{UniversalRecursiveSNARK, UniversalSNARK},
         recursion::circuits::challenges::reconstruct_mle_challenges,
         transcript::{rescue::RescueTranscriptVar, RescueTranscript, Transcript},
     };

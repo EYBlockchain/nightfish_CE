@@ -374,7 +374,7 @@ mod tests {
             ipa_structs::VerificationKeyId,
             ipa_verifier::FFTVerifier,
         },
-        proof_system::UniversalSNARK,
+        proof_system::{UniversalRecursiveSNARK, UniversalSNARK},
         recursion::{
             merge_functions::{combine_fft_proof_scalars, combine_fft_proof_scalars_round_one},
             AtomicInstance, FFTPlonk,

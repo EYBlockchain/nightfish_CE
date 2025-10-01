@@ -716,7 +716,7 @@ mod tests {
             ipa_snark::test::gen_circuit_for_test, ipa_structs::VerificationKeyId,
             ipa_verifier::FFTVerifier, FFTPlonk,
         },
-        proof_system::UniversalSNARK,
+        proof_system::{UniversalRecursiveSNARK, UniversalSNARK},
         transcript::RescueTranscript,
     };
 
