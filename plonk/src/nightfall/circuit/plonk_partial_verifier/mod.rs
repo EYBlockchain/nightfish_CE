@@ -896,6 +896,7 @@ mod test {
             Evaluation = P::ScalarField,
             Polynomial = DensePolynomial<P::ScalarField>,
             Point = P::ScalarField,
+            Proof: TranscriptVisitor,
         >,
         F: RescueParameter + PrimeField + EmulationConfig<P::ScalarField>,
         P: HasTEForm<BaseField = F>,

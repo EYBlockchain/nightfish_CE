@@ -82,6 +82,7 @@ where
         Polynomial = DensePolynomial<E::ScalarField>,
         Point = E::ScalarField,
         Commitment = Affine<E>,
+        Proof: TranscriptVisitor,
     >,
     F: RescueParameter,
     E: HasTEForm<BaseField = F>,
@@ -132,6 +133,10 @@ where
     transcript.append_curve_point(b"q_comm", &proof.q_comm)?;
 
     let _ = transcript.squeeze_scalar_challenge::<E>(b"u")?;
+
+    // As we continue to use the transcript in the recursive setting,
+    // we need to append the opening proof to the transcript.
+    transcript.append_visitor(&proof.opening_proof)?;
     Ok(transcript)
 }
 
