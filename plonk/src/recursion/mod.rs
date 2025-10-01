@@ -46,7 +46,7 @@ use crate::{
     },
     proof_system::{
         structs::{Proof, ProvingKey as JFProvingKey, VerifyingKey as PlonkVerifyingKey},
-        PlonkKzgSnark, UniversalSNARK,
+        PlonkKzgSnark, UniversalRecursiveSNARK, UniversalSNARK,
     },
     transcript::SolidityTranscript,
 };

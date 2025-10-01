@@ -31,7 +31,7 @@ pub use snark::MLEPlonk;
 
 use crate::errors::PlonkError;
 use crate::nightfall::ipa_structs::VerificationKeyId;
-use crate::proof_system::{RecursiveOutput, UniversalSNARK};
+use crate::proof_system::{RecursiveOutput, UniversalRecursiveSNARK, UniversalSNARK};
 use crate::transcript::Transcript;
 
 use self::mle_structs::SAMLEProof;
@@ -58,8 +58,6 @@ where
     P::ScalarField: EmulationConfig<F>,
 {
     type Proof = MLEProof<PCS>;
-
-    type RecursiveProof = SAMLEProof<PCS>;
 
     type ProvingKey = MLEProvingKey<PCS>;
 
@@ -107,6 +105,37 @@ where
         Self::prove::<_, _, _, T>(circuit, prove_key)
     }
 
+    fn verify<T: Transcript>(
+        verify_key: &Self::VerifyingKey,
+        public_input: &[<<PCS as PolynomialCommitmentScheme>::Commitment as AffineRepr>::ScalarField],
+        proof: &Self::Proof,
+        _extra_transcript_init_msg: Option<Vec<u8>>,
+    ) -> Result<(), Self::Error> {
+        let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
+            PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
+        })?;
+        if !Self::verify::<_, _, _, T>(proof, verify_key, public_input, &mut rng)? {
+            return Err(PlonkError::WrongProof);
+        }
+        Ok(())
+    }
+}
+
+impl<PCS, P, F> UniversalRecursiveSNARK<PCS> for MLEPlonk<PCS>
+where
+    F: PrimeField + RescueParameter,
+    PCS: Accumulation<
+        Evaluation = P::ScalarField,
+        Point = Vec<P::ScalarField>,
+        Polynomial = Arc<DenseMultilinearExtension<P::ScalarField>>,
+        Commitment = Affine<P>,
+    >,
+
+    P: HasTEForm<BaseField = F>,
+    P::ScalarField: EmulationConfig<F>,
+{
+    type RecursiveProof = SAMLEProof<PCS>;
+
     fn recursive_prove<C, R, T>(
         _rng: &mut R,
         circuit: &C,
@@ -125,20 +154,5 @@ where
         let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
         let pi_hash = circuit.public_input()?[0];
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))
-    }
-
-    fn verify<T: Transcript>(
-        verify_key: &Self::VerifyingKey,
-        public_input: &[<<PCS as PolynomialCommitmentScheme>::Commitment as AffineRepr>::ScalarField],
-        proof: &Self::Proof,
-        _extra_transcript_init_msg: Option<Vec<u8>>,
-    ) -> Result<(), Self::Error> {
-        let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
-            PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
-        })?;
-        if !Self::verify::<_, _, _, T>(proof, verify_key, public_input, &mut rng)? {
-            return Err(PlonkError::WrongProof);
-        }
-        Ok(())
     }
 }

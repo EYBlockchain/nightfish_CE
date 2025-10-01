@@ -5,7 +5,7 @@ use crate::nightfall::{
     ipa_structs::{PlookupProof, Proof},
     FFTPlonk,
 };
-use crate::proof_system::{structs::ProofEvaluations, UniversalSNARK};
+use crate::proof_system::{structs::ProofEvaluations, UniversalRecursiveSNARK};
 use crate::recursion::{circuits::Kzg, merge_functions::Bn254Output};
 use crate::transcript::{RescueTranscript, Transcript};
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
@@ -255,7 +255,7 @@ where
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
     <PCS::Commitment as AffineRepr>::ScalarField:
         PrimeField + CanonicalSerialize + CanonicalDeserialize,
-    Scheme: UniversalSNARK<PCS>,
+    Scheme: UniversalRecursiveSNARK<PCS>,
     Scheme::RecursiveProof: CanonicalSerialize + CanonicalDeserialize,
     T: Transcript + CanonicalSerialize + CanonicalDeserialize,
     PCS: PolynomialCommitmentScheme,

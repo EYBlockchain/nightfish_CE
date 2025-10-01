@@ -668,7 +668,7 @@ mod test {
     };
     use crate::{
         nightfall::circuit::plonk_partial_verifier::{EmulatedMLEChallenges, SAMLEProofVar},
-        proof_system::UniversalSNARK,
+        proof_system::UniversalRecursiveSNARK,
         transcript::{RescueTranscript, Transcript},
     };
     use ark_ec::short_weierstrass::Affine;

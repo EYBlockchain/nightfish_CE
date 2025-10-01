@@ -451,7 +451,6 @@ where
     E::ScalarField: EmulationConfig<F>,
 {
     type Proof = Proof<E>;
-    type RecursiveProof = ();
     type ProvingKey = ProvingKey<E>;
     type VerifyingKey = VerifyingKey<E>;
     type UniversalSRS = UniversalSrs<E>;
@@ -636,21 +635,6 @@ where
             poly_evals: batch_proof.poly_evals_vec[0].clone(),
             plookup_proof: batch_proof.plookup_proofs_vec[0].clone(),
         })
-    }
-
-
-    fn recursive_prove<C, R, T>(
-            _rng: &mut R,
-            _circuit: &C,
-            _prove_key: &Self::ProvingKey,
-            _extra_transcript_init_msg: Option<Vec<u8>>,
-        ) -> Result<super::RecursiveOutput<UnivariateKzgPCS<E>, Self, T>, Self::Error>
-        where
-            Self: Sized,
-            C: Arithmetization<<<UnivariateKzgPCS<E> as PolynomialCommitmentScheme>::Commitment as ark_ec::AffineRepr>::ScalarField>,
-            R: CryptoRng + RngCore,
-    T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize{
-        unimplemented!("Recursive proving is not supported for PlonkKzgSnark")
     }
 
     fn verify<T>(

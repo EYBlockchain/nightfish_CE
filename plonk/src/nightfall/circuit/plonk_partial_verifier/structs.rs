@@ -164,6 +164,8 @@ impl ChallengesVar {
         transcript.append_point_variable(&proof.q_comm, circuit)?;
 
         let u = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+
+        transcript.append_point_variable(&proof.opening_proof, circuit)?;
         Ok(Self::new(tau, alphas, beta, gamma, zeta, v, u))
     }
 }

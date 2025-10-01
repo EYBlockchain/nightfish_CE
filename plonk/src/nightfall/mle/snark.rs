@@ -1261,7 +1261,7 @@ pub mod tests {
 
     use crate::{
         nightfall::{mle::zeromorph::zeromorph_protocol::Zeromorph, UnivariateIpaPCS},
-        proof_system::UniversalSNARK,
+        proof_system::UniversalRecursiveSNARK,
         transcript::RescueTranscript,
     };
 
