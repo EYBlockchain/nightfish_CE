@@ -173,6 +173,15 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_ok() {
+            ark_std::println!("The base grumpkin circuit is satisfied");
+        } else {
+            return Err(PlonkError::InvalidParameters(
+                "The base grumpkin circuit is not satisfied".to_string(),
+            ));
+        }
+
         #[cfg(test)]
         {
             let pi = circuit.public_input()?;
@@ -302,6 +311,15 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_ok() {
+            ark_std::println!("The base bn254 circuit is satisfied");
+        } else {
+            return Err(PlonkError::InvalidParameters(
+                "The base bn254 circuit is not satisfied".to_string(),
+            ));
+        }
+
         // Run the following code only when testing
         #[cfg(test)]
         {
@@ -371,6 +389,15 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_ok() {
+            ark_std::println!("The merge grumpkin circuit is satisfied");
+        } else {
+            return Err(PlonkError::InvalidParameters(
+                "The merge grumpkin circuit is not satisfied".to_string(),
+            ));
+        }
+
         // Run the following code only when testing
         #[cfg(test)]
         {
@@ -435,6 +462,15 @@ pub trait RecursiveProver {
         )?;
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_ok() {
+            ark_std::println!("The merge bn254 circuit is satisfied");
+        } else {
+            return Err(PlonkError::InvalidParameters(
+                "The merge bn254 circuit is not satisfied".to_string(),
+            ));
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -504,6 +540,15 @@ pub trait RecursiveProver {
         }
 
         circuit.finalize_for_arithmetization()?;
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_ok() {
+            ark_std::println!("The decider circuit is satisfied");
+        } else {
+            return Err(PlonkError::InvalidParameters(
+                "The decider circuit is not satisfied".to_string(),
+            ));
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
