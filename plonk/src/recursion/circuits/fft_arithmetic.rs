@@ -140,7 +140,7 @@ pub(crate) fn partial_verify_fft_plonk_base(
 
 /// This function takes in two [`RecursiveOutput`]s and verifies their transcripts and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
-pub fn calculate_recursion_scalars(
+pub(crate) fn calculate_recursion_scalars(
     scalar_vars: &[ProofScalarsVarNative; 2],
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk: &VerifyingKey<Kzg>,
