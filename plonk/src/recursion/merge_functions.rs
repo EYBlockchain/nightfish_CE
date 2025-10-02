@@ -1611,6 +1611,9 @@ pub fn decider_circuit(
         })
         .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
         )?;
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after output_var formation");
+    }
     let output_scalar_vars: [ProofScalarsVarNative; 4] = output_var_pairs
         .clone()
         .into_iter()
@@ -1648,6 +1651,10 @@ pub fn decider_circuit(
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after calculate_recursion_scalars");
+    }
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
 
@@ -1662,6 +1669,10 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after impl_specific_pi formation");
+    }
 
     let mut bn254_acc_vars = vec![];
 
@@ -1841,7 +1852,16 @@ pub fn decider_circuit(
             let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
             let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
 
-            circuit.enforce_equal(pi_native, pi_hash)
+            ark_std::println!("expected pi_hash {:?}", output.pi_hash);
+            ark_std::println!("calc pi_hash {:?}", circuit.witness(pi_hash)?);
+
+            circuit.enforce_equal(pi_native, pi_hash)?;
+
+            if circuit.check_circuit_satisfiability(&[]).is_err() {
+                ark_std::println!("Circuit is not satisfiable after enforcing hash equality");
+            }
+
+            Ok::<(), CircuitError>(())
         },
     )?;
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
@@ -1849,6 +1869,11 @@ pub fn decider_circuit(
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after performing accumulation");
+    }
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
@@ -1856,17 +1881,29 @@ pub fn decider_circuit(
         circuit,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after emulated_combine_mle_proof_scalars");
+    }
+
     // Create the variables for the commitments in the two proofs
     let proof_one =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
     let proof_two =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after from_struct");
+    }
+
     let acc_comms = grumpkin_info
         .old_accumulators
         .iter()
         .map(|acc| circuit.create_point_variable(&Point::<Fr254>::from(acc.comm)))
         .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after acc_comms formation");
+    }
 
     // We have already checked that lookup is supported so the following unwrap is safe.
     let lookup_vk = pk_grumpkin
@@ -1884,6 +1921,10 @@ pub fn decider_circuit(
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_dom_sep_comm))?;
     let q_lookup_comm =
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after create_constant_point_variable");
+    }
 
     let lookup_bases = &[
         range_table_comm,
@@ -1911,11 +1952,19 @@ pub fn decider_circuit(
         &msm_scalars,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after msm");
+    }
+
     let (opening_proof, _) = Zmorph::open(
         &pk_grumpkin.pcs_prover_params,
         &split_acc_info.new_accumulator().poly,
         &split_acc_info.new_accumulator().point,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after zeromorph::open");
+    }
 
     let point = split_acc_info
         .new_accumulator()
@@ -1923,6 +1972,10 @@ pub fn decider_circuit(
         .iter()
         .map(|p| circuit.create_emulated_variable(*p))
         .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after create_emulated_variable");
+    }
 
     let impl_spec_pi = grumpkin_info
         .specific_pi
@@ -1935,6 +1988,10 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after create_variable");
+    }
 
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
     let specific_pi = specific_pi_fn(

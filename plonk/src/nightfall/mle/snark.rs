@@ -240,8 +240,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // We know that the commitments we are using will always be points on an SW curve.
         transcript.append_curve_points(b"wires", &wire_comms)?;
 
-        let [gamma, alpha, tau]: [P::ScalarField; 3] = transcript
-            .squeeze_scalar_challenges::<P>(b"gamma alpha tau", 3)?
+        let [gamma, tau]: [P::ScalarField; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"gamma tau", 2)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
@@ -254,7 +254,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let mut gkr_q_polys = vec![perm_q_poly];
 
         // Run the lookup related subroutines if support lookup.
-        let (m_poly, m_commit, [beta, delta, epsilon]) = if pk.lookup_proving_key.is_some() {
+        let (m_poly, m_commit, [alpha, beta, delta, epsilon]) = if pk.lookup_proving_key.is_some() {
             let lookup_table = circuit.compute_merged_lookup_table_mle(tau)?;
             let lookup_wire = circuit.compute_lookup_sorted_vec_mles(tau, &lookup_table)?;
             let table = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
@@ -266,8 +266,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             let m_commit = PCS::commit(&pk.pcs_prover_params, &m_poly)?;
 
             transcript.append_curve_point(b"m_commit", &m_commit)?;
-            let [beta, delta, epsilon]: [P::ScalarField; 3] = transcript
-                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 3)?
+            let [alpha, beta, delta, epsilon]: [P::ScalarField; 4] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta delta epsilon", 4)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
@@ -280,17 +280,17 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
             gkr_p_polys.push(prepped_items.p_poly);
             gkr_q_polys.push(prepped_items.q_poly);
-            (Some(m_poly), Some(m_commit), [beta, delta, epsilon])
+            (Some(m_poly), Some(m_commit), [alpha, beta, delta, epsilon])
         } else {
-            let [beta, delta, epsilon]: [P::ScalarField; 3] = transcript
-                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 3)?
+            let [alpha, beta, delta, epsilon]: [P::ScalarField; 4] = transcript
+                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 4)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
                         "Couldn't convert to fixed length array".to_string(),
                     )
                 })?;
-            (None, None, [beta, delta, epsilon])
+            (None, None, [alpha, beta, delta, epsilon])
         };
         let gkr_proof = batch_prove_gkr::<P, _>(&gkr_p_polys, &gkr_q_polys, &mut transcript)?;
         // Now we have done the GKR proof we run a final zero check on the underlying products of MLEs.
