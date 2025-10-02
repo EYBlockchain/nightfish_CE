@@ -25,6 +25,8 @@ use crate::{
     transcript::{CircuitTranscript, Transcript},
 };
 
+use crate::nightfall::circuit::plonk_partial_verifier::EmulatedMLEChallenges;
+
 /// This struct contains all the challenges for the various protocols used during an [`MLEPlonk`] proof.
 #[derive(Clone, Debug, Default)]
 pub struct MLEProofChallenges<F: PrimeField> {
@@ -150,6 +152,17 @@ where
     let mle_challenges =
         MLEChallengesVar::compute_challenges(circuit, vk, pi_hash, proof_var, &mut transcript)?;
 
+    let mut transcript2 = C::new_transcript(circuit);
+    let mle_challenges2 = EmulatedMLEChallenges::<P::ScalarField>::compute_challenges_vars(
+        circuit,
+        vk,
+        pi_hash,
+        proof_var,
+        &mut transcript2,
+    )?;
+    let gamma = circuit.to_emulated_variable(mle_challenges.gamma)?;
+    assert_eq!(circuit.emulated_witness(&mle_challenges2.gamma)?, circuit.emulated_witness(&gamma)?);
+
     let mle_challenges_field = mle_challenges.to_field(circuit)?;
     // Next we need to know the number of variables the polynomials used in the proof had, this is the same as `proof_var.opening_point_var.len()`.
     let num_vars = proof_var.opening_point_var.len();
@@ -212,6 +225,31 @@ where
             final_sumcheck_challenges_field,
         ))
             .into();
+
+    /*let mle_proof_challenges2: MLEProofChallengesEmulatedVar<P::ScalarField> =
+        MLEProofChallengesEmulatedVar::new(
+            mle_challenges2,
+            gkr_r_challenges
+                .into_iter()
+                .map(|c| circuit.to_emulated_variable(c))
+                .collect::<Result<Vec<EmulatedVariable<P::ScalarField>>, _>>()?,
+            gkr_lambda_challenges
+                .into_iter()
+                .map(|c| circuit.to_emulated_variable(c))
+                .collect::<Result<Vec<EmulatedVariable<P::ScalarField>>, _>>()?,
+            gkr_sumcheck_challenges
+                .into_iter()
+                .map(|v| {
+                    v.into_iter()
+                        .map(|c| circuit.to_emulated_variable(c))
+                        .collect()
+                })
+                .collect::<Result<Vec<Vec<_>>, _>>()?,
+            final_sumcheck_challenges
+                .into_iter()
+                .map(|c| circuit.to_emulated_variable(c))
+                .collect::<Result<Vec<EmulatedVariable<P::ScalarField>>, _>>()?,
+        );*/
 
     Ok((mle_proof_challenges, transcript))
 }
@@ -369,6 +407,154 @@ impl MLEProofChallengesVar {
     }
     /// Getter for the final sumcheck challenges.
     pub fn final_sumcheck_challenges(&self) -> &[Variable] {
+        &self.final_sumcheck_challenges
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MLEProofChallengesEmulatedVar<E: PrimeField> {
+    pub challenges: EmulatedMLEChallenges<E>,
+
+    pub gkr_r_challenges: Vec<EmulatedVariable<E>>,
+
+    pub gkr_lambda_challenges: Vec<EmulatedVariable<E>>,
+
+    pub gkr_sumcheck_challenges: Vec<Vec<EmulatedVariable<E>>>,
+
+    pub final_sumcheck_challenges: Vec<EmulatedVariable<E>>,
+}
+
+impl<E: PrimeField> MLEProofChallengesEmulatedVar<E> {
+    pub fn new(
+        challenges: EmulatedMLEChallenges<E>,
+        gkr_r_challenges: Vec<EmulatedVariable<E>>,
+        gkr_lambda_challenges: Vec<EmulatedVariable<E>>,
+        gkr_sumcheck_challenges: Vec<Vec<EmulatedVariable<E>>>,
+        final_sumcheck_challenges: Vec<EmulatedVariable<E>>,
+    ) -> Self {
+        Self {
+            challenges,
+            gkr_r_challenges,
+            gkr_lambda_challenges,
+            gkr_sumcheck_challenges,
+            final_sumcheck_challenges,
+        }
+    }
+
+    pub fn from_struct<P>(
+        circuit: &mut PlonkCircuit<P::BaseField>,
+        challenges: &MLEProofChallenges<P::ScalarField>,
+    ) -> Result<Self, CircuitError>
+    where
+        P: HasTEForm<ScalarField = E>,
+        P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
+        P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
+    {
+        let mle_challenges =
+            EmulatedMLEChallenges::from_struct::<P>(circuit, &challenges.challenges)?;
+
+        let gkr_r_challenges = challenges
+            .gkr_r_challenges()
+            .iter()
+            .map(|c| circuit.create_emulated_variable(*c))
+            .collect::<Result<Vec<EmulatedVariable<E>>, _>>()?;
+
+        let gkr_lambda_challenges = challenges
+            .gkr_lambda_challenges()
+            .iter()
+            .map(|c| circuit.create_emulated_variable(*c))
+            .collect::<Result<Vec<EmulatedVariable<E>>, _>>()?;
+
+        let gkr_sumcheck_challenges = challenges
+            .gkr_sumcheck_challenges()
+            .iter()
+            .map(|v| {
+                v.iter()
+                    .map(|c| circuit.create_emulated_variable(*c))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<Vec<EmulatedVariable<E>>>, _>>()?;
+
+        let final_sumcheck_challenges = challenges
+            .final_sumcheck_challenges()
+            .iter()
+            .map(|c| circuit.create_emulated_variable(*c))
+            .collect::<Result<Vec<EmulatedVariable<E>>, _>>()?;
+
+        Ok(Self::new(
+            mle_challenges,
+            gkr_r_challenges,
+            gkr_lambda_challenges,
+            gkr_sumcheck_challenges,
+            final_sumcheck_challenges,
+        ))
+    }
+
+    pub fn to_struct<P>(
+        &self,
+        circuit: &mut PlonkCircuit<P::BaseField>,
+    ) -> Result<MLEProofChallenges<P::ScalarField>, CircuitError>
+    where
+        P: HasTEForm<ScalarField = E>,
+        P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
+        P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
+    {
+        let challenges = self.challenges.to_struct::<P>(circuit)?;
+
+        let read_scalar = |v: &EmulatedVariable<E>| circuit.emulated_witness::<P::ScalarField>(v);
+
+        let gkr_r_challenges: Vec<P::ScalarField> = self
+            .gkr_r_challenges
+            .iter()
+            .map(read_scalar)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let gkr_lambda_challenges: Vec<P::ScalarField> = self
+            .gkr_lambda_challenges
+            .iter()
+            .map(read_scalar)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let gkr_sumcheck_challenges: Vec<Vec<P::ScalarField>> = self
+            .gkr_sumcheck_challenges
+            .iter()
+            .map(|row| row.iter().map(read_scalar).collect::<Result<Vec<_>, _>>())
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let final_sumcheck_challenges: Vec<P::ScalarField> = self
+            .final_sumcheck_challenges
+            .iter()
+            .map(read_scalar)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let out = MLEProofChallenges::<P::ScalarField> {
+            challenges,
+            gkr_r_challenges,
+            gkr_lambda_challenges,
+            gkr_sumcheck_challenges,
+            final_sumcheck_challenges,
+        };
+
+        Ok(out)
+    }
+
+    pub fn challenges(&self) -> &EmulatedMLEChallenges<E> {
+        &self.challenges
+    }
+
+    pub fn gkr_r_challenges(&self) -> &[EmulatedVariable<E>] {
+        &self.gkr_r_challenges
+    }
+
+    pub fn gkr_lambda_challenges(&self) -> &[EmulatedVariable<E>] {
+        &self.gkr_lambda_challenges
+    }
+
+    pub fn gkr_sumcheck_challenges(&self) -> &[Vec<EmulatedVariable<E>>] {
+        &self.gkr_sumcheck_challenges
+    }
+
+    pub fn final_sumcheck_challenges(&self) -> &[EmulatedVariable<E>] {
         &self.final_sumcheck_challenges
     }
 }

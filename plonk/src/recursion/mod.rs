@@ -375,7 +375,9 @@ pub trait RecursiveProver {
         #[cfg(test)]
         {
             let pi = circuit.public_input()?;
-            circuit.check_circuit_satisfiability(&pi)?;
+            ark_std::println!("before merge G check satisfiability");
+            circuit.check_circuit_satisfiability(&pi).unwrap();
+            ark_std::println!("after merge G check satisfiability");
             ark_std::println!("merge grumpkin circuit size: {}", circuit.num_gates());
         }
 
@@ -440,7 +442,8 @@ pub trait RecursiveProver {
         #[cfg(test)]
         {
             let pi = circuit.public_input()?;
-            circuit.check_circuit_satisfiability(&pi)?;
+            ark_std::println!("before merge bn254 check satisfiability");
+            circuit.check_circuit_satisfiability(&pi).unwrap();
             ark_std::println!("merge bn254 size: {}", circuit.num_gates());
         }
 
@@ -566,6 +569,7 @@ pub trait RecursiveProver {
             outputs.iter().map(|(o, c)| (o.clone(), c.clone())).unzip();
 
         // === Base Layer ===
+        ark_std::println!("base G layer");
         let base_grumpkin_out = cfg_chunks!(outputs, 2)
             .zip(cfg_chunks!(specific_pi, 2))
             .zip(cfg_chunks!(vks, 2))
@@ -625,6 +629,7 @@ pub trait RecursiveProver {
                     })
             })
             .collect::<Result<Vec<[VerifyingKey<Kzg>; 4]>, PlonkError>>()?;
+        ark_std::println!("base BN254 layer");
         let base_bn254_out = cfg_into_iter!(base_grumpkin_chunks)
             .zip(cfg_into_iter!(vk_chunks))
             .zip(cfg_into_iter!(extra_base_info))
@@ -690,11 +695,13 @@ pub trait RecursiveProver {
 
             let grumpkin_out = cfg_into_iter!(bn254_chunks)
                 .map(|chunk| {
-                    Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+                    ark_std::println!("new merge G circuit");
+                    Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk).unwrap()
                 })
-                .collect::<Result<Vec<_>, _>>()?;
+                .collect::<Vec<_>>();
 
             let grumpkin_circuit = &grumpkin_out[0].0;
+            ark_std::println!("before MLE Plonk preprocess");
             let (new_grumpkin_pk, _) =
                 MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
             merge_grumpkin_pks.push(new_grumpkin_pk.clone());
@@ -721,6 +728,7 @@ pub trait RecursiveProver {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let bn254_circuit = &current_bn254_out[0].0;
+            ark_std::println!("before FFT Plonk preprocess");
             let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit)?;
             merge_bn254_pks.push(new_bn254_pk.clone());
             current_bn254_pk = new_bn254_pk;
@@ -1292,8 +1300,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Only run this test on powerful machines"]
-    #[allow(clippy::type_complexity)]
+    //#[ignore = "Only run this test on powerful machines"]
+    //#[allow(clippy::type_complexity)]
     fn test_preprocess_and_prove() -> Result<(), PlonkError> {
         let now = ark_std::time::Instant::now();
         struct TestProver;
@@ -1555,6 +1563,8 @@ mod tests {
                 .into_iter()
                 .unzip();
 
+        ark_std::println!("before preprocess");
+
         TestProver::preprocess(
             &prove_inputs,
             &hashes,
@@ -1574,6 +1584,8 @@ mod tests {
             &ipa_srs,
             &kzg_srs,
         )?;
+
+        ark_std::println!("after preprocess");
 
         let now = ark_std::time::Instant::now();
         let proof = TestProver::prove(
