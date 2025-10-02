@@ -1611,6 +1611,11 @@ pub fn decider_circuit(
         })
         .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
         )?;
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after output_var formation".to_string(),
+        ));
+    }
     let output_scalar_vars: [ProofScalarsVarNative; 4] = output_var_pairs
         .clone()
         .into_iter()
@@ -1648,6 +1653,12 @@ pub fn decider_circuit(
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after calculate_recursion_scalars".to_string(),
+        ));
+    }
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
 
@@ -1662,6 +1673,12 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after impl_specific_pi formation".to_string(),
+        ));
+    }
 
     let mut bn254_acc_vars = vec![];
 
@@ -1841,7 +1858,18 @@ pub fn decider_circuit(
             let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
             let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
 
-            circuit.enforce_equal(pi_native, pi_hash)
+            ark_std::println!("expected pi_hash {:?}", output.pi_hash);
+            ark_std::println!("calc pi_hash {:?}", circuit.witness(pi_hash)?);
+
+            circuit.enforce_equal(pi_native, pi_hash)?;
+
+            if circuit.check_circuit_satisfiability(&[]).is_err() {
+                return Err(PlonkError::InvalidParameters(
+                    "Circuit is not satisfiable after enforcing hash equality".to_string(),
+                ));
+            }
+
+            Ok(())
         },
     )?;
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
