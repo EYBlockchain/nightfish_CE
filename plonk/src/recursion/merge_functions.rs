@@ -1877,6 +1877,13 @@ pub fn decider_circuit(
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after performing accumulation".to_string(),
+        ));
+    }
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
@@ -1884,17 +1891,35 @@ pub fn decider_circuit(
         circuit,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after emulated_combine_mle_proof_scalars".to_string(),
+        ));
+    }
+
     // Create the variables for the commitments in the two proofs
     let proof_one =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
     let proof_two =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after from_struct".to_string(),
+        ));
+    }
+
     let acc_comms = grumpkin_info
         .old_accumulators
         .iter()
         .map(|acc| circuit.create_point_variable(&Point::<Fr254>::from(acc.comm)))
         .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after acc_comms formation".to_string(),
+        ));
+    }
 
     // We have already checked that lookup is supported so the following unwrap is safe.
     let lookup_vk = pk_grumpkin
@@ -1912,6 +1937,12 @@ pub fn decider_circuit(
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_dom_sep_comm))?;
     let q_lookup_comm =
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after create_constant_point_variable".to_string(),
+        ));
+    }
 
     let lookup_bases = &[
         range_table_comm,
@@ -1939,11 +1970,23 @@ pub fn decider_circuit(
         &msm_scalars,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after msm".to_string(),
+        ));
+    }
+
     let (opening_proof, _) = Zmorph::open(
         &pk_grumpkin.pcs_prover_params,
         &split_acc_info.new_accumulator().poly,
         &split_acc_info.new_accumulator().point,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after zeromorph::open".to_string(),
+        ));
+    }
 
     let point = split_acc_info
         .new_accumulator()
@@ -1951,6 +1994,12 @@ pub fn decider_circuit(
         .iter()
         .map(|p| circuit.create_emulated_variable(*p))
         .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after create_emulated_variable".to_string(),
+        ));
+    }
 
     let impl_spec_pi = grumpkin_info
         .specific_pi
@@ -1963,6 +2012,12 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit is not satisfiable after create_variable".to_string(),
+        ));
+    }
 
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
     let specific_pi = specific_pi_fn(

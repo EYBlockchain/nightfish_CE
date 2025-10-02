@@ -387,8 +387,8 @@ impl<F: PrimeField> MLEChallenges<F> {
         // We know that the commitments we are using will always be points on an SW curve.
         // We append wire commitments here.
         transcript.append_curve_points(b"wires", &proof.wire_commitments)?;
-        let [gamma, alpha, tau]: [F; 3] = transcript
-            .squeeze_scalar_challenges::<P>(b"gamma alpha tau", 3)?
+        let [gamma, tau]: [F; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"gamma tau", 2)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
@@ -398,8 +398,8 @@ impl<F: PrimeField> MLEChallenges<F> {
             transcript.append_curve_point(b"m_poly_comm", &lookup_proof.m_poly_comm)?;
         }
 
-        let [beta, delta, epsilon]: [F; 3] = transcript
-            .squeeze_scalar_challenges::<P>(b"beta, delta epsilon", 3)?
+        let [alpha, beta, delta, epsilon]: [F; 4] = transcript
+            .squeeze_scalar_challenges::<P>(b"alpha beta delta epsilon", 4)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
