@@ -1100,6 +1100,9 @@ impl<PCS: PolynomialCommitmentScheme> MLELookupProofVar<PCS> {
     {
         let m_poly_comm_point = Point::<P::BaseField>::from(proof.m_poly_comm);
         let m_poly_comm_var = circuit.create_point_variable(&m_poly_comm_point)?;
+        circuit.enforce_on_curve::<P>(&m_poly_comm_var)?;
+        let is_neutral = circuit.is_neutral_point::<P>(&m_poly_comm_var)?;
+        circuit.enforce_false(is_neutral.into())?;
 
         let poly_evals_var =
             MLELookupEvaluationsVar::<PCS::Evaluation>::from_struct(circuit, &proof.lookup_evals)?;
@@ -1259,6 +1262,9 @@ where
         for wire_commitment in proof.wire_commitments.iter() {
             let comm_point = Point::<P::BaseField>::from(*wire_commitment);
             let comm_var = circuit.create_point_variable(&comm_point)?;
+            circuit.enforce_on_curve::<P>(&comm_var)?;
+            let is_neutral = circuit.is_neutral_point::<P>(&comm_var)?;
+            circuit.enforce_false(is_neutral.into())?;
             wire_commitments_var.push(comm_var);
         }
 
