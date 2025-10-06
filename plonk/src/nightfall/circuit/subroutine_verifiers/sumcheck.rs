@@ -355,8 +355,7 @@ where
             let r_alpha_eval_var =
                 self.evaluate_emulated_poly_oracle::<P>(&proof.oracles_var[i], &challenge)?;
 
-            let r_alpha_eval_times_alpha_var =
-                self.emulated_mul(&r_alpha_eval_var, &proof.point_var[i])?;
+            let r_alpha_eval_times_alpha_var = self.emulated_mul(&r_alpha_eval_var, &challenge)?;
             let tmp1 = self.emulated_mul(&challenge, &r_alpha_eval_times_alpha_var)?;
             let eval_var_1 = self.emulated_sub(&r_alpha_eval_times_alpha_var, &tmp1)?;
 
@@ -395,8 +394,7 @@ where
             let r_alpha_eval_var =
                 self.evaluate_poly_oracle(&sum_check_proof_var.oracles_var[i], &challenge)?;
 
-            let r_alpha_eval_times_alpha_var =
-                self.mul(r_alpha_eval_var, sum_check_proof_var.point_var[i])?;
+            let r_alpha_eval_times_alpha_var = self.mul(r_alpha_eval_var, challenge)?;
             let eval_var_1 = self.mul_add(
                 &[
                     self.one(),
