@@ -23,19 +23,19 @@ use super::{
 };
 
 /// Struct that represents a GKRProof in a circuit where the scalars used are all in the correct field.
-pub struct GKRProofVar {
+pub struct GKRProofVar<F: PrimeField> {
     /// The SumCheck proof variables.
-    pub sumcheck_proof_vars: Vec<SumCheckProofVar>,
+    pub sumcheck_proof_vars: Vec<SumCheckProofVar<F>>,
     /// The output evaluations of the polynomials after each round.
     pub evals: Vec<Vec<Variable>>,
     /// The final challenge point
     pub challenges: Vec<Variable>,
 }
 
-impl GKRProofVar {
+impl<F: PrimeField + RescueParameter> GKRProofVar<F> {
     /// Construct a new GKRProofVar instance.
     pub fn new(
-        sumcheck_proof_vars: Vec<SumCheckProofVar>,
+        sumcheck_proof_vars: Vec<SumCheckProofVar<F>>,
         evals: Vec<Vec<Variable>>,
         challenges: Vec<Variable>,
     ) -> Self {
@@ -47,10 +47,10 @@ impl GKRProofVar {
     }
 
     /// Construct a new [`GKRProofVar`] instance from a [`GKRProof`].
-    pub fn from_struct<F: PrimeField + RescueParameter>(
+    pub fn from_struct(
         proof: &GKRProof<F>,
         circuit: &mut PlonkCircuit<F>,
-    ) -> Result<GKRProofVar, CircuitError> {
+    ) -> Result<GKRProofVar<F>, CircuitError> {
         let sumcheck_proof_vars = proof
             .sumcheck_proofs
             .iter()
@@ -80,13 +80,13 @@ impl GKRProofVar {
     }
 
     /// Getter for the sumcheck_proof_vars variable.
-    pub fn sumcheck_proofs(&self) -> &[SumCheckProofVar] {
+    pub fn sumcheck_proofs(&self) -> &[SumCheckProofVar<F>] {
         &self.sumcheck_proof_vars
     }
 
     /// Runs the verify procedure on a [`GKRProofVar`] struct without calculating any challenges.
     /// The output of this function is the evaluation returned by the deferred check, we assume lambda has been calculated elsewhere.
-    pub fn verify_gkr_proof_with_challenges<F>(
+    pub fn verify_gkr_proof_with_challenges(
         &self,
         circuit: &mut PlonkCircuit<F>,
         lambdas: &[Variable],
