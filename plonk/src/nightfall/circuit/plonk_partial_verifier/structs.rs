@@ -1289,22 +1289,22 @@ where
 }
 
 /// Used to represent a [`SAMLEProof`] over a native circuit (so no [`PointVariable`]s).
-pub struct SAMLEProofNative {
+pub struct SAMLEProofNative<F: PrimeField> {
     /// The native GKR proof.
-    pub gkr_proof: GKRProofVar,
+    pub gkr_proof: GKRProofVar<F>,
     /// The native SumCheck proof.
-    pub sumcheck_proof: SumCheckProofVar,
+    pub sumcheck_proof: SumCheckProofVar<F>,
     /// The polynomial evaluations.
     pub poly_evals: MLEProofEvalsNativeVar,
     /// The native lookup proof (if lookup is used).
     pub lookup_proof: Option<MLELookupProofNative>,
 }
 
-impl SAMLEProofNative {
+impl<F: PrimeField> SAMLEProofNative<F> {
     /// Create a new instance of [`SAMLEProofNative`].
     pub fn new(
-        gkr_proof: GKRProofVar,
-        sumcheck_proof: SumCheckProofVar,
+        gkr_proof: GKRProofVar<F>,
+        sumcheck_proof: SumCheckProofVar<F>,
         poly_evals: MLEProofEvalsNativeVar,
         lookup_proof: Option<MLELookupProofNative>,
     ) -> Self {
@@ -1322,7 +1322,7 @@ impl SAMLEProofNative {
         proof: &SAMLEProof<PCS>,
     ) -> Result<Self, CircuitError>
     where
-        PCS: Accumulation,
+        PCS: Accumulation<Evaluation = F>,
         PCS::Evaluation: PrimeField + RescueParameter,
     {
         let gkr_proof = GKRProofVar::from_struct(&proof.gkr_proof, circuit)?;
@@ -1341,11 +1341,11 @@ impl SAMLEProofNative {
     }
 
     /// Getter for the GKR proof.
-    pub fn gkr_proof(&self) -> &GKRProofVar {
+    pub fn gkr_proof(&self) -> &GKRProofVar<F> {
         &self.gkr_proof
     }
     /// Getter for the SumCheck proof.
-    pub fn sumcheck_proof(&self) -> &SumCheckProofVar {
+    pub fn sumcheck_proof(&self) -> &SumCheckProofVar<F> {
         &self.sumcheck_proof
     }
     /// Getter for the polynomial evaluations.

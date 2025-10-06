@@ -23,12 +23,12 @@ pub trait SumCheckGadget<F: PrimeField + RescueParameter> {
     fn poly_oracle_to_var(
         &mut self,
         poly_oracle: &PolyOracle<F>,
-    ) -> Result<PolyOracleVar, CircuitError>;
+    ) -> Result<PolyOracleVar<F>, CircuitError>;
     /// Circuit to evaluate a polynomial oracle at a given point,
     /// returns the variable of the evaluation.
     fn evaluate_poly_oracle(
         &mut self,
-        poly_oracle_var: &PolyOracleVar,
+        poly_oracle_var: &PolyOracleVar<F>,
         point_var: &Variable,
     ) -> Result<Variable, CircuitError>;
     /// Takes in a sum check proof,
@@ -36,12 +36,12 @@ pub trait SumCheckGadget<F: PrimeField + RescueParameter> {
     fn sum_check_proof_to_var(
         &mut self,
         sum_check_proof: &SumCheckProof<F, PolyOracle<F>>,
-    ) -> Result<SumCheckProofVar, CircuitError>;
+    ) -> Result<SumCheckProofVar<F>, CircuitError>;
     /// Circuit to verify a sum check proof,
     /// returns the variable of the final evaluation of the SumCheck at `point`.
     fn verify_sum_check<P, C>(
         &mut self,
-        sum_check_proof_var: &SumCheckProofVar,
+        sum_check_proof_var: &SumCheckProofVar<F>,
         transcript: &mut C,
     ) -> Result<Variable, CircuitError>
     where
@@ -53,7 +53,7 @@ pub trait SumCheckGadget<F: PrimeField + RescueParameter> {
     /// returns the variable of the final evaluation of the SumCheck at `point`.
     fn verify_sum_check_with_challenges(
         &mut self,
-        sum_check_proof_var: &SumCheckProofVar,
+        sum_check_proof_var: &SumCheckProofVar<F>,
     ) -> Result<Variable, CircuitError>;
 
     /// Creates a [`EmulatedSumCheckProofVar`] from a [`SumCheckProof`]. Used to fully verify the proof in one circuit.
@@ -140,25 +140,21 @@ where
     fn poly_oracle_to_var(
         &mut self,
         poly_oracle: &PolyOracle<F>,
-    ) -> Result<PolyOracleVar, CircuitError> {
+    ) -> Result<PolyOracleVar<F>, CircuitError> {
         let mut poly_oracle_evaluations_var: Vec<Variable> = Vec::new();
         for eval in poly_oracle.evaluations.iter() {
             poly_oracle_evaluations_var.push(self.create_variable(*eval)?);
         }
-        let mut poly_oracle_weights_var: Vec<Variable> = Vec::new();
-        for weight in poly_oracle.weights.iter() {
-            poly_oracle_weights_var.push(self.create_variable(*weight)?);
-        }
 
         Ok(PolyOracleVar {
             evaluations_var: poly_oracle_evaluations_var,
-            weights_var: poly_oracle_weights_var,
+            weights: poly_oracle.weights.clone(),
         })
     }
 
     fn evaluate_poly_oracle(
         &mut self,
-        poly_oracle_var: &PolyOracleVar,
+        poly_oracle_var: &PolyOracleVar<F>,
         point_var: &Variable,
     ) -> Result<Variable, CircuitError> {
         let degree = poly_oracle_var.evaluations_var.len() - 1;
@@ -181,7 +177,7 @@ where
                 ],
                 &[F::one(), -F::from(i as u64 + 2)],
             )?;
-            products_var.push(self.mul(x_minus_i_inv_var, poly_oracle_var.weights_var[i])?);
+            products_var.push(self.mul_constant(x_minus_i_inv_var, &poly_oracle_var.weights[i])?);
         }
 
         // numerator
@@ -229,9 +225,9 @@ where
     fn sum_check_proof_to_var(
         &mut self,
         sum_check_proof: &SumCheckProof<F, PolyOracle<F>>,
-    ) -> Result<SumCheckProofVar, CircuitError> {
+    ) -> Result<SumCheckProofVar<F>, CircuitError> {
         let eval_var = self.create_variable(sum_check_proof.eval)?;
-        let mut oracles_var: Vec<PolyOracleVar> = Vec::new();
+        let mut oracles_var: Vec<PolyOracleVar<F>> = Vec::new();
         for oracle in sum_check_proof.oracles.iter() {
             oracles_var.push(self.poly_oracle_to_var(oracle)?);
         }
@@ -303,7 +299,7 @@ where
             let x_minus_i_inv_var = self.create_emulated_variable(x_minus_i_inv)?;
             self.emulated_mul_gate(&x_minus_i_var, &x_minus_i_inv_var, &self.emulated_one())?;
             products_var
-                .push(self.emulated_mul(&x_minus_i_inv_var, &poly_oracle_var.weights_var[i])?);
+                .push(self.emulated_mul_constant(&x_minus_i_inv_var, poly_oracle_var.weights[i])?);
         }
 
         // numerator
@@ -373,7 +369,7 @@ where
     /// This function verifies Sumcheck over a native field, it is mostly for completeness.
     fn verify_sum_check<P, C>(
         &mut self,
-        sum_check_proof_var: &SumCheckProofVar,
+        sum_check_proof_var: &SumCheckProofVar<F>,
         transcript: &mut C,
     ) -> Result<Variable, CircuitError>
     where
@@ -434,7 +430,7 @@ where
 
     fn verify_sum_check_with_challenges(
         &mut self,
-        sum_check_proof_var: &SumCheckProofVar,
+        sum_check_proof_var: &SumCheckProofVar<F>,
     ) -> Result<Variable, CircuitError> {
         let mut eval_var = sum_check_proof_var.eval_var;
         let challenges = &sum_check_proof_var.point_var;
@@ -489,14 +485,10 @@ where
         for eval in poly_oracle.evaluations.iter() {
             poly_oracle_evaluations_var.push(self.create_emulated_variable(*eval)?);
         }
-        let mut poly_oracle_weights_var: Vec<EmulatedVariable<E>> = Vec::new();
-        for weight in poly_oracle.weights.iter() {
-            poly_oracle_weights_var.push(self.create_emulated_variable(*weight)?);
-        }
 
         Ok(EmulatedPolyOracleVar {
             evaluations_var: poly_oracle_evaluations_var,
-            weights_var: poly_oracle_weights_var,
+            weights: poly_oracle.weights.clone(),
         })
     }
 

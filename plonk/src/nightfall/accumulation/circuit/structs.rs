@@ -354,7 +354,7 @@ impl<E: SWCurveConfig> UVSplitProofVar<E> {
 }
 
 /// Type that represent the variable version of a multilinear split-accumulation proof.
-pub type MVSplitProofVar = SumCheckProofVar;
+pub type MVSplitProofVar<F> = SumCheckProofVar<F>;
 
 /// Struct used to store the challenges and scalars generated during the atomic
 /// accumulation process as variables.
