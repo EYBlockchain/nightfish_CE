@@ -415,6 +415,72 @@ impl<F: PrimeField> PlonkCircuit<F> {
         }
     }
 
+    /// Return a BoolVar that is 1 iff `point` is the neutral element
+    pub fn is_emulated_neutral_point<P, E>(
+        &mut self,
+        point: &EmulatedPointVariable<E>,
+    ) -> Result<BoolVar, CircuitError>
+    where
+        P: HasTEForm<BaseField = E, ScalarField = F>,
+        E: EmulationConfig<F> + PrimeField,
+    {
+        match point {
+            EmulatedPointVariable::TE(x, y) | EmulatedPointVariable::SW(x, y) => {
+                let zero = self.emulated_zero::<E>();
+                let one = self.emulated_one::<E>();
+
+                let is_x_zero = self.is_emulated_var_equal::<E>(x, &zero)?;
+                let is_y_one = self.is_emulated_var_equal::<E>(y, &one)?;
+                self.logic_and(is_x_zero, is_y_one)
+            },
+        }
+    }
+
+    /// Constrains the given emulated point variable to be on the curve in SW form.
+    pub fn enforce_emulated_on_curve_sw<P, E>(
+        &mut self,
+        p: &EmulatedPointVariable<E>,
+    ) -> Result<(), CircuitError>
+    where
+        P: HasTEForm<BaseField = E, ScalarField = F>,
+        E: EmulationConfig<F> + PrimeField,
+    {
+        let (x, y) = match p {
+            EmulatedPointVariable::SW(x, y) => (x, y),
+            EmulatedPointVariable::TE(..) => {
+                return Err(CircuitError::ParameterError(
+                    "expected SW point, got TE".to_string(),
+                ))
+            },
+        };
+
+        // y^2 ?= x^3 + a*x + b
+        let x2 = self.emulated_mul::<E>(x, x)?;
+        let x3 = self.emulated_mul::<E>(&x2, x)?;
+        let ax = self.emulated_mul_constant::<E>(x, P::COEFF_A)?;
+        let rhs = self.emulated_add::<E>(&x3, &ax)?;
+        let rhs = self.emulated_add_constant::<E>(&rhs, P::COEFF_B)?;
+        let y2 = self.emulated_mul::<E>(y, y)?;
+
+        self.enforce_emulated_var_equal::<E>(&y2, &rhs)
+    }
+
+    /// Constrains the given emulated point variable to be on the curve.
+    /// Twisted Edwards form is not supported.
+    pub fn enforce_emulated_on_curve<P, E>(
+        &mut self,
+        p: &EmulatedPointVariable<E>,
+    ) -> Result<(), CircuitError>
+    where
+        P: HasTEForm<BaseField = E, ScalarField = F>,
+        E: EmulationConfig<F> + PrimeField,
+    {
+        match p {
+            EmulatedPointVariable::SW(..) => self.enforce_emulated_on_curve_sw::<P, E>(p),
+            EmulatedPointVariable::TE(..) => unimplemented!(), // We use the BN254 and Grumpkin curves for which has_te_form() is false
+        }
+    }
+
     /// Obtain a point variable of the conditional selection from 4 point
     /// candidates, (b0, b1) are two boolean variables indicating the choice
     /// P_b0+2b1 where P0 = (0, 1) the neutral point, P1, P2, P3 are input
@@ -1652,16 +1718,16 @@ mod test {
         twisted_edwards::{Affine, Projective, TECurveConfig as Config},
         Group,
     };
-    use ark_ed_on_bls12_377::{EdwardsConfig as Param377, Fq as FqEd377};
+    use ark_ed_on_bls12_377::{EdwardsConfig as Param377, Fq as FqEd377, Fr};
     use ark_ed_on_bls12_381::{EdwardsConfig as Param381, Fq as FqEd381};
     use ark_ed_on_bls12_381_bandersnatch::EdwardsConfig;
     use ark_ff::{One, UniformRand, Zero};
     use ark_std::str::FromStr;
-    use jf_utils::{field_switching, fr_to_fq};
+    use jf_utils::{field_switching, fr_to_fq, test_rng};
     use nf_curves::{
         ed_on_bls_12_381_bandersnatch::{EdwardsConfig as Param381b, Fq as FqEd381b},
         ed_on_bn254::{BabyJubjub, Fq as FqEd254},
-        grumpkin::short_weierstrass::SWGrumpkin,
+        grumpkin::{self, short_weierstrass::SWGrumpkin},
     };
 
     #[test]
@@ -1741,6 +1807,71 @@ mod test {
         circuit.is_neutral_point::<P>(&p)?;
         circuit.finalize_for_arithmetization()?;
         Ok(circuit)
+    }
+
+    #[test]
+    fn test_is_emulated_neutral() -> Result<(), CircuitError> {
+        test_is_emulated_neutral_helper::<FqGrump, _, SWGrumpkin>()?;
+        test_is_emulated_neutral_helper::<_, FqGrump, ark_bn254::g1::Config>()?;
+
+        Ok(())
+    }
+
+    fn test_is_emulated_neutral_helper<E, F, P>() -> Result<(), CircuitError>
+    where
+        E: EmulationConfig<F>,
+        F: PrimeField,
+        P: HasTEForm<BaseField = E, ScalarField = F>,
+    {
+        let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
+
+        let p_neutral = SWAffine::<P>::zero().into();
+        let p_other = SWAffine::<P>::rand(&mut ark_std::test_rng()).into();
+
+        let v1 = circuit.create_emulated_point_variable(&p_neutral)?;
+        let v2 = circuit.create_emulated_point_variable(&p_other)?;
+
+        let b1 = circuit.is_emulated_neutral_point::<P, E>(&v1)?;
+        let b2 = circuit.is_emulated_neutral_point::<P, E>(&v2)?;
+
+        assert_eq!(circuit.witness(b1.into())?, F::one());
+        assert_eq!(circuit.witness(b2.into())?, F::zero());
+        assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
+        Ok(())
+    }
+
+    fn test_enforce_emulated_on_curve_helper<E, F, P>() -> Result<(), CircuitError>
+    where
+        E: EmulationConfig<F> + PrimeField,
+        F: PrimeField,
+        P: HasTEForm<BaseField = E, ScalarField = F>,
+    {
+        let mut circuit_ok: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
+
+        let p_on = SWAffine::<P>::rand(&mut test_rng());
+
+        let v_on = circuit_ok.create_emulated_point_variable(&p_on.into())?;
+        circuit_ok.enforce_emulated_on_curve::<P, E>(&v_on)?;
+        assert!(circuit_ok.check_circuit_satisfiability(&[]).is_ok());
+
+        let mut circuit_bad: PlonkCircuit<F> = PlonkCircuit::new_turbo_plonk();
+
+        let (x, y) = (p_on.x, p_on.y);
+        let bad_y = y + E::one();
+
+        let bad_point = Point::SW(x, bad_y);
+        let v_bad = circuit_bad.create_emulated_point_variable(&bad_point)?;
+
+        circuit_bad.enforce_emulated_on_curve::<P, E>(&v_bad)?;
+        assert!(circuit_bad.check_circuit_satisfiability(&[]).is_err());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_enforce_emulated_on_curve() -> Result<(), CircuitError> {
+        test_enforce_emulated_on_curve_helper::<FqGrump, _, SWGrumpkin>()?;
+        test_enforce_emulated_on_curve_helper::<_, FqGrump, ark_bn254::g1::Config>()
     }
 
     macro_rules! test_enforce_on_curve {
