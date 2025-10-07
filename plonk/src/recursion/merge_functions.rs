@@ -1629,6 +1629,10 @@ pub fn decider_circuit(
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after proof var formation");
+    }
+
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     let recursion_scalars = izip!(
         output_scalar_vars.chunks_exact(2),
@@ -1648,8 +1652,16 @@ pub fn decider_circuit(
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after calculate_recursion_scalars");
+    }
+
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after vk_var formation");
+    }
 
     // Now we make variables for the specific pi as we will have to use these in the following for loop and later on.
     let impl_specific_pi = grumpkin_info
@@ -1662,6 +1674,10 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after create specific variables");
+    }
 
     let mut bn254_acc_vars = vec![];
 
@@ -1844,11 +1860,21 @@ pub fn decider_circuit(
             circuit.enforce_equal(pi_native, pi_hash)
         },
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after hash reformation");
+    }
+
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after perform_accumulation");
+    }
+
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
@@ -1856,17 +1882,29 @@ pub fn decider_circuit(
         circuit,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after emulated_combine_mle_proof_scalars");
+    }
+
     // Create the variables for the commitments in the two proofs
     let proof_one =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
     let proof_two =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after from_struct");
+    }
+
     let acc_comms = grumpkin_info
         .old_accumulators
         .iter()
         .map(|acc| circuit.create_point_variable(&Point::<Fr254>::from(acc.comm)))
         .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after acc_comms formation");
+    }
 
     // We have already checked that lookup is supported so the following unwrap is safe.
     let lookup_vk = pk_grumpkin
@@ -1884,6 +1922,10 @@ pub fn decider_circuit(
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_dom_sep_comm))?;
     let q_lookup_comm =
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after constant lookup");
+    }
 
     let lookup_bases = &[
         range_table_comm,
@@ -1911,11 +1953,19 @@ pub fn decider_circuit(
         &msm_scalars,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after msm");
+    }
+
     let (opening_proof, _) = Zmorph::open(
         &pk_grumpkin.pcs_prover_params,
         &split_acc_info.new_accumulator().poly,
         &split_acc_info.new_accumulator().point,
     )?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after zeromorph opening");
+    }
 
     let point = split_acc_info
         .new_accumulator()
@@ -1923,6 +1973,10 @@ pub fn decider_circuit(
         .iter()
         .map(|p| circuit.create_emulated_variable(*p))
         .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after create_emulated_variable");
+    }
 
     let impl_spec_pi = grumpkin_info
         .specific_pi
@@ -1935,6 +1989,10 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after extra_checks");
+    }
 
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
     let specific_pi = specific_pi_fn(
@@ -1953,15 +2011,27 @@ pub fn decider_circuit(
         opening_proof,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after verify_zeromorph");
+    }
+
     // Now to make on chain verification easier we perform a Keccak hash of the specific pi with forwarded accumulators and set it as the public input
     let field_pi_out = specific_pi
         .iter()
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after witnessing specific pi");
+    }
+
     let (_, sha_hash) = circuit
         .full_shifted_sha256_hash(&[specific_pi, bn254_acc_vars].concat(), &mut lookup_vars)?;
     circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit not satisfied after sha256");
+    }
 
     circuit.set_variable_public(sha_hash)?;
     Ok(field_pi_out)
