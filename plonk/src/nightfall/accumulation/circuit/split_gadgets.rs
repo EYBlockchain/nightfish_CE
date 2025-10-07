@@ -73,7 +73,7 @@ where
         t: &[Variable],
         old_instances: &[PCSInstanceVar],
         poly_coeffs: &[Variable],
-        proof: &MVSplitProofVar,
+        proof: &MVSplitProofVar<E::BaseField>,
     ) -> Result<(), CircuitError>;
 }
 
@@ -313,7 +313,7 @@ where
         t: &[Variable],
         old_instances: &[PCSInstanceVar],
         poly_coeffs: &[Variable],
-        proof: &MVSplitProofVar,
+        proof: &MVSplitProofVar<E::BaseField>,
     ) -> Result<(), CircuitError> {
         let l = old_instances.len().next_power_of_two().ilog2() as usize;
         let eval =

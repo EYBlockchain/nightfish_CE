@@ -523,7 +523,19 @@ where
         transcript.push_message(b"eval", &proof.eval)?;
 
         for (oracle, r_0_eval) in proof.oracles.iter().zip(proof.r_0_evals.iter()) {
-            verifier_state.verify_sumcheck_round(oracle, *r_0_eval, transcript)?;
+            let size = oracle.evaluations.len();
+            // note that any affine transformation of the points does not change the result of the barycentric formula
+            // however nonlinear transformations do change the result of the barycentric formula
+            // the points are fixed (not chosen by the prover), so there is no need to include them in the transcript
+            let points = (0..size)
+                .map(|i| P::ScalarField::from(i as u64 + 2))
+                .collect::<Vec<_>>();
+            let weights = compute_barycentric_weights(&points)?;
+            let oracle = PolyOracle::<P::ScalarField> {
+                evaluations: oracle.evaluations.clone(),
+                weights,
+            };
+            verifier_state.verify_sumcheck_round(&oracle, *r_0_eval, transcript)?;
         }
 
         let deferred_check =

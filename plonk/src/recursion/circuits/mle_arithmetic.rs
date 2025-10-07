@@ -388,7 +388,7 @@ pub(crate) type MLEProofMSMScalars = (Vec<Variable>, Variable);
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn verify_mleplonk_scalar_arithmetic<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
-    proof: &SAMLEProofNative,
+    proof: &SAMLEProofNative<F>,
     challenges: &MLEChallengesVar,
     lambdas: &[Variable],
     r_challenges: &[Variable],
@@ -455,7 +455,7 @@ pub fn verify_split_accumulation<F: RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
     merged_proof_evals: &[Variable],
     old_acc_evals: &[Variable],
-    sumcheck_proof: &SumCheckProofVar,
+    sumcheck_proof: &SumCheckProofVar<F>,
     eval_points: &[&[Variable]],
     batching_scalar: Variable,
 ) -> Result<ScalarsAndEval, CircuitError> {
