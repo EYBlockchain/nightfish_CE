@@ -525,7 +525,8 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_arithmetization()?;
 
-        if circuit.check_circuit_satisfiability(&pi_out).is_err() {
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
             ark_std::println!("Decider circuit is not satisfiable");
         }
 
