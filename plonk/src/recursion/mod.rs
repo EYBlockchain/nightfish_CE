@@ -173,6 +173,11 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            ark_std::println!("Base grumpkin circuit is not satisfiable");
+        }
+
         #[cfg(test)]
         {
             let pi = circuit.public_input()?;
@@ -302,6 +307,11 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            ark_std::println!("Base bn254 circuit is not satisfiable");
+        }
+
         // Run the following code only when testing
         #[cfg(test)]
         {
@@ -371,6 +381,11 @@ pub trait RecursiveProver {
 
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
 
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            ark_std::println!("Merge grumpkin circuit is not satisfiable");
+        }
+
         // Run the following code only when testing
         #[cfg(test)]
         {
@@ -435,6 +450,11 @@ pub trait RecursiveProver {
         )?;
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            ark_std::println!("Merge bn254 circuit is not satisfiable");
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -504,6 +524,10 @@ pub trait RecursiveProver {
         }
 
         circuit.finalize_for_arithmetization()?;
+
+        if circuit.check_circuit_satisfiability(&pi_out).is_err() {
+            ark_std::println!("Decider circuit is not satisfiable");
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
