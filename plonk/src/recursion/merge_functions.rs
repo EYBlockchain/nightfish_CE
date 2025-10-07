@@ -1132,8 +1132,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .bn254_outputs
         .iter()
         .map(|output| {
-            let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
             let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
+            let pi_hash = circuit.create_variable(output.pi_hash)?;
+            let proof_evals = ProofScalarsVarNative::from_struct(&proof, pi_hash)?;
             Ok((proof_evals, proof))
         })
         .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
@@ -1270,10 +1271,15 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     let mut bn254_acc_vars = Vec::<Variable>::new();
     let mut pi_hash_vars = Vec::<Variable>::new();
 
+    let bn254_pi_hashes = output_scalar_vars
+        .iter()
+        .map(|scalar_vars| scalar_vars.pi_hash)
+        .collect::<Vec<Variable>>();
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
         izip!(
-            grumpkin_info.bn254_outputs.chunks_exact(2),
+            bn254_pi_hashes.chunks_exact(2),
             grumpkin_info.grumpkin_outputs.iter(),
             impl_specific_pi.iter(),
             grumpkin_info.forwarded_acumulators.iter(),
@@ -1284,7 +1290,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         )
         .map(
             |(
-                bn254_outputs,
+                bn254_pi_hashes,
                 output,
                 impl_pi,
                 bn254_accumulator,
@@ -1412,11 +1418,6 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 .collect::<Vec<Variable>>();
 
                 bn254_acc_vars.extend_from_slice(&bn254_acc);
-
-                let bn254_pi_hashes = bn254_outputs
-                    .iter()
-                    .map(|bn| circuit.create_variable(bn.pi_hash))
-                    .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
                 let bn_pi_hashes_prepped = bn254_pi_hashes
                     .iter()
@@ -1605,8 +1606,9 @@ pub fn decider_circuit(
         .bn254_outputs
         .iter()
         .map(|output| {
-            let proof_evals = ProofScalarsVarNative::from_struct(output, circuit)?;
             let proof = ProofVarNative::from_struct(&output.proof, circuit)?;
+            let pi_hash = circuit.create_variable(output.pi_hash)?;
+            let proof_evals = ProofScalarsVarNative::from_struct(&proof, pi_hash)?;
             Ok((proof_evals, proof))
         })
         .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>(
@@ -1665,25 +1667,30 @@ pub fn decider_circuit(
 
     let mut bn254_acc_vars = vec![];
 
+    let bn254_pi_hashes = output_scalar_vars
+        .iter()
+        .map(|o| o.pi_hash)
+        .collect::<Vec<Variable>>();
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
-        grumpkin_info.bn254_outputs.chunks_exact(2),
         grumpkin_info.grumpkin_outputs.iter(),
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
         grumpkin_info.old_accumulators.chunks_exact(2),
         recursion_scalars.iter(),
         output_base_vars.chunks_exact(2),
+        bn254_pi_hashes.chunks_exact(2),
     )
     .try_for_each(
         |(
-            bn254_outputs,
             output,
             impl_pi,
             bn254_accumulator,
             grumpkin_accumulators,
             recursion_scalars,
             bn254_proofs,
+            bn254_pi_hashes,
         )| {
             let recursion_scalars_prepped = recursion_scalars
                 .iter()
@@ -1788,11 +1795,6 @@ pub fn decider_circuit(
             .collect::<Vec<Variable>>();
 
             bn254_acc_vars.extend_from_slice(&bn254_acc);
-
-            let bn254_pi_hashes = bn254_outputs
-                .iter()
-                .map(|bn| circuit.create_variable(bn.pi_hash))
-                .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
             let bn_pi_hashes_prepped = bn254_pi_hashes
                 .iter()
