@@ -1243,7 +1243,7 @@ where
     <PCS::Commitment as AffineRepr>::Config: HasTEForm,
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
 {
-    /// Create a new [`MLEProofVar`] variable from a reference to a [`MLEProof`].
+    /// Create a new [`SAMLEProofVar`] variable from a reference to a [`SAMLEProof`].
     pub fn from_struct<P>(
         circuit: &mut PlonkCircuit<P::BaseField>,
         proof: &SAMLEProof<PCS>,
