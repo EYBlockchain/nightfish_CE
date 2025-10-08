@@ -26,7 +26,7 @@ use ark_ff::{FftField, Field, PrimeField};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, Polynomial, Radix2EvaluationDomain,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use ark_std::{
     borrow::Borrow,
     end_timer, format,
@@ -46,8 +46,13 @@ use rayon::prelude::*;
 use srs::{UnivariateProverParam, UnivariateUniversalParams, UnivariateVerifierParam};
 
 use super::Accumulation;
+use ark_serialize::Read;
+use ark_serialize::Write;
 
+use crate::pcs::univariate_kzg::ptau_digests::expected_sha256_for_label;
+use log::{error, warn};
 pub mod ptau;
+pub mod ptau_digests;
 pub(crate) mod srs;
 /// KZG Polynomial Commitment Scheme on univariate polynomial.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -449,7 +454,163 @@ fn convert_to_bigints<F: PrimeField>(p: &[F]) -> Vec<F::BigInt> {
 use crate::pcs::univariate_kzg::ptau::parse_ptau_file;
 use ark_bn254::{g1::Config as Bn254ConfigOne, g2::Config as Bn254ConfigTwo, Fq};
 
+const KZG_CACHE_FORMAT_VERSION: u32 = 1; // bump if you change serialization
+
+#[derive(Debug)]
+struct KzgCacheHeader {
+    magic: [u8; 8], // b"KZGSRS\0\0"
+    version: u32,   // cache format version
+    max_degree: u32,
+    curve_id: [u8; 8],     // e.g. b"bn254\0\0\0"
+    ptau_sha256: [u8; 32], // exact PTAU hash used to derive this SRS
+}
+
+impl KzgCacheHeader {
+    fn write_to<W: io::Write>(&self, mut w: W) -> io::Result<()> {
+        w.write_all(&self.magic)?;
+        w.write_all(&self.version.to_le_bytes())?;
+        w.write_all(&self.max_degree.to_le_bytes())?;
+        w.write_all(&self.curve_id)?;
+        w.write_all(&self.ptau_sha256)?;
+        Ok(())
+    }
+
+    fn read_from<R: io::Read>(mut r: R) -> io::Result<Self> {
+        let mut magic = [0u8; 8];
+        r.read_exact(&mut magic)?;
+        let mut v = [0u8; 4];
+        r.read_exact(&mut v)?;
+        let version = u32::from_le_bytes(v);
+        let mut d = [0u8; 4];
+        r.read_exact(&mut d)?;
+        let max_degree = u32::from_le_bytes(d);
+        let mut curve_id = [0u8; 8];
+        r.read_exact(&mut curve_id)?;
+        let mut ptau_sha256 = [0u8; 32];
+        r.read_exact(&mut ptau_sha256)?;
+
+        if &magic != b"KZGSRS\0\0" {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "Bad KZG SRS cache magic",
+            ));
+        }
+        Ok(Self {
+            magic,
+            version,
+            max_degree,
+            curve_id,
+            ptau_sha256,
+        })
+    }
+}
+
+/// Compute SHA-256 (raw bytes + hex) of a file; we bind cache to the exact PTAU.
+fn file_sha256(path: &Path) -> Result<([u8; 32], String), io::Error> {
+    let mut f = fs::File::open(path)?;
+    let mut h = Sha256::new();
+    io::copy(&mut f, &mut h)?;
+    let raw = h.finalize();
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&raw);
+    Ok((arr, hex::encode(raw)))
+}
+
 impl UnivariateKzgPCS<Bn254> {
+    /// Cached version that persists/loads the exact `UnivariateUniversalParams<Bn254>`
+    /// (i.e., {powers_of_g, h, beta_h}) keyed by:
+    ///   - curve = "bn254"
+    ///   - max_degree
+    ///   - SHA-256 of the PTAU used
+    ///   - cache format version
+    ///
+    /// Flow:
+    ///   1) Verify PTAU (you should have done this already before calling).
+    ///   2) Try to load cache; validate header; deserialize params.
+    ///   3) On miss or validation failure, derive via `universal_setup_bn254`,
+    ///      then write cache atomically and return.
+    pub fn universal_setup_bn254_cached(
+        ptau_file: &Path,
+        max_degree: usize,
+        cache_dir: &Path,
+    ) -> Result<UnivariateUniversalParams<Bn254>, PCSError> {
+        // Ensure cache dir
+        fs::create_dir_all(cache_dir)
+            .map_err(|e| PCSError::InvalidParameters(format!("cache dir error: {e}")))?;
+
+        // Bind cache identity to the exact PTAU content
+        let (ptau_hash_bytes, ptau_hash_hex) = file_sha256(ptau_file)
+            .map_err(|e| PCSError::InvalidParameters(format!("ptau sha256: {e}")))?;
+
+        let cache_path = cache_dir.join(format!(
+            "kzg_srs_bn254_deg{}_ptau_{}.bin",
+            max_degree,
+            &ptau_hash_hex[..16] // short prefix for readability
+        ));
+
+        // Try loading from cache
+        if let Ok(mut f) = fs::File::open(&cache_path) {
+            if let Ok(header) = KzgCacheHeader::read_from(&mut f) {
+                if header.version == KZG_CACHE_FORMAT_VERSION
+                    && header.max_degree as usize == max_degree
+                    && &header.curve_id == b"bn254\0\0\0"
+                    && header.ptau_sha256 == ptau_hash_bytes
+                {
+                    let mut payload = Vec::new();
+                    if let Err(e) = f.read_to_end(&mut payload) {
+                        error!("KZG cache read error (fallback to rebuild): {:?}", e);
+                    } else {
+                        match UnivariateUniversalParams::<Bn254>::deserialize_with_mode(
+                            &*payload,
+                            Compress::Yes,
+                            Validate::Yes,
+                        ) {
+                            Ok(params) => return Ok(params),
+                            Err(e) => {
+                                error!("KZG cache decode error (fallback): {:?}", e);
+                            },
+                        }
+                    }
+                }
+            } else {
+                error!("KZG cache header parse error (fallback).");
+            }
+        }
+
+        // Miss or invalid cache → derive once from PTAU
+        let params = Self::universal_setup_bn254(&ptau_file.to_path_buf(), max_degree)?;
+
+        // Serialize and write atomically
+        let tmp = cache_path.with_extension("tmp");
+        {
+            let mut w = fs::File::create(&tmp)
+                .map_err(|e| PCSError::InvalidParameters(format!("cache create: {e}")))?;
+            let header = KzgCacheHeader {
+                magic: *b"KZGSRS\0\0",
+                version: KZG_CACHE_FORMAT_VERSION,
+                max_degree: max_degree as u32,
+                curve_id: *b"bn254\0\0\0",
+                ptau_sha256: ptau_hash_bytes,
+            };
+            header
+                .write_to(&mut w)
+                .map_err(|e| PCSError::InvalidParameters(format!("cache header write: {e}")))?;
+
+            let mut buf = Vec::new();
+            params
+                .serialize_with_mode(&mut buf, Compress::Yes)
+                .map_err(|e| PCSError::InvalidParameters(format!("params serialize: {e}")))?;
+            w.write_all(&buf)
+                .map_err(|e| PCSError::InvalidParameters(format!("cache payload write: {e}")))?;
+            w.flush()
+                .map_err(|e| PCSError::InvalidParameters(format!("cache flush: {e}")))?;
+        }
+        fs::rename(&tmp, &cache_path)
+            .map_err(|e| PCSError::InvalidParameters(format!("cache rename: {e}")))?;
+
+        Ok(params)
+    }
+
     /// Specialized implementation of universal_setup for BN254
     pub fn universal_setup_bn254(
         ptau_file: &PathBuf,
@@ -458,7 +619,7 @@ impl UnivariateKzgPCS<Bn254> {
         let (powers_of_g, h) =
             parse_ptau_file::<Fq, Bn254ConfigOne, Bn254ConfigTwo>(ptau_file, max_degree, 2)
                 .map_err(|e| {
-                    ark_std::println!("Error parsing PTAU file: {:?}", e);
+                    error!("Error parsing PTAU file: {:?}", e);
                     PCSError::InvalidSRS
                 })?;
 
@@ -470,28 +631,64 @@ impl UnivariateKzgPCS<Bn254> {
         })
     }
 
-    /// download a ptau file for BN254, verifying integrity by SHA-256.
-    /// If `expected_sha256_hex` is None, we try to read `<ptau_file>.sha256`.
+    /// Download a PPoT (pot28_0080) PTAU file for BN254 and verify integrity
+    /// against the canonical digest table in `ptau_digests.rs`.
+    /// Nightfall supports only max_degree <= 26 (2^26).
     pub fn download_ptau_file_if_needed(
         max_degree: usize,
         ptau_file: &PathBuf,
-        expected_sha256_hex: Option<&str>,
     ) -> Result<(), io::Error> {
-        // 0) If the file already exists, we don't need to download it again
-        // but we need to verify checksum and return if valid.
+        // Map degree -> server label
+        let degree_label = match max_degree {
+            0 => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "max_degree must be >= 1; got 0",
+                ))
+            },
+            1..=26 => format!("{:02}", max_degree),
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "max_degree {} exceeds supported range (Nightfall supports only up to 26)",
+                        max_degree
+                    ),
+                ))
+            },
+        };
+
+        // Lookup canonical expected hash from the embedded table
+        let expected_hex = expected_sha256_for_label(&degree_label).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                format!("No embedded SHA-256 for label {}", degree_label),
+            )
+        })?;
+
+        // If a file already exists but the checksum is wrong, delete it and continue as if missing.
         if fs::metadata(ptau_file).is_ok() {
-            Self::verify_ptau_checksum(ptau_file, expected_sha256_hex)?;
-            return Ok(());
+            match Self::verify_ptau_checksum_against_label(ptau_file.as_path(), expected_hex) {
+                Ok(()) => return Ok(()), // already correct, short-circuit
+                Err(e) => {
+                    warn!(
+                        "PTAU at {} failed checksum ({}). Deleting and re-downloading...",
+                        ptau_file.display(),
+                        e
+                    );
+                    let _ = fs::remove_file(ptau_file);
+                    // fall through to download
+                },
+            }
         }
 
-        // 1) Download the file
+        // Remote URL (PSE Trusted Setup bucket)
         let url = format!(
         "https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_{}.ptau",
-        max_degree,
-        );
+        degree_label
+    );
 
-        // Download into a temp file to avoid half-written artifacts
-
+        // Prepare temp path for atomic move
         let parent = ptau_file.parent().ok_or_else(|| {
             io::Error::new(io::ErrorKind::Other, "Invalid ptau_file path (no parent)")
         })?;
@@ -501,106 +698,49 @@ impl UnivariateKzgPCS<Bn254> {
             ptau_file.file_name().unwrap().to_string_lossy()
         ));
 
-        let mut response = reqwest::blocking::get(url)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        // Download to temp
+        let mut response = reqwest::blocking::get(&url)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("HTTP error: {}", e)))?;
         {
             let mut tmp_file = fs::File::create(&tmp_path)?;
             io::copy(&mut response, &mut tmp_file)?;
         }
 
-        // 2) Verify checksum *before* moving into place
-        Self::verify_ptau_checksum_with_path(&tmp_path, expected_sha256_hex, Some(ptau_file))?;
-
-        // 3) Atomic move into place if checksum is valid
-        fs::rename(tmp_path, ptau_file)?;
-
-        // let mut response = reqwest::blocking::get(url)
-        //     .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-        // let mut file = fs::File::create(ptau_file)?;
-        // io::copy(&mut response, &mut file)?;
-        Ok(())
-    }
-
-    /// Try to obtain the expected SHA-256 hex string from (a) the parameter,
-    /// otherwise (b) a sibling "<file>.sha256" file with content like:ToString
-    ///    `<hex>  <filename>`  or just `<hex>`
-    fn expected_sha256_for(path: &Path, explicit: Option<&str>) -> Result<String, io::Error> {
-        if let Some(hex) = explicit {
-            return Ok(hex.trim().to_lowercase());
-        }
-        let sidecar = path.with_extension(format!(
-            "{}.sha256",
-            path.extension()
-                .map(|e| e.to_string_lossy())
-                .unwrap_or_default()
-        ));
-        // If the ".sha256" extension stacking is odd, also try "<file>.sha256" plain
-        let alt_sidecar = path.with_file_name(format!(
-            "{}.sha256",
-            path.file_name().unwrap().to_string_lossy()
-        ));
-
-        for candidate in [&sidecar, &alt_sidecar] {
-            if let Ok(content) = fs::read_to_string(candidate) {
-                // accept formats: "<hex>", or "<hex>  <filename>"
-                let hex = content
-                    .split_whitespace()
-                    .next()
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Empty .sha256 file"))?;
-                return Ok(hex.trim().to_lowercase());
-            }
-        }
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "No expected SHA-256 provided for PTAU and no sidecar .sha256 found near {}",
-                path.display()
-            ),
-        ))
-    }
-
-    /// Compute SHA-256 of `path` and compare with expected; on mismatch, return a descriptive error.
-    fn verify_ptau_checksum(
-        ptau_file: &PathBuf,
-        expected_sha256_hex: Option<&str>,
-    ) -> Result<(), io::Error> {
-        Self::verify_ptau_checksum_with_path(ptau_file, expected_sha256_hex, None)
-    }
-
-    /// Internal helper. If `on_mismatch_delete_and_err` is Some(path_to_replace),
-    /// we delete the tmp file on mismatch to avoid leaving garbage behind.
-    fn verify_ptau_checksum_with_path(
-        candidate_path: &Path,
-        expected_sha256_hex: Option<&str>,
-        on_mismatch_delete_and_err: Option<&Path>,
-    ) -> Result<(), io::Error> {
-        let expected = Self::expected_sha256_for(candidate_path, expected_sha256_hex)?;
-        let mut file = fs::File::open(candidate_path)?;
-        let mut hasher = Sha256::new();
-        io::copy(&mut file, &mut hasher)?;
-        let actual_bytes = hasher.finalize();
-        let actual = hex::encode(actual_bytes);
-
-        if actual != expected {
-            if let Some(p) = on_mismatch_delete_and_err {
-                let _ = fs::remove_file(candidate_path);
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "PTAU checksum mismatch. Expected {}, got {}. Deleted {}.",
-                        expected,
-                        actual,
-                        candidate_path.display()
-                    ),
-                ));
-            }
+        // Verify temp file against embedded digest; delete on mismatch
+        if let Err(e) = Self::verify_ptau_checksum_against_label(tmp_path.as_path(), expected_hex) {
+            let _ = fs::remove_file(&tmp_path);
             return Err(io::Error::new(
                 io::ErrorKind::Other,
                 format!(
-                    "PTAU checksum mismatch. Expected {}, got {} at {}",
-                    expected,
+                    "PTAU checksum mismatch for freshly downloaded file (label {}): {}",
+                    degree_label, e
+                ),
+            ));
+        }
+
+        // Atomic move into place (verified)
+        fs::rename(tmp_path, ptau_file)?;
+        Ok(())
+    }
+
+    /// Compute SHA-256 of `path` and compare with the expected hex digest.
+    fn verify_ptau_checksum_against_label(
+        path: &Path,
+        expected_hex: &str,
+    ) -> Result<(), io::Error> {
+        let mut file = fs::File::open(path)?;
+        let mut hasher = Sha256::new();
+        io::copy(&mut file, &mut hasher)?;
+        let actual = hex::encode(hasher.finalize());
+
+        if actual != expected_hex {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "checksum mismatch (expected {}, got {}) at {}",
+                    expected_hex,
                     actual,
-                    candidate_path.display()
+                    path.display()
                 ),
             ));
         }
@@ -615,8 +755,14 @@ mod tests {
     use ark_bls12_381::Bls12_381;
     use ark_ec::pairing::Pairing;
     use ark_poly::{univariate::DensePolynomial, EvaluationDomain};
-    use ark_std::{rand::Rng, UniformRand};
+    use ark_std::{
+        fs::{self, File},
+        io::{Read as IoRead, Write as IoWrite},
+        rand::Rng,
+        UniformRand,
+    };
     use jf_utils::test_rng;
+    use std::time::Duration;
 
     fn end_to_end_test_template<E>() -> Result<(), PCSError>
     where
@@ -791,5 +937,197 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    /// Real download: first call downloads PTAU(7) and writes sidecar; second call should
+    /// verify and return without rewriting (mtime unchanged).
+    #[test]
+    #[ignore]
+    fn ptau_real_download_then_skip_on_second_run() {
+        // Arrange: pick a unique temp directory to avoid polluting the repo
+        let bin_dir = new_tmpdir();
+        let ptau_path = bin_dir.join("ppot_7.ptau");
+
+        // Sanity: ensure clean slate
+        let _ = fs::remove_file(&ptau_path);
+
+        // --- First run: should download and, with TOFU, write sidecar
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+            .expect("first download should succeed");
+
+        // Verify file exists and has some content
+        let meta1 = fs::metadata(&ptau_path).expect("ptau exists after first run");
+        assert!(meta1.len() > 0, "downloaded PTAU must be non-empty");
+
+        // Capture modification time & contents for later comparison
+        let mtime1 = meta1.modified().expect("mtime supported");
+        let mut bytes1 = Vec::new();
+        File::open(&ptau_path)
+            .unwrap()
+            .read_to_end(&mut bytes1)
+            .unwrap();
+
+        //  Sleep 1s to avoid coarse FS timestamp resolutions
+        std::thread::sleep(Duration::from_secs(1));
+
+        // --- Second run: should verify via sidecar and SKIP download/rewrites
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+            .expect("second run should verify and return without rewriting");
+
+        let meta2 = fs::metadata(&ptau_path).expect("ptau exists after second run");
+        let mtime2 = meta2.modified().expect("mtime supported");
+
+        // Assert: content unchanged
+        let mut bytes2 = Vec::new();
+        File::open(&ptau_path)
+            .unwrap()
+            .read_to_end(&mut bytes2)
+            .unwrap();
+        assert_eq!(bytes1, bytes2, "PTAU content changed unexpectedly");
+
+        // Assert: mtime unchanged -> no rewrite happened
+        assert_eq!(
+            mtime1, mtime2,
+            "PTAU mtime changed; second run should NOT rewrite the file"
+        );
+
+        // tidy up, remove downloaded files
+        let _ = fs::remove_file(&ptau_path);
+    }
+
+    #[test]
+    #[ignore]
+    fn ptau_is_broken_before_second_run_recovers_by_redownloading() {
+        // Arrange: pick a unique temp directory to avoid polluting the repo
+        let bin_dir = new_tmpdir();
+        let ptau_path = bin_dir.join("ppot_7.ptau");
+
+        // Clean slate
+        let _ = fs::remove_file(&ptau_path);
+
+        // --- First run: create a broken/local bogus PTAU file
+        let bad_bytes = b"CORRUPTED_PTAU_BYTES";
+        fs::create_dir_all(ptau_path.parent().unwrap()).unwrap();
+        File::create(&ptau_path)
+            .unwrap()
+            .write_all(bad_bytes)
+            .unwrap();
+
+        // Capture pre-call metadata (mtime/len)
+        let meta1 = fs::metadata(&ptau_path).expect("broken ptau should exist");
+        let len1 = meta1.len();
+        let mtime1 = meta1.modified().expect("mtime supported");
+
+        // Sleep 1s to avoid coarse FS timestamp resolution issues
+        std::thread::sleep(Duration::from_secs(1));
+
+        // --- Call: should detect mismatch, delete, re-download, and verify
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+            .expect("should auto-heal by re-downloading a verified PTAU");
+
+        // --- After: file should exist, be different/larger, and match embedded digest
+        let meta2 = fs::metadata(&ptau_path).expect("ptau exists after recovery");
+        let len2 = meta2.len();
+        let mtime2 = meta2.modified().expect("mtime supported");
+
+        // Should not be the tiny corrupted file anymore
+        assert!(
+            len2 > len1,
+            "expected re-downloaded PTAU to be larger than the corrupted stub ({} <= {})",
+            len2,
+            len1
+        );
+        assert!(
+            mtime2 > mtime1,
+            "expected mtime to increase after re-download"
+        );
+
+        // Verify actual sha256 equals embedded canonical digest
+        let (_raw, actual_hex) = super::file_sha256(&ptau_path).expect("sha256 of recovered PTAU");
+        let expected_hex =
+            crate::pcs::univariate_kzg::ptau_digests::expected_sha256_for_label("07")
+                .expect("embedded digest for label 07");
+        assert_eq!(
+            actual_hex, expected_hex,
+            "re-downloaded PTAU checksum must match embedded canonical digest"
+        );
+
+        // cleanup
+        let _ = fs::remove_file(&ptau_path);
+    }
+
+    /// Helper: create a unique temp directory under the OS temp folder.
+    fn new_tmpdir() -> PathBuf {
+        let mut dir = std::env::temp_dir();
+        // Avoid collisions across concurrent test runs
+        let mut rnd = [0u8; 8];
+        test_rng().fill_bytes(&mut rnd);
+        dir.push(format!("nf4_kzg_tests_{:x}", u64::from_le_bytes(rnd)));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    #[ignore] // real network + large parse; unignore when running locally
+    fn cached_params_roundtrip_equals_original() {
+        // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
+        let bin_dir = new_tmpdir();
+        let ptau_path = bin_dir.join("ppot_7.ptau");
+
+        // Clean slate
+        let _ = fs::remove_file(&ptau_path);
+
+        // 1) Download a verified PTAU(07). Function auto-heals corrupt files.
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+            .expect("PTAU download/verify should succeed");
+
+        // Universal setup expects the actual 'max_degree' (number of powers), not the label.
+        let max_degree = 1usize << 7;
+
+        // 2) First load: derives the params from the real PTAU and writes the cache
+        let params1 = UnivariateKzgPCS::<Bn254>::universal_setup_bn254_cached(
+            &ptau_path, max_degree, &bin_dir,
+        )
+        .expect("first cached load should succeed and write cache");
+
+        // Locate the cache file to check it won't be rewritten on a cache hit
+        let (_sha_bytes, sha_hex) = super::file_sha256(&ptau_path).expect("sha256 of PTAU");
+        let cache_path = bin_dir.join(format!(
+            "kzg_srs_bn254_deg{}_ptau_{}.bin",
+            max_degree,
+            &sha_hex[..16]
+        ));
+        let meta1 = fs::metadata(&cache_path).expect("cache file exists after first load");
+        let mtime1 = meta1.modified().expect("mtime supported");
+
+        // Avoid coarse FS timestamp issues
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        // 3) Second load: must hit the cache (no rebuild / no rewrite)
+        let params2 = UnivariateKzgPCS::<Bn254>::universal_setup_bn254_cached(
+            &ptau_path, max_degree, &bin_dir,
+        )
+        .expect("second cached load should succeed from cache");
+
+        // 4) Assert exact equality of all fields
+        assert_eq!(
+            params1.powers_of_g, params2.powers_of_g,
+            "powers_of_g differ"
+        );
+        assert_eq!(params1.h, params2.h, "h differs");
+        assert_eq!(params1.beta_h, params2.beta_h, "beta_h differs");
+
+        // 5) Cache file should not have been rewritten on the second call
+        let mtime2 = fs::metadata(&cache_path)
+            .expect("cache file still exists")
+            .modified()
+            .expect("mtime supported");
+        assert_eq!(
+            mtime1, mtime2,
+            "cache mtime changed; second load should not rewrite"
+        );
+        // tidy up
+        let _ = fs::remove_file(&ptau_path);
+        let _ = fs::remove_file(&cache_path);
     }
 }
