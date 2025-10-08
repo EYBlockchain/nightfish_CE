@@ -9,6 +9,7 @@ license = { workspace = true }
 rust-version = { workspace = true }
 
 [dependencies]
+hex = "0.4"
 reqwest = { version = "0.11", features = ["blocking"] }
 byteorder = "1.5"
 arithmetic = { git = "https://github.com/EspressoSystems/hyperplonk" }

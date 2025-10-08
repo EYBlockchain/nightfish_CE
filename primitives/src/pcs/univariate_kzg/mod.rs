@@ -5,7 +5,11 @@
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
 //! Main module for univariate KZG commitment scheme
+use ark_std::path::Path;
+use ark_std::string::String;
+
 use ark_std::{fs, io, path::PathBuf};
+use sha2::{Digest, Sha256};
 
 use crate::{
     pcs::{
@@ -466,23 +470,140 @@ impl UnivariateKzgPCS<Bn254> {
         })
     }
 
-    /// download a ptau file for BN254
+    /// download a ptau file for BN254, verifying integrity by SHA-256.
+    /// If `expected_sha256_hex` is None, we try to read `<ptau_file>.sha256`.
     pub fn download_ptau_file_if_needed(
         max_degree: usize,
         ptau_file: &PathBuf,
+        expected_sha256_hex: Option<&str>,
     ) -> Result<(), io::Error> {
-        // if the file already exists, we don't need to download it again
+        // 0) If the file already exists, we don't need to download it again
+        // but we need to verify checksum and return if valid.
         if fs::metadata(ptau_file).is_ok() {
+            Self::verify_ptau_checksum(ptau_file, expected_sha256_hex)?;
             return Ok(());
         }
+
+        // 1) Download the file
         let url = format!(
         "https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_{}.ptau",
         max_degree,
         );
+
+        // Download into a temp file to avoid half-written artifacts
+
+        let parent = ptau_file.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::Other, "Invalid ptau_file path (no parent)")
+        })?;
+        fs::create_dir_all(parent)?;
+        let tmp_path = parent.join(format!(
+            ".{}.download",
+            ptau_file.file_name().unwrap().to_string_lossy()
+        ));
+
         let mut response = reqwest::blocking::get(url)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-        let mut file = fs::File::create(ptau_file)?;
-        io::copy(&mut response, &mut file)?;
+        {
+            let mut tmp_file = fs::File::create(&tmp_path)?;
+            io::copy(&mut response, &mut tmp_file)?;
+        }
+
+        // 2) Verify checksum *before* moving into place
+        Self::verify_ptau_checksum_with_path(&tmp_path, expected_sha256_hex, Some(ptau_file))?;
+
+        // 3) Atomic move into place if checksum is valid
+        fs::rename(tmp_path, ptau_file)?;
+
+        // let mut response = reqwest::blocking::get(url)
+        //     .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        // let mut file = fs::File::create(ptau_file)?;
+        // io::copy(&mut response, &mut file)?;
+        Ok(())
+    }
+
+    /// Try to obtain the expected SHA-256 hex string from (a) the parameter,
+    /// otherwise (b) a sibling "<file>.sha256" file with content like:ToString
+    ///    `<hex>  <filename>`  or just `<hex>`
+    fn expected_sha256_for(path: &Path, explicit: Option<&str>) -> Result<String, io::Error> {
+        if let Some(hex) = explicit {
+            return Ok(hex.trim().to_lowercase());
+        }
+        let sidecar = path.with_extension(format!(
+            "{}.sha256",
+            path.extension()
+                .map(|e| e.to_string_lossy())
+                .unwrap_or_default()
+        ));
+        // If the ".sha256" extension stacking is odd, also try "<file>.sha256" plain
+        let alt_sidecar = path.with_file_name(format!(
+            "{}.sha256",
+            path.file_name().unwrap().to_string_lossy()
+        ));
+
+        for candidate in [&sidecar, &alt_sidecar] {
+            if let Ok(content) = fs::read_to_string(candidate) {
+                // accept formats: "<hex>", or "<hex>  <filename>"
+                let hex = content
+                    .split_whitespace()
+                    .next()
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "Empty .sha256 file"))?;
+                return Ok(hex.trim().to_lowercase());
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!(
+                "No expected SHA-256 provided for PTAU and no sidecar .sha256 found near {}",
+                path.display()
+            ),
+        ))
+    }
+
+    /// Compute SHA-256 of `path` and compare with expected; on mismatch, return a descriptive error.
+    fn verify_ptau_checksum(
+        ptau_file: &PathBuf,
+        expected_sha256_hex: Option<&str>,
+    ) -> Result<(), io::Error> {
+        Self::verify_ptau_checksum_with_path(ptau_file, expected_sha256_hex, None)
+    }
+
+    /// Internal helper. If `on_mismatch_delete_and_err` is Some(path_to_replace),
+    /// we delete the tmp file on mismatch to avoid leaving garbage behind.
+    fn verify_ptau_checksum_with_path(
+        candidate_path: &Path,
+        expected_sha256_hex: Option<&str>,
+        on_mismatch_delete_and_err: Option<&Path>,
+    ) -> Result<(), io::Error> {
+        let expected = Self::expected_sha256_for(candidate_path, expected_sha256_hex)?;
+        let mut file = fs::File::open(candidate_path)?;
+        let mut hasher = Sha256::new();
+        io::copy(&mut file, &mut hasher)?;
+        let actual_bytes = hasher.finalize();
+        let actual = hex::encode(actual_bytes);
+
+        if actual != expected {
+            if let Some(p) = on_mismatch_delete_and_err {
+                let _ = fs::remove_file(candidate_path);
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!(
+                        "PTAU checksum mismatch. Expected {}, got {}. Deleted {}.",
+                        expected,
+                        actual,
+                        candidate_path.display()
+                    ),
+                ));
+            }
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!(
+                    "PTAU checksum mismatch. Expected {}, got {} at {}",
+                    expected,
+                    actual,
+                    candidate_path.display()
+                ),
+            ));
+        }
         Ok(())
     }
 }
