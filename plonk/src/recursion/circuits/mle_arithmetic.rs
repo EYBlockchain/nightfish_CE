@@ -515,6 +515,12 @@ pub fn combine_mle_proof_scalars(
     vk: &MLEVerifyingKey<Zmorph>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!(
+            "The circuit is not satisfiable at the start of combine_mle_proof_scalars"
+        );
+    }
+
     if outputs.len() != challenges.len() {
         return Err(CircuitError::ParameterError(
             "The number of outputs should be equal to the number of challenges".to_string(),
@@ -527,6 +533,10 @@ pub fn combine_mle_proof_scalars(
     for (output, proof_challenges) in outputs.iter().zip(challenges.iter()) {
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
         let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
+
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            ark_std::println!("The circuit is not satisfiable after from_struct");
+        }
 
         let pi_hash = circuit.create_variable(output.pi_hash)?;
 
@@ -542,6 +552,10 @@ pub fn combine_mle_proof_scalars(
                     )
                 })?;
 
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            ark_std::println!("The circuit is not satisfiable after sumcheck_proof");
+        }
+
         let pi_eval = circuit.mul(pi_hash, zero_eval)?;
 
         let (scalars, eval) = verify_mleplonk_scalar_arithmetic(
@@ -555,6 +569,12 @@ pub fn combine_mle_proof_scalars(
             &vk.gate_info,
         )?;
 
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            ark_std::println!(
+                "The circuit is not satisfiable after verify_mleplonk_scalar_arithmetic"
+            );
+        }
+
         scalar_list.push(scalars);
         evals.push(eval);
         points.push(proof_var.sumcheck_proof().point_var.clone());
@@ -566,7 +586,15 @@ pub fn combine_mle_proof_scalars(
         .map(|acc| circuit.create_variable(acc.value))
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("The circuit is not satisfiable before sum_check_proof_to_var");
+    }
+
     let acc_sumcheck_proof = circuit.sum_check_proof_to_var(acc_info.sumcheck_proof())?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("The circuit is not satisfiable after sum_check_proof_to_var");
+    }
 
     let acc_eval_points = acc_info
         .old_accumulators()
@@ -595,7 +623,15 @@ pub fn combine_mle_proof_scalars(
         batching_scalar,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("The circuit is not satisfiable after verify_split_accumulation");
+    }
+
     let combined_scalars = combine_scalar_lists(&scalar_list, &accumulation_scalars[..2], circuit)?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("The circuit is not satisfiable after combine_scalar_lists");
+    }
 
     let out_scalars = [combined_scalars.as_slice(), &accumulation_scalars[2..]].concat();
 
