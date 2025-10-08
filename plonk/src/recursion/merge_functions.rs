@@ -429,6 +429,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok([vk_var.clone(), vk_var])
     }?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after vk_var generation");
+    }
+
     // We store the scalars and bases from the proofs into the relevant struct.
     // In particular, the bases are stored as `Variable`s in the circuit, as we
     // need to reuse them later in the circuit and in the next circuit.
@@ -448,6 +452,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
         .try_into()
         .map_err(|_| PlonkError::InvalidParameters("bn254_outputs must have length 2".to_string()))?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after output_var generation");
+    }
 
     let output_vars = output_pcs_info_var_pair
         .iter()
@@ -479,6 +487,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers)
     };
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after combining fft proof scalars");
+    }
+
     // Construct variables representing the old accumulators.
     // In the case of the first round, these will be constrined to be constant.
     let old_accumulators_commitments_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
@@ -495,6 +507,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<PointVariable>, CircuitError>>()
     }?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!(
+            "Circuit is not satisfiable after creating old_accumulators_commitments_vars"
+        );
+    }
+
     let old_accumulators_proof_vars: Vec<PointVariable> = if IS_FIRST_ROUND {
         bn254info
             .old_accumulators
@@ -510,6 +528,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .map(|a| circuit.create_point_variable(&Point::<Fq254>::from(a.opening_proof.proof)))
             .collect::<Result<Vec<PointVariable>, CircuitError>>()
     }?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after creating old_accumulators_proof_vars");
+    }
 
     // Append the extra accumulator point variables to `instance_base_vars`
     // and `proof_base_vars` ready for the atomic accumulation.
@@ -538,6 +560,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         &instance_scalar_vars,
     )?;
 
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after instance MSM");
+    }
+
     // If this is the first round the first term in the MSM is potentially neutral.
     // We, therefore, add it manually after the MSM.
     let acc_proof = if IS_FIRST_ROUND {
@@ -555,6 +581,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             &proof_scalar_vars,
         )
     }?;
+
+    if circuit.check_circuit_satisfiability(&[]).is_err() {
+        ark_std::println!("Circuit is not satisfiable after proof MSM");
+    }
 
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
@@ -597,6 +627,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             Ok((scalars, vec![low_var, high_var]))
         })
         .collect::<Result<Vec<(Vec<Variable>, Vec<Variable>)>, CircuitError>>()?;
+
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            ark_std::println!("Circuit is not satisfiable after combining mle proof scalars");
+        }
 
         let impl_pi_vars: Vec<Vec<Variable>> = bn254info
             .specific_pi
@@ -715,8 +749,24 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             }
         }
 
+        for (circuit_hash, actual_hash) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
+            if circuit.witness(*circuit_hash).unwrap()
+                != fr_to_fq::<Fq254, BnConfig>(&actual_hash.pi_hash)
+            {
+                ark_std::println!("Circuit pi_hash does not match actual pi_hash");
+            }
+        }
+
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            ark_std::println!("Circuit is not satisfiable after calculating pi_hashes");
+        }
+
         // Now do the specific pi checks.
         let specific_pi_vars: Vec<Variable> = specific_pi_fn(&impl_pi_vars, circuit)?;
+
+        if circuit.check_circuit_satisfiability(&[]).is_err() {
+            ark_std::println!("Circuit is not satisfiable after specific_pi_fn");
+        }
 
         specific_pi_vars
             .iter()
