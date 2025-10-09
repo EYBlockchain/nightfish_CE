@@ -559,44 +559,54 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
 
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
+        let old_pi_hashes: Vec<Variable> = bn254info
+            .grumpkin_outputs
+            .iter()
+            .map(|o| circuit.create_variable(o.pi_hash))
+            .collect::<Result<Vec<Variable>, _>>()?;
+
         let scalars_and_acc_evals: Vec<(Vec<Variable>, Vec<Variable>)> = izip!(
             bn254info.grumpkin_outputs.chunks_exact(2),
+            old_pi_hashes.chunks_exact(2),
             bn254info.challenges.chunks_exact(2),
             bn254info.split_acc_info.iter()
         )
-        .map(|(output_pair, challenges_pair, split_acc_info)| {
-            let (scalars, eval) = combine_mle_proof_scalars(
-                output_pair,
-                challenges_pair,
-                split_acc_info,
-                vk_grumpkin,
-                circuit,
-            )?;
+        .map(
+            |(output_pair, old_pi_hashes, challenges_pair, split_acc_info)| {
+                let (scalars, eval) = combine_mle_proof_scalars(
+                    output_pair,
+                    challenges_pair,
+                    old_pi_hashes,
+                    split_acc_info,
+                    vk_grumpkin,
+                    circuit,
+                )?;
 
-            // Find the byte length of the scalar field (minus one).
-            let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+                // Find the byte length of the scalar field (minus one).
+                let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
 
-            let value = circuit.witness(eval)?;
-            let bytes = value.into_bigint().to_bytes_le();
-            let (low, high) = bytes.split_at(field_bytes_length);
+                let value = circuit.witness(eval)?;
+                let bytes = value.into_bigint().to_bytes_le();
+                let (low, high) = bytes.split_at(field_bytes_length);
 
-            let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
-            let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
+                let low_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(low))?;
+                let high_var = circuit.create_variable(Fq254::from_le_bytes_mod_order(high))?;
 
-            let bits = field_bytes_length * 8;
-            let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+                let bits = field_bytes_length * 8;
+                let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
-            circuit.enforce_in_range(low_var, bits)?;
-            circuit.enforce_in_range(high_var, leftover_bits)?;
+                circuit.enforce_in_range(low_var, bits)?;
+                circuit.enforce_in_range(high_var, leftover_bits)?;
 
-            let coeff = Fq254::from(2u32).pow([bits as u64]);
+                let coeff = Fq254::from(2u32).pow([bits as u64]);
 
-            circuit.lc_gate(
-                &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
-                &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
-            )?;
-            Ok((scalars, vec![low_var, high_var]))
-        })
+                circuit.lc_gate(
+                    &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
+                    &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
+                )?;
+                Ok((scalars, vec![low_var, high_var]))
+            },
+        )
         .collect::<Result<Vec<(Vec<Variable>, Vec<Variable>)>, CircuitError>>()?;
 
         let impl_pi_vars: Vec<Vec<Variable>> = bn254info
@@ -636,23 +646,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let old_pi_hashes: Vec<Vec<Variable>> = bn254info
-            .grumpkin_outputs
-            .chunks_exact(2)
-            .map(|output_pair| {
-                output_pair
-                    .iter()
-                    .map(|output| circuit.create_variable(output.pi_hash))
-                    .collect::<Result<Vec<Variable>, CircuitError>>()
-            })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
-
         let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
             impl_pi_vars.iter(),
             old_acc_vars.iter(),
             forwarded_accs.iter(),
-            old_pi_hashes.iter(),
+            old_pi_hashes.chunks_exact(2),
         )
         .map(
             |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes)| {
@@ -669,7 +668,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     old_acc.as_slice(),
                     forwarded_acc.as_slice(),
                     acc_eval.as_slice(),
-                    old_hashes.as_slice(),
+                    old_hashes,
                 ]
                 .concat();
 

@@ -511,6 +511,7 @@ type MLEScalarsAndAccEval = (Vec<Variable>, Variable);
 pub fn combine_mle_proof_scalars(
     outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
     challenges: &[MLEProofChallenges<Fq254>],
+    pi_hashes: &[Variable],
     acc_info: &SplitAccumulationInfo,
     vk: &MLEVerifyingKey<Zmorph>,
     circuit: &mut PlonkCircuit<Fq254>,
@@ -520,15 +521,21 @@ pub fn combine_mle_proof_scalars(
             "The number of outputs should be equal to the number of challenges".to_string(),
         ));
     }
+    if outputs.len() != pi_hashes.len() {
+        return Err(CircuitError::ParameterError(
+            "The number of outputs should be equal to the number of public input hashes"
+                .to_string(),
+        ));
+    }
 
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
     let mut points = Vec::new();
-    for (output, proof_challenges) in outputs.iter().zip(challenges.iter()) {
+    for ((output, pi_hash), proof_challenges) in
+        outputs.iter().zip(pi_hashes).zip(challenges.iter())
+    {
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
         let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
-
-        let pi_hash = circuit.create_variable(output.pi_hash)?;
 
         let zero_eval =
             proof_var
@@ -542,7 +549,7 @@ pub fn combine_mle_proof_scalars(
                     )
                 })?;
 
-        let pi_eval = circuit.mul(pi_hash, zero_eval)?;
+        let pi_eval = circuit.mul(*pi_hash, zero_eval)?;
 
         let (scalars, eval) = verify_mleplonk_scalar_arithmetic(
             circuit,
@@ -944,9 +951,15 @@ mod tests {
 
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
 
+            let pi_hashes: Vec<Variable> = outputs
+                .iter()
+                .map(|o| verifier_circuit.create_variable(o.pi_hash))
+                .collect::<Result<Vec<Variable>, _>>()
+                .unwrap();
             let (combined_scalars, combined_eval) = combine_mle_proof_scalars(
                 &outputs,
                 &mle_proof_challenges,
+                &pi_hashes,
                 &split_acc_info,
                 &vk,
                 &mut verifier_circuit,
