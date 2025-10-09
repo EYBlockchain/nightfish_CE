@@ -660,7 +660,6 @@ where
 
 #[cfg(test)]
 mod test {
-    use super::super::MLEVerifyingKeyVar;
     use super::*;
 
     use crate::nightfall::mle::{
@@ -740,9 +739,9 @@ mod test {
             .map(|c| c.public_input().unwrap())
             .collect::<Vec<Vec<_>>>();
         // 3. Preprocessing
-        let (pk1, vk1) = MLEPlonk::<PCS>::preprocess_helper(&circuits[0], &srs)
+        let (pk1, _) = MLEPlonk::<PCS>::preprocess_helper(&circuits[0], &srs)
             .map_err(|_| CircuitError::ParameterError("Preprocessing failed".to_string()))?;
-        let (pk2, vk2) = MLEPlonk::<PCS>::preprocess_helper(&circuits[3], &srs)
+        let (pk2, _) = MLEPlonk::<PCS>::preprocess_helper(&circuits[3], &srs)
             .map_err(|_| CircuitError::ParameterError("Preprocessing failed".to_string()))?;
 
         // 4. Proving
@@ -762,26 +761,21 @@ mod test {
         // 5. Verification
 
         for (i, proof) in proofs.iter().enumerate() {
-            let vk_ref = if i < 3 { &vk1 } else { &vk2 };
-
             let pi = public_inputs[i][0];
             let mut transcript = <RescueTranscript<F> as Transcript>::new_transcript(b"mle_plonk");
-            let mle_challenges =
-                MLEChallenges::new_recursion(&proof.proof, &[pi], vk_ref, &mut transcript)
-                    .map_err(|_| {
-                        CircuitError::ParameterError("MLE challenge generation failed".to_string())
-                    })?;
+            let mle_challenges = MLEChallenges::new_recursion(&proof.proof, &[pi], &mut transcript)
+                .map_err(|_| {
+                    CircuitError::ParameterError("MLE challenge generation failed".to_string())
+                })?;
 
             let mut plonk_circuit = PlonkCircuit::<F>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
             let mle_proof_var = SAMLEProofVar::from_struct::<P>(&mut plonk_circuit, &proof.proof)?;
-            let vk_var = MLEVerifyingKeyVar::new::<F, P>(&mut plonk_circuit, vk_ref)?;
 
             let mut transcript_var = RescueTranscriptVar::<F>::new_transcript(&mut plonk_circuit);
             let pi_var = plonk_circuit.create_emulated_variable(pi)?;
             let mle_challenges_var =
                 EmulatedMLEChallenges::<E::ScalarField>::compute_challenges_vars::<PCS, P>(
                     &mut plonk_circuit,
-                    &vk_var,
                     &pi_var,
                     &mle_proof_var,
                     &mut transcript_var,
