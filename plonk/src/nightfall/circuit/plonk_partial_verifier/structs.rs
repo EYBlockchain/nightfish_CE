@@ -4,7 +4,6 @@
 // You should have received a copy of the MIT License
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
-use ark_bn254::Fr as Fr254;
 use ark_ec::{pairing::Pairing, short_weierstrass::Affine, AffineRepr};
 use ark_ff::PrimeField;
 
@@ -37,7 +36,6 @@ use crate::{
         },
     },
     proof_system::structs::{PlookupEvaluations, ProofEvaluations},
-    recursion::merge_functions::Bn254Output,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, CircuitTranscriptVisitor},
 };
 
@@ -555,26 +553,65 @@ where
         let wire_commitments = proof
             .wires_poly_comms
             .iter()
-            .map(|comm| circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(*comm)))
+            .map(|comm| {
+                let point =
+                    circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(*comm))?;
+
+                circuit.enforce_emulated_on_curve::<P, P::BaseField>(&point)?;
+
+                let is_neutral = circuit.is_emulated_neutral_point::<P, P::BaseField>(&point)?;
+                circuit.enforce_false(is_neutral.into())?;
+                Ok(point)
+            })
             .collect::<Result<Vec<EmulatedPointVariable<P::BaseField>>, CircuitError>>()?;
+
         let prod_perm_poly_comm = circuit.create_emulated_point_variable(
             &Point::<P::BaseField>::from(proof.prod_perm_poly_comm),
         )?;
+        circuit.enforce_emulated_on_curve::<P, P::BaseField>(&prod_perm_poly_comm)?;
+
+        let is_neutral =
+            circuit.is_emulated_neutral_point::<P, P::BaseField>(&prod_perm_poly_comm)?;
+        circuit.enforce_false(is_neutral.into())?;
+
         let split_quot_poly_comms = proof
             .split_quot_poly_comms
             .iter()
-            .map(|comm| circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(*comm)))
+            .map(|comm| {
+                let point =
+                    circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(*comm))?;
+
+                circuit.enforce_emulated_on_curve::<P, P::BaseField>(&point)?;
+
+                let is_neutral = circuit.is_emulated_neutral_point::<P, P::BaseField>(&point)?;
+                circuit.enforce_false(is_neutral.into())?;
+                Ok(point)
+            })
             .collect::<Result<Vec<EmulatedPointVariable<P::BaseField>>, CircuitError>>()?;
+
         let plookup_proof = if let Some(plookup_proof) = &proof.plookup_proof {
             Some(PlookupProofVarNative::from_struct(circuit, plookup_proof)?)
         } else {
             None
         };
+
         let opening_proof = circuit.create_emulated_point_variable(
             &Point::<P::BaseField>::from(proof.opening_proof.proof),
         )?;
+
+        circuit.enforce_emulated_on_curve::<P, P::BaseField>(&opening_proof)?;
+
+        let is_neutral = circuit.is_emulated_neutral_point::<P, P::BaseField>(&opening_proof)?;
+        circuit.enforce_false(is_neutral.into())?;
+
         let q_comm =
             circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(proof.q_comm))?;
+
+        circuit.enforce_emulated_on_curve::<P, P::BaseField>(&q_comm)?;
+
+        let is_neutral = circuit.is_emulated_neutral_point::<P, P::BaseField>(&q_comm)?;
+        circuit.enforce_false(is_neutral.into())?;
+
         let poly_evals = ProofEvalsVarNative::from_struct(circuit, &proof.poly_evals)?;
         Ok(Self::new(
             wire_commitments,
@@ -683,11 +720,27 @@ where
         let h_poly_comms = proof
             .h_poly_comms
             .iter()
-            .map(|comm| circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(*comm)))
+            .map(|comm| {
+                let point =
+                    circuit.create_emulated_point_variable(&Point::<P::BaseField>::from(*comm))?;
+
+                circuit.enforce_emulated_on_curve::<P, P::BaseField>(&point)?;
+
+                let is_neutral = circuit.is_emulated_neutral_point::<P, P::BaseField>(&point)?;
+                circuit.enforce_false(is_neutral.into())?;
+                Ok(point)
+            })
             .collect::<Result<Vec<EmulatedPointVariable<P::BaseField>>, CircuitError>>()?;
+
         let prod_lookup_poly_comm = circuit.create_emulated_point_variable(
             &Point::<P::BaseField>::from(proof.prod_lookup_poly_comm),
         )?;
+
+        circuit.enforce_emulated_on_curve::<P, P::BaseField>(&prod_lookup_poly_comm)?;
+        let is_neutral =
+            circuit.is_emulated_neutral_point::<P, P::BaseField>(&prod_lookup_poly_comm)?;
+        circuit.enforce_false(is_neutral.into())?;
+
         let poly_evals = PlookupEvalsVarNative::from_struct(circuit, &proof.poly_evals)?;
         Ok(Self::new(h_poly_comms, prod_lookup_poly_comm, poly_evals))
     }
@@ -769,21 +822,20 @@ impl ProofScalarsVarNative {
         }
     }
 
-    /// Create a new [`ProofScalarVarNative`] variable from a reference to a [`ProofEvaluations`] and a pi_hash.
-    pub fn from_struct(
-        bn254_output: &Bn254Output,
-        circuit: &mut PlonkCircuit<Fr254>,
-    ) -> Result<Self, CircuitError> {
-        let evals = ProofEvalsVarNative::from_struct(circuit, &bn254_output.proof.poly_evals)?;
-        let lookup_evals = if let Some(plookup_proof) = &bn254_output.proof.plookup_proof {
-            Some(PlookupEvalsVarNative::from_struct(
-                circuit,
-                &plookup_proof.poly_evals,
-            )?)
-        } else {
-            None
-        };
-        let pi_hash = circuit.create_variable(bn254_output.pi_hash)?;
+    /// Create a new [`ProofScalarVarNative`] variable from a reference to a [`ProofVarNative`].
+    pub fn from_struct<P>(
+        proof_var_native: &ProofVarNative<P>,
+        pi_hash: Variable,
+    ) -> Result<Self, CircuitError>
+    where
+        P: HasTEForm,
+        P::BaseField: PrimeField + EmulationConfig<P::ScalarField>,
+    {
+        let evals = proof_var_native.poly_evals.clone();
+        let lookup_evals = proof_var_native
+            .plookup_proof
+            .as_ref()
+            .map(|lookup| lookup.poly_evals.clone());
 
         Ok(Self::new(evals, lookup_evals, pi_hash))
     }

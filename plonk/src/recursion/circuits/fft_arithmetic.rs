@@ -418,8 +418,9 @@ mod tests {
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
-            let scalar_var = ProofScalarsVarNative::from_struct(&output, &mut verifier_circuit)?;
             let base_var = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
+            let pi_hash = verifier_circuit.create_variable(output.pi_hash)?;
+            let scalar_var = ProofScalarsVarNative::from_struct(&base_var, pi_hash)?;
 
             let pcs_info_circuit =
                 partial_verify_fft_plonk(&scalar_var, &base_var, &vk, &mut verifier_circuit)?;
@@ -482,8 +483,9 @@ mod tests {
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
             let vk_var = VerifyingKeyNativeScalarsVar::new(&mut verifier_circuit, &vk)?;
 
-            let scalar_var = ProofScalarsVarNative::from_struct(&output, &mut verifier_circuit)?;
+            let pi_hash = verifier_circuit.create_variable(output.pi_hash)?;
             let base_var = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
+            let scalar_var = ProofScalarsVarNative::from_struct(&base_var, pi_hash)?;
 
             // Here we assume a max domain size of 2^10
             let pcs_info_circuit = partial_verify_fft_plonk_base(
@@ -640,8 +642,9 @@ mod tests {
             let output_var_pairs = outputs
                 .iter()
                 .map(|output| {
-                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut scalars_verifier_circuit)?;
                     let proof = ProofVarNative::from_struct(&output.proof, &mut scalars_verifier_circuit)?;
+                    let pi_hash = scalars_verifier_circuit.create_variable(output.pi_hash)?;
+                    let proof_evals = ProofScalarsVarNative::from_struct(&proof, pi_hash)?;
                     Ok((proof_evals, proof))
                 })
                 .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
@@ -932,8 +935,9 @@ mod tests {
             let output_var_pairs = outputs
                 .iter()
                 .map(|output| {
-                    let proof_evals = ProofScalarsVarNative::from_struct(output, &mut scalars_verifier_circuit)?;
                     let proof = ProofVarNative::from_struct(&output.proof, &mut scalars_verifier_circuit)?;
+                    let pi_hash = scalars_verifier_circuit.create_variable(output.pi_hash)?;
+                    let proof_evals = ProofScalarsVarNative::from_struct(&proof, pi_hash)?;
                     Ok((proof_evals, proof))
                 })
                 .collect::<Result<Vec<(ProofScalarsVarNative, ProofVarNative<BnConfig>)>, CircuitError>>()?;
