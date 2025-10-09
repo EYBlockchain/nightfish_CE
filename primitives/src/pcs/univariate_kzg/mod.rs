@@ -526,87 +526,87 @@ impl UnivariateKzgPCS<Bn254> {
     ///   2) Try to load cache; validate header; deserialize params.
     ///   3) On miss or validation failure, derive via `universal_setup_bn254`,
     ///      then write cache atomically and return.
-    // pub fn universal_setup_bn254_cached(
-    //     ptau_file: &Path,
-    //     max_degree: usize,
-    //     cache_dir: &Path,
-    // ) -> Result<UnivariateUniversalParams<Bn254>, PCSError> {
-    //     // Ensure cache dir
-    //     fs::create_dir_all(cache_dir)
-    //         .map_err(|e| PCSError::InvalidParameters(format!("cache dir error: {e}")))?;
+    pub fn universal_setup_bn254_cached(
+        ptau_file: &Path,
+        max_degree: usize,
+        cache_dir: &Path,
+    ) -> Result<UnivariateUniversalParams<Bn254>, PCSError> {
+        // Ensure cache dir
+        fs::create_dir_all(cache_dir)
+            .map_err(|e| PCSError::InvalidParameters(format!("cache dir error: {e}")))?;
 
-    //     // Bind cache identity to the exact PTAU content
-    //     let (ptau_hash_bytes, ptau_hash_hex) = file_sha256(ptau_file)
-    //         .map_err(|e| PCSError::InvalidParameters(format!("ptau sha256: {e}")))?;
+        // Bind cache identity to the exact PTAU content
+        let (ptau_hash_bytes, ptau_hash_hex) = file_sha256(ptau_file)
+            .map_err(|e| PCSError::InvalidParameters(format!("ptau sha256: {e}")))?;
 
-    //     let cache_path = cache_dir.join(format!(
-    //         "kzg_srs_bn254_deg{}_ptau_{}.bin",
-    //         max_degree,
-    //         &ptau_hash_hex[..16] // short prefix for readability
-    //     ));
+        let cache_path = cache_dir.join(format!(
+            "kzg_srs_bn254_deg{}_ptau_{}.bin",
+            max_degree,
+            &ptau_hash_hex[..16] // short prefix for readability
+        ));
 
-    //     // Try loading from cache
-    //     if let Ok(mut f) = fs::File::open(&cache_path) {
-    //         if let Ok(header) = KzgCacheHeader::read_from(&mut f) {
-    //             if header.version == KZG_CACHE_FORMAT_VERSION
-    //                 && header.max_degree as usize == max_degree
-    //                 && &header.curve_id == b"bn254\0\0\0"
-    //                 && header.ptau_sha256 == ptau_hash_bytes
-    //             {
-    //                 let mut payload = Vec::new();
-    //                 if let Err(e) = f.read_to_end(&mut payload) {
-    //                     error!("KZG cache read error (fallback to rebuild): {:?}", e);
-    //                 } else {
-    //                     match UnivariateUniversalParams::<Bn254>::deserialize_with_mode(
-    //                         &*payload,
-    //                         Compress::Yes,
-    //                         Validate::Yes,
-    //                     ) {
-    //                         Ok(params) => return Ok(params),
-    //                         Err(e) => {
-    //                             error!("KZG cache decode error (fallback): {:?}", e);
-    //                         },
-    //                     }
-    //                 }
-    //             }
-    //         } else {
-    //             error!("KZG cache header parse error (fallback).");
-    //         }
-    //     }
+        // Try loading from cache
+        if let Ok(mut f) = fs::File::open(&cache_path) {
+            if let Ok(header) = KzgCacheHeader::read_from(&mut f) {
+                if header.version == KZG_CACHE_FORMAT_VERSION
+                    && header.max_degree as usize == max_degree
+                    && &header.curve_id == b"bn254\0\0\0"
+                    && header.ptau_sha256 == ptau_hash_bytes
+                {
+                    let mut payload = Vec::new();
+                    if let Err(e) = f.read_to_end(&mut payload) {
+                        error!("KZG cache read error (fallback to rebuild): {:?}", e);
+                    } else {
+                        match UnivariateUniversalParams::<Bn254>::deserialize_with_mode(
+                            &*payload,
+                            Compress::Yes,
+                            Validate::Yes,
+                        ) {
+                            Ok(params) => return Ok(params),
+                            Err(e) => {
+                                error!("KZG cache decode error (fallback): {:?}", e);
+                            },
+                        }
+                    }
+                }
+            } else {
+                error!("KZG cache header parse error (fallback).");
+            }
+        }
 
-    //     // Miss or invalid cache → derive once from PTAU
-    //     let params = Self::universal_setup_bn254(&ptau_file.to_path_buf(), max_degree)?;
+        // Miss or invalid cache → derive once from PTAU
+        let params = Self::universal_setup_bn254(&ptau_file.to_path_buf(), max_degree)?;
 
-    //     // Serialize and write atomically
-    //     let tmp = cache_path.with_extension("tmp");
-    //     {
-    //         let mut w = fs::File::create(&tmp)
-    //             .map_err(|e| PCSError::InvalidParameters(format!("cache create: {e}")))?;
-    //         let header = KzgCacheHeader {
-    //             magic: *b"KZGSRS\0\0",
-    //             version: KZG_CACHE_FORMAT_VERSION,
-    //             max_degree: max_degree as u32,
-    //             curve_id: *b"bn254\0\0\0",
-    //             ptau_sha256: ptau_hash_bytes,
-    //         };
-    //         header
-    //             .write_to(&mut w)
-    //             .map_err(|e| PCSError::InvalidParameters(format!("cache header write: {e}")))?;
+        // Serialize and write atomically
+        let tmp = cache_path.with_extension("tmp");
+        {
+            let mut w = fs::File::create(&tmp)
+                .map_err(|e| PCSError::InvalidParameters(format!("cache create: {e}")))?;
+            let header = KzgCacheHeader {
+                magic: *b"KZGSRS\0\0",
+                version: KZG_CACHE_FORMAT_VERSION,
+                max_degree: max_degree as u32,
+                curve_id: *b"bn254\0\0\0",
+                ptau_sha256: ptau_hash_bytes,
+            };
+            header
+                .write_to(&mut w)
+                .map_err(|e| PCSError::InvalidParameters(format!("cache header write: {e}")))?;
 
-    //         let mut buf = Vec::new();
-    //         params
-    //             .serialize_with_mode(&mut buf, Compress::Yes)
-    //             .map_err(|e| PCSError::InvalidParameters(format!("params serialize: {e}")))?;
-    //         w.write_all(&buf)
-    //             .map_err(|e| PCSError::InvalidParameters(format!("cache payload write: {e}")))?;
-    //         w.flush()
-    //             .map_err(|e| PCSError::InvalidParameters(format!("cache flush: {e}")))?;
-    //     }
-    //     fs::rename(&tmp, &cache_path)
-    //         .map_err(|e| PCSError::InvalidParameters(format!("cache rename: {e}")))?;
+            let mut buf = Vec::new();
+            params
+                .serialize_with_mode(&mut buf, Compress::Yes)
+                .map_err(|e| PCSError::InvalidParameters(format!("params serialize: {e}")))?;
+            w.write_all(&buf)
+                .map_err(|e| PCSError::InvalidParameters(format!("cache payload write: {e}")))?;
+            w.flush()
+                .map_err(|e| PCSError::InvalidParameters(format!("cache flush: {e}")))?;
+        }
+        fs::rename(&tmp, &cache_path)
+            .map_err(|e| PCSError::InvalidParameters(format!("cache rename: {e}")))?;
 
-    //     Ok(params)
-    // }
+        Ok(params)
+    }
 
     /// Specialized implementation of universal_setup for BN254
     pub fn universal_setup_bn254(
@@ -1064,67 +1064,67 @@ mod tests {
         dir
     }
 
-    // #[test]
-    // #[ignore] // real network + large parse; unignore when running locally
-    // fn cached_params_roundtrip_equals_original() {
-    //     // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
-    //     let bin_dir = new_tmpdir();
-    //     let ptau_path = bin_dir.join("ppot_7.ptau");
+    #[test]
+    #[ignore] // real network + large parse; unignore when running locally
+    fn cached_params_roundtrip_equals_original() {
+        // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
+        let bin_dir = new_tmpdir();
+        let ptau_path = bin_dir.join("ppot_7.ptau");
 
-    //     // Clean slate
-    //     let _ = fs::remove_file(&ptau_path);
+        // Clean slate
+        let _ = fs::remove_file(&ptau_path);
 
-    //     // 1) Download a verified PTAU(07). Function auto-heals corrupt files.
-    //     UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
-    //         .expect("PTAU download/verify should succeed");
+        // 1) Download a verified PTAU(07). Function auto-heals corrupt files.
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+            .expect("PTAU download/verify should succeed");
 
-    //     // Universal setup expects the actual 'max_degree' (number of powers), not the label.
-    //     let max_degree = 1usize << 7;
+        // Universal setup expects the actual 'max_degree' (number of powers), not the label.
+        let max_degree = 1usize << 7;
 
-    //     // 2) First load: derives the params from the real PTAU and writes the cache
-    //     let params1 = UnivariateKzgPCS::<Bn254>::universal_setup_bn254_cached(
-    //         &ptau_path, max_degree, &bin_dir,
-    //     )
-    //     .expect("first cached load should succeed and write cache");
+        // 2) First load: derives the params from the real PTAU and writes the cache
+        let params1 = UnivariateKzgPCS::<Bn254>::universal_setup_bn254_cached(
+            &ptau_path, max_degree, &bin_dir,
+        )
+        .expect("first cached load should succeed and write cache");
 
-    //     // Locate the cache file to check it won't be rewritten on a cache hit
-    //     let (_sha_bytes, sha_hex) = super::file_sha256(&ptau_path).expect("sha256 of PTAU");
-    //     let cache_path = bin_dir.join(format!(
-    //         "kzg_srs_bn254_deg{}_ptau_{}.bin",
-    //         max_degree,
-    //         &sha_hex[..16]
-    //     ));
-    //     let meta1 = fs::metadata(&cache_path).expect("cache file exists after first load");
-    //     let mtime1 = meta1.modified().expect("mtime supported");
+        // Locate the cache file to check it won't be rewritten on a cache hit
+        let (_sha_bytes, sha_hex) = super::file_sha256(&ptau_path).expect("sha256 of PTAU");
+        let cache_path = bin_dir.join(format!(
+            "kzg_srs_bn254_deg{}_ptau_{}.bin",
+            max_degree,
+            &sha_hex[..16]
+        ));
+        let meta1 = fs::metadata(&cache_path).expect("cache file exists after first load");
+        let mtime1 = meta1.modified().expect("mtime supported");
 
-    //     // Avoid coarse FS timestamp issues
-    //     std::thread::sleep(std::time::Duration::from_secs(1));
+        // Avoid coarse FS timestamp issues
+        std::thread::sleep(std::time::Duration::from_secs(1));
 
-    //     // 3) Second load: must hit the cache (no rebuild / no rewrite)
-    //     let params2 = UnivariateKzgPCS::<Bn254>::universal_setup_bn254_cached(
-    //         &ptau_path, max_degree, &bin_dir,
-    //     )
-    //     .expect("second cached load should succeed from cache");
+        // 3) Second load: must hit the cache (no rebuild / no rewrite)
+        let params2 = UnivariateKzgPCS::<Bn254>::universal_setup_bn254_cached(
+            &ptau_path, max_degree, &bin_dir,
+        )
+        .expect("second cached load should succeed from cache");
 
-    //     // 4) Assert exact equality of all fields
-    //     assert_eq!(
-    //         params1.powers_of_g, params2.powers_of_g,
-    //         "powers_of_g differ"
-    //     );
-    //     assert_eq!(params1.h, params2.h, "h differs");
-    //     assert_eq!(params1.beta_h, params2.beta_h, "beta_h differs");
+        // 4) Assert exact equality of all fields
+        assert_eq!(
+            params1.powers_of_g, params2.powers_of_g,
+            "powers_of_g differ"
+        );
+        assert_eq!(params1.h, params2.h, "h differs");
+        assert_eq!(params1.beta_h, params2.beta_h, "beta_h differs");
 
-    //     // 5) Cache file should not have been rewritten on the second call
-    //     let mtime2 = fs::metadata(&cache_path)
-    //         .expect("cache file still exists")
-    //         .modified()
-    //         .expect("mtime supported");
-    //     assert_eq!(
-    //         mtime1, mtime2,
-    //         "cache mtime changed; second load should not rewrite"
-    //     );
-    //     // tidy up
-    //     let _ = fs::remove_file(&ptau_path);
-    //     let _ = fs::remove_file(&cache_path);
-    // }
+        // 5) Cache file should not have been rewritten on the second call
+        let mtime2 = fs::metadata(&cache_path)
+            .expect("cache file still exists")
+            .modified()
+            .expect("mtime supported");
+        assert_eq!(
+            mtime1, mtime2,
+            "cache mtime changed; second load should not rewrite"
+        );
+        // tidy up
+        let _ = fs::remove_file(&ptau_path);
+        let _ = fs::remove_file(&cache_path);
+    }
 }
