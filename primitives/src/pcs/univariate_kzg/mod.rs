@@ -24,6 +24,7 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate
 use ark_std::{
     borrow::Borrow,
     end_timer, format, fs,
+    fs::File,
     hash::Hash,
     io,
     marker::PhantomData,
@@ -46,11 +47,44 @@ use srs::{UnivariateProverParam, UnivariateUniversalParams, UnivariateVerifierPa
 
 use super::Accumulation;
 use ark_serialize::{Read, Write};
+use ark_std::boxed::Box;
 use log::{error, warn};
+use memmap2::MmapOptions;
+use thiserror::Error;
+
+type KzgResult<T> = core::result::Result<T, KzgError>;
 
 pub mod ptau;
 pub mod ptau_digests;
 pub(crate) mod srs;
+
+/// Domain error type for KZG/PTAU I/O and validation in this module.
+#[derive(Debug, Error)]
+pub enum KzgError {
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+    #[error("no embedded SHA-256 for label {0}")]
+    MissingDigest(String),
+    #[error("checksum mismatch (expected {expected}, got {actual}) at {path}")]
+    ChecksumMismatch {
+        expected: String,
+        actual: String,
+        path: PathBuf,
+    },
+    #[error("PTAU checksum mismatch for freshly downloaded file (label {label})")]
+    DownloadedChecksumMismatch {
+        label: String,
+        #[source]
+        source: Box<KzgError>,
+    },
+    #[error("bad KZG SRS cache: {0}")]
+    BadCache(&'static str),
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
 /// KZG Polynomial Commitment Scheme on univariate polynomial.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnivariateKzgPCS<E: Pairing> {
@@ -453,6 +487,19 @@ use ark_bn254::{g1::Config as Bn254ConfigOne, g2::Config as Bn254ConfigTwo, Fq};
 
 const KZG_CACHE_FORMAT_VERSION: u32 = 1;
 
+/// Fixed-size header placed at the beginning of every KZG SRS cache file.
+///
+/// It records metadata that uniquely identifies and validates the cache:
+/// - Ensures the cache was derived from the correct **PTAU file** (via `ptau_sha256`)
+/// - Confirms the **curve** and **max_degree** match the expected setup
+/// - Protects against format drift (via `version` and `magic`)
+///
+/// Layout (little-endian):
+/// ```text
+/// [magic][version][max_degree][curve_id][ptau_sha256][payload...]
+/// ```
+///
+/// `payload` = serialized `UnivariateUniversalParams<Bn254>`.
 #[derive(Debug)]
 struct KzgCacheHeader {
     magic: [u8; 8], // b"KZGSRS\0\0"
@@ -503,11 +550,16 @@ impl KzgCacheHeader {
 }
 
 /// Compute SHA-256 (raw bytes + hex) of a file; we bind cache to the exact PTAU.
-fn file_sha256(path: &Path) -> Result<([u8; 32], String), io::Error> {
-    let mut f = fs::File::open(path)?;
+#[cfg(unix)]
+pub fn file_sha256(path: &Path) -> KzgResult<([u8; 32], String)> {
+    let f = File::open(path)?;
+    // SAFETY: read-only mapping of a file we keep open for the lifetime of `mmap`.
+    let mmap = unsafe { MmapOptions::new().map(&f)? };
+
     let mut h = Sha256::new();
-    io::copy(&mut f, &mut h)?;
+    h.update(&mmap);
     let raw = h.finalize();
+
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&raw);
     Ok((arr, hex::encode(raw)))
@@ -562,9 +614,41 @@ impl UnivariateKzgPCS<Bn254> {
                             Compress::Yes,
                             Validate::Yes,
                         ) {
-                            Ok(params) => return Ok(params),
+                            Ok(params) => {
+                                // Sanity checks before accepting the cache hit
+                                let ok_len = params.powers_of_g.len() == max_degree;
+                                let ok_nonempty = !params.powers_of_g.is_empty();
+                                let ok_g_nonzero = params.powers_of_g.iter().all(|g| !g.is_zero());
+                                let ok_h = !params.h.is_zero();
+                                let ok_beta_h = !params.beta_h.is_zero();
+                                // Optional: beta_h should differ from h for a valid toxic-waste relation
+                                // (not strictly required but good to sanity-check)
+                                let ok_relation = params.beta_h != params.h;
+
+                                if ok_len
+                                    && ok_nonempty
+                                    && ok_g_nonzero
+                                    && ok_h
+                                    && ok_beta_h
+                                    && ok_relation
+                                {
+                                    return Ok(params);
+                                } else {
+                                    error!(
+                "KZG cache sanity check failed (len={}, expected={}, nonzero_g={}, h_zero={}, beta_h_zero={}, beta_eq_h={}) — rebuilding.",
+                params.powers_of_g.len(),
+                max_degree,
+                ok_g_nonzero,
+                !ok_h,
+                !ok_beta_h,
+                !ok_relation
+            );
+                                    // fall through to rebuild from PTAU
+                                }
+                            },
                             Err(e) => {
                                 error!("KZG cache decode error (fallback): {:?}", e);
+                                // fall through to rebuild from PTAU
                             },
                         }
                     }
@@ -631,37 +715,26 @@ impl UnivariateKzgPCS<Bn254> {
     /// Download a PPoT (pot28_0080) PTAU file for BN254 and verify integrity
     /// against the canonical digest table in `ptau_digests.rs`.
     /// Nightfall supports only max_degree <= 26 (2^26).
-    pub fn download_ptau_file_if_needed(
-        max_degree: usize,
-        ptau_file: &PathBuf,
-    ) -> Result<(), io::Error> {
+    pub fn download_ptau_file_if_needed(max_degree: usize, ptau_file: &PathBuf) -> KzgResult<()> {
         // Map degree -> server label
         let degree_label = match max_degree {
             0 => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "max_degree must be >= 1; got 0",
-                ))
+                return Err(KzgError::InvalidInput(
+                    "max_degree must be >= 1; got 0".to_string(),
+                ));
             },
             1..=26 => format!("{:02}", max_degree),
             _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "max_degree {} exceeds supported range (Nightfall supports only up to 26)",
-                        max_degree
-                    ),
-                ))
+                return Err(KzgError::InvalidInput(format!(
+                    "max_degree {} exceeds supported range (Nightfall supports only up to 26)",
+                    max_degree
+                )))
             },
         };
 
         // Lookup canonical expected hash from the embedded table
-        let expected_hex = expected_sha256_for_label(&degree_label).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("No embedded SHA-256 for label {}", degree_label),
-            )
-        })?;
+        let expected_hex = expected_sha256_for_label(&degree_label)
+            .ok_or_else(|| KzgError::MissingDigest(degree_label.clone()))?;
 
         // If a file already exists but the checksum is wrong, delete it and continue as if missing.
         if fs::metadata(ptau_file).is_ok() {
@@ -687,7 +760,7 @@ impl UnivariateKzgPCS<Bn254> {
 
         // Prepare temp path for atomic move
         let parent = ptau_file.parent().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::Other, "Invalid ptau_file path (no parent)")
+            KzgError::InvalidInput("Invalid ptau_file path (no parent)".to_string())
         })?;
         fs::create_dir_all(parent)?;
         let tmp_path = parent.join(format!(
@@ -696,8 +769,7 @@ impl UnivariateKzgPCS<Bn254> {
         ));
 
         // Download to temp
-        let mut response = reqwest::blocking::get(&url)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("HTTP error: {}", e)))?;
+        let mut response = reqwest::blocking::get(&url)?;
         {
             let mut tmp_file = fs::File::create(&tmp_path)?;
             io::copy(&mut response, &mut tmp_file)?;
@@ -706,13 +778,11 @@ impl UnivariateKzgPCS<Bn254> {
         // Verify temp file against embedded digest; delete on mismatch
         if let Err(e) = Self::verify_ptau_checksum_against_label(tmp_path.as_path(), expected_hex) {
             let _ = fs::remove_file(&tmp_path);
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "PTAU checksum mismatch for freshly downloaded file (label {}): {}",
-                    degree_label, e
-                ),
-            ));
+
+            return Err(KzgError::DownloadedChecksumMismatch {
+                label: degree_label,
+                source: Box::new(e),
+            });
         }
 
         // Atomic move into place (verified)
@@ -721,25 +791,15 @@ impl UnivariateKzgPCS<Bn254> {
     }
 
     /// Compute SHA-256 of `path` and compare with the expected hex digest.
-    fn verify_ptau_checksum_against_label(
-        path: &Path,
-        expected_hex: &str,
-    ) -> Result<(), io::Error> {
-        let mut file = fs::File::open(path)?;
-        let mut hasher = Sha256::new();
-        io::copy(&mut file, &mut hasher)?;
-        let actual = hex::encode(hasher.finalize());
+    fn verify_ptau_checksum_against_label(path: &Path, expected_hex: &str) -> KzgResult<()> {
+        let (_raw, actual_hex) = file_sha256(path)?;
 
-        if actual != expected_hex {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                format!(
-                    "checksum mismatch (expected {}, got {}) at {}",
-                    expected_hex,
-                    actual,
-                    path.display()
-                ),
-            ));
+        if actual_hex != expected_hex {
+            return Err(KzgError::ChecksumMismatch {
+                expected: expected_hex.to_string(),
+                actual: actual_hex,
+                path: path.to_path_buf(),
+            });
         }
         Ok(())
     }
@@ -993,7 +1053,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn ptau_is_broken_before_second_run_recovers_by_redownloading() {
         // Arrange: pick a unique temp directory to avoid polluting the repo
         let bin_dir = new_tmpdir();
@@ -1065,7 +1124,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // real network + large parse; unignore when running locally
     fn cached_params_roundtrip_equals_original() {
         // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
         let bin_dir = new_tmpdir();

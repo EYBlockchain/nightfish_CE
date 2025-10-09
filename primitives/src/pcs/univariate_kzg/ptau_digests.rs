@@ -89,8 +89,6 @@
 ///   trust; the binary verifies downloads against these digests on every run.
 /// * For ad-hoc testing or alternative ceremonies, an environment override
 ///   is supported (e.g., `NIGHTFALL_PTAU_SHA256_07` or `NIGHTFALL_PTAU_SHA256_FINAL`).
-/// * When upstream rotates artifacts, re-run the workflow, update this table,
-///   and commit the change. Consider signing the release/tag that updates it.
 // -> https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_01.ptau
 // 01 c6874ee66aed417f1c6e8472f0851ae3125756c5855b7254f58e6c08b3fa6056
 // -> https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_02.ptau
