@@ -5,16 +5,10 @@
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
 //! Main module for univariate KZG commitment scheme
-use ark_std::path::Path;
-use ark_std::string::String;
-
-use ark_std::{fs, io, path::PathBuf};
-use sha2::{Digest, Sha256};
-
 use crate::{
     pcs::{
-        poly::GeneralDensePolynomial, PCSError, PolynomialCommitmentScheme,
-        StructuredReferenceString, UnivariatePCS,
+        poly::GeneralDensePolynomial, univariate_kzg::ptau_digests::expected_sha256_for_label,
+        PCSError, PolynomialCommitmentScheme, StructuredReferenceString, UnivariatePCS,
     },
     toeplitz::ToeplitzMatrix,
 };
@@ -29,12 +23,16 @@ use ark_poly::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use ark_std::{
     borrow::Borrow,
-    end_timer, format,
+    end_timer, format, fs,
     hash::Hash,
+    io,
     marker::PhantomData,
     ops::Mul,
+    path::Path,
+    path::PathBuf,
     rand::{CryptoRng, RngCore},
     start_timer,
+    string::String,
     string::ToString,
     vec,
     vec::Vec,
@@ -43,14 +41,13 @@ use ark_std::{
 use jf_utils::par_utils::parallelizable_slice_iter;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+use sha2::{Digest, Sha256};
 use srs::{UnivariateProverParam, UnivariateUniversalParams, UnivariateVerifierParam};
 
 use super::Accumulation;
-use ark_serialize::Read;
-use ark_serialize::Write;
-
-use crate::pcs::univariate_kzg::ptau_digests::expected_sha256_for_label;
+use ark_serialize::{Read, Write};
 use log::{error, warn};
+
 pub mod ptau;
 pub mod ptau_digests;
 pub(crate) mod srs;
