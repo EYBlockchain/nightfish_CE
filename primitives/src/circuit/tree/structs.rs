@@ -1,7 +1,7 @@
 //! Circuit version of various merkle tree related structs that we require.
 
 use ark_ff::PrimeField;
-use ark_std::{string::ToString, vec, vec::Vec};
+use ark_std::{format, string::ToString, vec, vec::Vec};
 use jf_relation::{errors::CircuitError, BoolVar, Circuit, PlonkCircuit, Variable};
 
 use crate::{
@@ -84,6 +84,44 @@ impl MembershipProofVar {
             .map(|path_element| PathElementVar::from_path_element(circuit, path_element))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Self::new(path_elements))
+    }
+
+    /// Create a new membership proof variable from a vector of variables.
+    pub fn from_vars<F: PrimeField>(
+        circuit: &mut PlonkCircuit<F>,
+        vars: &[Variable],
+    ) -> Result<Self, CircuitError> {
+        if vars.len() < 4 {
+            return Err(CircuitError::ParameterError(format!(
+                "Vector of vars length: ({}) must be at least 4",
+                vars.len(),
+            )));
+        }
+        if vars.len() % 2 != 0 {
+            return Err(CircuitError::ParameterError(format!(
+                "Vector of vars length: ({}) should be even",
+                vars.len(),
+            )));
+        }
+
+        let mut path_elements = Vec::new();
+        // We skip the first `var`, as it represents the value of the MembershipProof,
+        // which is not a part of MembershipProofVar
+        let path_vars = vars[1..vars.len() - 1].to_vec();
+        for chunk in path_vars.chunks_exact(2) {
+            let direction_var = chunk[0];
+            circuit.enforce_bool(direction_var)?;
+
+            let value_var = chunk[1];
+
+            let path_element_var = PathElementVar {
+                direction: BoolVar(direction_var),
+                value: value_var,
+            };
+            path_elements.push(path_element_var);
+        }
+
+        Ok(MembershipProofVar { path_elements })
     }
 
     /// Verifies a membership proof against a supplied value and root.
@@ -170,6 +208,39 @@ impl CircuitInsertionInfoVar {
         let proof =
             MembershipProofVar::from_membership_proof(circuit, &circuit_insertion_info.proof)?;
         Ok(Self::new(old_root, new_root, leaves, proof))
+    }
+
+    /// Create a new circuit insertion info variable from a slice of variables. Here `height` is the height of the tree.
+    pub fn from_vars<F: PrimeField>(
+        circuit: &mut PlonkCircuit<F>,
+        vars: &[Variable],
+        height: usize,
+    ) -> Result<Self, CircuitError> {
+        // The length of the `vars` vector should be at least 5 + height * 2.
+        if vars.len() < 5 + height * 2 {
+            return Err(CircuitError::ParameterError(format!(
+                "Length of vars: ({}) must be at least 5 + 2 * height ({})",
+                vars.len(),
+                height,
+            )));
+        }
+        let old_root = vars[0];
+        let new_root = vars[1];
+
+        // We can calculate the number of leaves because the last 2 + height * 2 elements are the membership proof.
+        let membership_proof_size = 2 + height * 2;
+        let leaves = vars[3..vars.len() - membership_proof_size].to_vec();
+
+        let proof = MembershipProofVar::from_vars(
+            circuit,
+            &vars[(vars.len() - membership_proof_size)..vars.len()],
+        )?;
+        Ok(CircuitInsertionInfoVar {
+            old_root,
+            new_root,
+            leaves,
+            proof,
+        })
     }
 
     /// Verifies an insertion into a tree using supplied [`CircuitInsertionInfo`].
@@ -266,6 +337,16 @@ impl LeafDBEntryVar {
         Ok(Self::new(value, index, next_index, next_value))
     }
 
+    /// Create a new leaf database entry variable from a slice of variables.
+    pub fn from_vars(vars: &[Variable]) -> Result<Self, CircuitError> {
+        if vars.len() != 4 {
+            return Err(CircuitError::ParameterError(
+                "Vector of vars length should be 4".to_string(),
+            ));
+        }
+        Ok(Self::new(vars[0], vars[1], vars[2], vars[3]))
+    }
+
     /// Hashes the variable.
     pub fn hash<F: PoseidonParams>(
         &self,
@@ -354,6 +435,71 @@ impl IMTCircuitInsertionInfoVar {
             low_nullifiers,
             pending_inserts,
         ))
+    }
+
+    /// Create a new IMT circuit insertion info variable from a vector of variables.
+    pub fn from_vars<F: PrimeField>(
+        circuit: &mut PlonkCircuit<F>,
+        vars: &[Variable],
+        height: usize,
+        no_leaves: usize,
+    ) -> Result<Self, CircuitError> {
+        if no_leaves == 0 {
+            return Err(CircuitError::ParameterError(
+                "no_leaves must be non-zero".to_string(),
+            ));
+        }
+        if height <= no_leaves.ilog2() as usize {
+            return Err(CircuitError::ParameterError(
+                "height must be greater than log2(no_leaves)".to_string(),
+            ));
+        }
+        let circuit_info_height = height - no_leaves.ilog2() as usize;
+        let circuit_info_length = 3 + no_leaves + 2 + 2 * circuit_info_height;
+        let low_nullifiers_length = (6 + 2 * height) * no_leaves;
+        if vars.len() != 2 + circuit_info_length + low_nullifiers_length + 4 * no_leaves {
+            return Err(CircuitError::ParameterError(format!(
+                "Vector of vars length is of length {}, while required length is {}",
+                vars.len(),
+                2 + circuit_info_length + low_nullifiers_length + 4 * no_leaves,
+            )));
+        }
+
+        let old_root = vars[0];
+
+        let circuit_info = CircuitInsertionInfoVar::from_vars(
+            circuit,
+            &vars[1..1 + circuit_info_length],
+            circuit_info_height,
+        )?;
+        let first_index = vars[1 + circuit_info_length];
+
+        let mut low_nullifiers = vec![];
+        vars[2 + circuit_info_length..2 + circuit_info_length + low_nullifiers_length]
+            .chunks(6 + 2 * height)
+            .try_for_each(|chunk| {
+                let entry = LeafDBEntryVar::from_vars(&chunk[..4])?;
+                let proof = MembershipProofVar::from_vars(circuit, &chunk[4..])?;
+                low_nullifiers.push((entry, proof));
+                Result::<(), CircuitError>::Ok(())
+            })?;
+
+        let mut pending_inserts = vec![];
+        vars[2 + circuit_info_length + low_nullifiers_length..]
+            .chunks(4)
+            .try_for_each(|chunk| {
+                let entry = LeafDBEntryVar::from_vars(chunk)?;
+                pending_inserts.push(entry);
+                Result::<(), CircuitError>::Ok(())
+            })?;
+
+        Ok(IMTCircuitInsertionInfoVar {
+            old_root,
+            circuit_info,
+            first_index,
+            low_nullifiers,
+            pending_inserts,
+        })
     }
 
     /// Verify the insertion of a subtree into an Indexed Merkle Tree is correct.
@@ -580,6 +726,388 @@ mod tests {
     };
     use ark_bn254::Fr as Fr254;
     use ark_std::{collections::HashMap, rand::seq::SliceRandom, UniformRand};
+
+    #[test]
+    fn test_membership_proof_from_vars() {
+        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut rng = ark_std::test_rng();
+        let poseidon = Poseidon::<Fr254>::new();
+        let mut tree = Timber::new(poseidon, 32);
+        let mut proofs = Vec::new();
+        let leaves: Vec<Fr254> = (0..48).map(|_| Fr254::rand(&mut rng)).collect();
+        tree.insert_leaves(&leaves).unwrap();
+        for (i, leaf) in leaves.iter().enumerate() {
+            let sibling_path = get_node_sibling_path(&tree.tree, 32, i, tree.get_tree_hasher());
+            let proof = MembershipProof {
+                sibling_path,
+                node_value: *leaf,
+                leaf_index: i,
+            };
+            proofs.push(proof);
+        }
+
+        for proof in proofs.iter() {
+            let field_elems = Vec::from(proof);
+            let vars = field_elems
+                .iter()
+                .map(|&elem| circuit.create_variable(elem))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+                .unwrap();
+
+            let proof_var_from_proof =
+                MembershipProofVar::from_membership_proof(&mut circuit, proof).unwrap();
+
+            let proof_var = MembershipProofVar::from_vars(&mut circuit, &vars).unwrap();
+
+            assert_eq!(
+                proof_var.path_elements.len(),
+                proof_var_from_proof.path_elements.len()
+            );
+
+            for (path_var, path_var_from_proof) in proof_var
+                .path_elements
+                .iter()
+                .zip(proof_var_from_proof.path_elements.iter())
+            {
+                assert_eq!(
+                    circuit.witness(path_var.direction.0).unwrap(),
+                    circuit.witness(path_var_from_proof.direction.0).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(path_var.value).unwrap(),
+                    circuit.witness(path_var_from_proof.value).unwrap()
+                );
+            }
+        }
+        circuit.check_circuit_satisfiability(&[]).unwrap();
+    }
+
+    #[test]
+    fn test_circuit_insertion_info_from_vars() {
+        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut rng = ark_std::test_rng();
+        for _ in 0..25 {
+            let poseidon = Poseidon::<Fr254>::new();
+            let mut tree = Timber::new(poseidon, 32);
+            let start_amount = usize::rand(&mut rng) % 2usize.pow(10);
+            let leaves: Vec<Fr254> = (0..start_amount).map(|_| Fr254::rand(&mut rng)).collect();
+
+            let subtree_leaves: Vec<Fr254> = (0..8).map(|_| Fr254::rand(&mut rng)).collect();
+            tree.insert_leaves(&leaves).unwrap();
+
+            let circuit_insertion_info = tree.insert_for_circuit(&subtree_leaves).unwrap();
+            let field_elems = Vec::from(&circuit_insertion_info);
+            let vars = field_elems
+                .iter()
+                .map(|&elem| circuit.create_variable(elem))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+                .unwrap();
+            let circuit_insertion_info_var =
+                CircuitInsertionInfoVar::from_vars(&mut circuit, &vars, 32 - 3).unwrap();
+            let circuit_insertion_info_var_from_info =
+                CircuitInsertionInfoVar::from_circuit_insertion_info(
+                    &mut circuit,
+                    &circuit_insertion_info,
+                )
+                .unwrap();
+            assert_eq!(
+                circuit
+                    .witness(circuit_insertion_info_var.old_root)
+                    .unwrap(),
+                circuit
+                    .witness(circuit_insertion_info_var_from_info.old_root)
+                    .unwrap()
+            );
+            assert_eq!(
+                circuit
+                    .witness(circuit_insertion_info_var.new_root)
+                    .unwrap(),
+                circuit
+                    .witness(circuit_insertion_info_var_from_info.new_root)
+                    .unwrap()
+            );
+            assert_eq!(
+                circuit_insertion_info_var.leaves.len(),
+                circuit_insertion_info_var_from_info.leaves.len()
+            );
+            for (leaf, leaf_from_info) in circuit_insertion_info_var
+                .leaves
+                .iter()
+                .zip(circuit_insertion_info_var_from_info.leaves.iter())
+            {
+                assert_eq!(
+                    circuit.witness(*leaf).unwrap(),
+                    circuit.witness(*leaf_from_info).unwrap()
+                );
+            }
+            assert_eq!(
+                circuit_insertion_info_var.proof.path_elements.len(),
+                circuit_insertion_info_var_from_info
+                    .proof
+                    .path_elements
+                    .len()
+            );
+            for (path_var, path_var_from_info) in
+                circuit_insertion_info_var.proof.path_elements.iter().zip(
+                    circuit_insertion_info_var_from_info
+                        .proof
+                        .path_elements
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(path_var.direction.0).unwrap(),
+                    circuit.witness(path_var_from_info.direction.0).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(path_var.value).unwrap(),
+                    circuit.witness(path_var_from_info.value).unwrap()
+                );
+            }
+        }
+        circuit.check_circuit_satisfiability(&[]).unwrap();
+    }
+
+    #[test]
+    fn test_imt_circuit_insertion_info_from_vars() {
+        let mut circuit = PlonkCircuit::<Fr254>::new_turbo_plonk();
+        let mut rng = ark_std::test_rng();
+        for _ in 0..25 {
+            let poseidon = Poseidon::<Fr254>::new();
+            let mut tree: IndexedMerkleTree<Fr254, Poseidon<Fr254>, HashMap<Fr254, LeafDBEntry<Fr254>>> = IndexedMerkleTree::<
+                Fr254,
+                Poseidon<Fr254>,
+                HashMap<Fr254, LeafDBEntry<Fr254>>,
+            >::new(poseidon, 32)
+            .unwrap();
+
+            let start_amount = u32::rand(&mut rng) % 2u32.pow(10);
+
+            let leaves: Vec<Fr254> = (0..start_amount).map(|_| Fr254::rand(&mut rng)).collect();
+
+            let subtree_leaves = (0..8)
+                .map(|j| {
+                    if j % 3 != 0 {
+                        Fr254::rand(&mut rng) + Fr254::from(start_amount)
+                    } else {
+                        Fr254::from(0u8)
+                    }
+                })
+                .collect::<Vec<Fr254>>();
+
+            tree.insert_leaves(&leaves).unwrap();
+
+            let imt_circuit_insertion_info = tree.insert_for_circuit(&subtree_leaves).unwrap();
+            let field_elems = Vec::from(&imt_circuit_insertion_info);
+
+            let vars = field_elems
+                .iter()
+                .map(|&elem| circuit.create_variable(elem))
+                .collect::<Result<Vec<Variable>, CircuitError>>()
+                .unwrap();
+            let imt_circuit_insertion_info_var =
+                IMTCircuitInsertionInfoVar::from_vars(&mut circuit, &vars, 32, 8).unwrap();
+            let imt_circuit_insertion_info_var_from_info =
+                IMTCircuitInsertionInfoVar::from_imt_circuit_insertion_info(
+                    &mut circuit,
+                    &imt_circuit_insertion_info,
+                )
+                .unwrap();
+
+            assert_eq!(
+                circuit
+                    .witness(imt_circuit_insertion_info_var.old_root)
+                    .unwrap(),
+                circuit
+                    .witness(imt_circuit_insertion_info_var_from_info.old_root)
+                    .unwrap(),
+            );
+
+            assert_eq!(
+                circuit
+                    .witness(imt_circuit_insertion_info_var.circuit_info.old_root)
+                    .unwrap(),
+                circuit
+                    .witness(
+                        imt_circuit_insertion_info_var_from_info
+                            .circuit_info
+                            .old_root
+                    )
+                    .unwrap()
+            );
+            assert_eq!(
+                circuit
+                    .witness(
+                        imt_circuit_insertion_info_var_from_info
+                            .circuit_info
+                            .new_root
+                    )
+                    .unwrap(),
+                circuit
+                    .witness(
+                        imt_circuit_insertion_info_var_from_info
+                            .circuit_info
+                            .new_root
+                    )
+                    .unwrap()
+            );
+            assert_eq!(
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .leaves
+                    .len(),
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .leaves
+                    .len()
+            );
+            for (leaf, leaf_from_info) in imt_circuit_insertion_info_var_from_info
+                .circuit_info
+                .leaves
+                .iter()
+                .zip(
+                    imt_circuit_insertion_info_var_from_info
+                        .circuit_info
+                        .leaves
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(*leaf).unwrap(),
+                    circuit.witness(*leaf_from_info).unwrap()
+                );
+            }
+            assert_eq!(
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .proof
+                    .path_elements
+                    .len(),
+                imt_circuit_insertion_info_var_from_info
+                    .circuit_info
+                    .proof
+                    .path_elements
+                    .len()
+            );
+            for (path_var, path_var_from_info) in imt_circuit_insertion_info_var_from_info
+                .circuit_info
+                .proof
+                .path_elements
+                .iter()
+                .zip(
+                    imt_circuit_insertion_info_var_from_info
+                        .circuit_info
+                        .proof
+                        .path_elements
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(path_var.direction.0).unwrap(),
+                    circuit.witness(path_var_from_info.direction.0).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(path_var.value).unwrap(),
+                    circuit.witness(path_var_from_info.value).unwrap()
+                );
+            }
+
+            assert_eq!(
+                circuit
+                    .witness(imt_circuit_insertion_info_var.first_index)
+                    .unwrap(),
+                circuit
+                    .witness(imt_circuit_insertion_info_var_from_info.first_index)
+                    .unwrap(),
+            );
+
+            assert_eq!(
+                imt_circuit_insertion_info_var.pending_inserts.len(),
+                imt_circuit_insertion_info_var_from_info
+                    .pending_inserts
+                    .len()
+            );
+            for (pending_insert, pending_insert_from_info) in
+                imt_circuit_insertion_info_var.pending_inserts.iter().zip(
+                    imt_circuit_insertion_info_var_from_info
+                        .pending_inserts
+                        .iter(),
+                )
+            {
+                assert_eq!(
+                    circuit.witness(pending_insert.value).unwrap(),
+                    circuit.witness(pending_insert_from_info.value).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(pending_insert.index).unwrap(),
+                    circuit.witness(pending_insert_from_info.index).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(pending_insert.next_index).unwrap(),
+                    circuit
+                        .witness(pending_insert_from_info.next_index)
+                        .unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(pending_insert.next_value).unwrap(),
+                    circuit
+                        .witness(pending_insert_from_info.next_value)
+                        .unwrap()
+                );
+            }
+
+            assert_eq!(
+                imt_circuit_insertion_info_var.low_nullifiers.len(),
+                imt_circuit_insertion_info_var_from_info
+                    .low_nullifiers
+                    .len()
+            );
+            for (
+                (leaf_db_entry, membership_proof),
+                (leaf_db_entry_from_info, membership_proof_from_info),
+            ) in imt_circuit_insertion_info_var.low_nullifiers.iter().zip(
+                imt_circuit_insertion_info_var_from_info
+                    .low_nullifiers
+                    .iter(),
+            ) {
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.value).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.value).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.index).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.index).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.next_index).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.next_index).unwrap()
+                );
+                assert_eq!(
+                    circuit.witness(leaf_db_entry.next_value).unwrap(),
+                    circuit.witness(leaf_db_entry_from_info.next_value).unwrap()
+                );
+                assert_eq!(
+                    membership_proof.path_elements.len(),
+                    membership_proof_from_info.path_elements.len()
+                );
+                for (path_var, path_var_from_info) in membership_proof
+                    .path_elements
+                    .iter()
+                    .zip(membership_proof_from_info.path_elements.iter())
+                {
+                    assert_eq!(
+                        circuit.witness(path_var.direction.0).unwrap(),
+                        circuit.witness(path_var_from_info.direction.0).unwrap()
+                    );
+                    assert_eq!(
+                        circuit.witness(path_var.value).unwrap(),
+                        circuit.witness(path_var_from_info.value).unwrap()
+                    );
+                }
+            }
+        }
+        circuit.check_circuit_satisfiability(&[]).unwrap();
+    }
 
     #[test]
     fn test_verify_membership_proof() {
