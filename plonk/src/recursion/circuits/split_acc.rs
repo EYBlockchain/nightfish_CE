@@ -189,7 +189,7 @@ impl SplitAccumulationInfo {
     pub fn verify_split_accumulation(
         &self,
         proof_vars: &[SAMLEProofVar<Zmorph>; 2],
-        accumulators: &[PCSWitness<Zmorph>; 4],
+        acc_point_vars: &[PointVariable; 4],
         deltas: &[Fq254],
         vk: &MLEVerifyingKey<Zmorph>,
         transcript: &mut RescueTranscriptVar<Fr254>,
@@ -277,12 +277,7 @@ impl SplitAccumulationInfo {
             .map(|f| circuit.create_emulated_variable(*f))
             .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
 
-        let acc_point_vars = accumulators
-            .iter()
-            .map(|acc| circuit.create_point_variable(&Point::<Fr254>::from(acc.comm)))
-            .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
-
-        let final_bases = [proof_msm_bases, acc_point_vars].concat();
+        let final_bases = [proof_msm_bases, acc_point_vars.into()].concat();
 
         let acc_com = EmulMultiScalarMultiplicationCircuit::<Fr254, SWGrumpkin>::msm(
             circuit,

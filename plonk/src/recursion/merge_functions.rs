@@ -1507,7 +1507,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 {
                     assert_eq!(
                         circuit.witness(pi_hash).unwrap(),
-                        fr_to_fq::<Fr254, SWGrumpkin>(&_grumpkin_pi_hash)
+                        fr_to_fq::<Fr254, SWGrumpkin>(_grumpkin_pi_hash)
                     );
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
@@ -1545,9 +1545,21 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             PlonkError::InvalidParameters(format!("expected 2 split-acc proofs, got {}", v.len()))
         })?;
 
+    let acc_comms: [PointVariable; 4] = acc_comms
+        .iter()
+        .map(|e| e.0)
+        .collect::<Vec<PointVariable>>()
+        .try_into()
+        .map_err(|v: Vec<PointVariable>| {
+            PlonkError::InvalidParameters(format!(
+                "expected 4 split-acc old accumulators, got {}",
+                v.len()
+            ))
+        })?;
+
     let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
         &split_acc_proofs,
-        &grumpkin_info.old_accumulators,
+        &acc_comms,
         &deltas,
         &pk_grumpkin.verifying_key,
         &mut transcript,
