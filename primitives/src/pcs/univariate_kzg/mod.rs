@@ -45,6 +45,7 @@ use super::Accumulation;
 
 pub mod ptau;
 pub(crate) mod srs;
+pub mod ptau_digests;
 /// KZG Polynomial Commitment Scheme on univariate polynomial.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnivariateKzgPCS<E: Pairing> {
