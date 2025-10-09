@@ -17,25 +17,28 @@ use crate::{
         },
         ipa_verifier::FFTVerifier,
     },
-    proof_system::{RecursiveOutput, UniversalSNARK},
+    proof_system::{RecursiveOutput, UniversalRecursiveSNARK, UniversalSNARK},
     transcript::*,
 };
 
-use ark_ec::short_weierstrass::Affine;
+use ark_ec::{pairing::Pairing, short_weierstrass::Affine};
+use ark_ff::PrimeField;
 
 use ark_poly::{univariate::DensePolynomial, Polynomial};
 use ark_std::{
     marker::PhantomData,
     rand::{CryptoRng, RngCore},
     string::ToString,
-    vec,
     vec::Vec,
     One,
 };
 
 use super::ipa_prover::FFTProver;
 use jf_primitives::{
-    pcs::{Accumulation, PolynomialCommitmentScheme, StructuredReferenceString},
+    pcs::{
+        prelude::UnivariateKzgProof, Accumulation, PolynomialCommitmentScheme,
+        StructuredReferenceString,
+    },
     rescue::RescueParameter,
 };
 use jf_relation::{
@@ -47,6 +50,22 @@ use jf_utils::par_utils::parallelizable_slice_iter;
 
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+// We need to be able to push `UnivariateKzgProof`s to the transcript
+impl<E, P> TranscriptVisitor for UnivariateKzgProof<E>
+where
+    E: Pairing<BaseField = P::BaseField, G1Affine = Affine<P>>,
+    P: HasTEForm,
+    P::BaseField: PrimeField,
+{
+    fn append_to_transcript<T: Transcript>(
+        &self,
+        transcript: &mut T,
+    ) -> Result<(), crate::errors::PlonkError> {
+        transcript.append_curve_point(b"kzg_proof", &self.proof)?;
+        Ok(())
+    }
+}
 
 /// A struct for making Plonk proofs with FFTs using the IPA PCS.
 pub type PlonkIpaSnark<E> = FFTPlonk<UnivariateIpaPCS<E>>;
@@ -125,7 +144,7 @@ where
         extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<(), PlonkError>
     where
-        PCS: Accumulation,
+        PCS: Accumulation<Proof: TranscriptVisitor>,
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
         let verifier = FFTVerifier::<PCS>::new(verify_key.domain_size)?;
@@ -234,7 +253,6 @@ where
 
         // Round 2.5
         // Plookup: compute Plookup product accumulation polynomial
-        let mut prod_lookup_poly_comms_vec = vec![];
 
         let prod_lookup_poly_comm = if circuits.support_lookup() {
             let (prod_lookup_poly_comm, prod_lookup_poly) = prover.run_plookup_2nd_round(
@@ -251,7 +269,6 @@ where
         } else {
             None
         };
-        prod_lookup_poly_comms_vec.push(prod_lookup_poly_comm);
 
         // Round 3
         challenges.alpha = transcript.squeeze_scalar_challenge::<P>(b"alpha")?;
@@ -377,6 +394,7 @@ where
         extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<InternalRecursionOutput<PCS, T>, PlonkError>
     where
+        PCS: PolynomialCommitmentScheme<Proof: TranscriptVisitor>,
         C: Arithmetization<P::ScalarField>,
         R: CryptoRng + RngCore,
         T: Transcript,
@@ -451,7 +469,6 @@ where
 
         // Round 2.5
         // Plookup: compute Plookup product accumulation polynomial
-        let mut prod_lookup_poly_comms_vec = vec![];
 
         let prod_lookup_poly_comm = if circuits.support_lookup() {
             let (prod_lookup_poly_comm, prod_lookup_poly) = prover.run_plookup_2nd_round(
@@ -468,7 +485,6 @@ where
         } else {
             None
         };
-        prod_lookup_poly_comms_vec.push(prod_lookup_poly_comm);
 
         // Round 3
         challenges.alpha = transcript.squeeze_scalar_challenge::<P>(b"alpha")?;
@@ -553,6 +569,9 @@ where
         )?;
 
         let (opening_proof, _) = PCS::open(&prove_keys.commit_key, &g_poly, &challenges.u)?;
+        // As we continue to use the transcript in the recursive setting,
+        // we need to append the opening proof to the transcript.
+        transcript.append_visitor(&opening_proof)?;
 
         // Plookup: build Plookup argument
 
@@ -598,7 +617,6 @@ where
     PCS::SRS: StructuredReferenceString<Item = PCS::Commitment>,
 {
     type Proof = Proof<PCS>;
-    type RecursiveProof = Proof<PCS>;
     type ProvingKey = ProvingKey<PCS>;
     type VerifyingKey = VerifyingKey<PCS>;
     type UniversalSRS = PCS::SRS;
@@ -733,6 +751,35 @@ where
         })
     }
 
+    fn verify<T>(
+        verify_key: &Self::VerifyingKey,
+        public_input: &[P::ScalarField],
+        proof: &Self::Proof,
+        extra_transcript_init_msg: Option<Vec<u8>>,
+    ) -> Result<(), Self::Error>
+    where
+        T: Transcript,
+    {
+        Self::verify_proof::<T>(verify_key, public_input, proof, extra_transcript_init_msg)
+    }
+}
+
+impl<PCS, F, P> UniversalRecursiveSNARK<PCS> for FFTPlonk<PCS>
+where
+    F: RescueParameter,
+    P: HasTEForm<BaseField = F>,
+    P::ScalarField: EmulationConfig<F>,
+    PCS: PolynomialCommitmentScheme<
+        Evaluation = P::ScalarField,
+        Polynomial = DensePolynomial<P::ScalarField>,
+        Point = P::ScalarField,
+        Commitment = Affine<P>,
+        Proof: TranscriptVisitor,
+    >,
+    PCS::SRS: StructuredReferenceString<Item = PCS::Commitment>,
+{
+    type RecursiveProof = Proof<PCS>;
+
     fn recursive_prove<C, R, T>(
         rng: &mut R,
         circuit: &C,
@@ -758,18 +805,6 @@ where
         let pi_hash = circuit.public_input()?[0];
 
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))
-    }
-
-    fn verify<T>(
-        verify_key: &Self::VerifyingKey,
-        public_input: &[P::ScalarField],
-        proof: &Self::Proof,
-        extra_transcript_init_msg: Option<Vec<u8>>,
-    ) -> Result<(), Self::Error>
-    where
-        T: Transcript,
-    {
-        Self::verify_proof::<T>(verify_key, public_input, proof, extra_transcript_init_msg)
     }
 }
 
@@ -803,7 +838,7 @@ pub mod test {
         Radix2EvaluationDomain,
     };
 
-    use ark_std::{format, string::ToString, vec::Vec};
+    use ark_std::{format, string::ToString, vec, vec::Vec};
     use core::ops::{Mul, Neg};
     use jf_primitives::{
         pcs::{prelude::UnivariateKzgPCS, PolynomialCommitmentScheme},
@@ -1170,6 +1205,7 @@ pub mod test {
             Polynomial = DensePolynomial<E::ScalarField>,
             Point = E::ScalarField,
             Commitment = Affine<E>,
+            Proof: TranscriptVisitor,
         >,
         PCS::SRS: StructuredReferenceString<Item = PCS::Commitment>,
         F: RescueParameter,

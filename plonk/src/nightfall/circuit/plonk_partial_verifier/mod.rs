@@ -840,7 +840,7 @@ mod test {
     use crate::{
         errors::PlonkError,
         nightfall::{ipa_structs::VerificationKeyId, ipa_verifier::FFTVerifier, FFTPlonk},
-        proof_system::UniversalSNARK,
+        proof_system::{UniversalRecursiveSNARK, UniversalSNARK},
         transcript::RescueTranscript,
     };
     use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254, Fr as Fr254};
@@ -896,6 +896,7 @@ mod test {
             Evaluation = P::ScalarField,
             Polynomial = DensePolynomial<P::ScalarField>,
             Point = P::ScalarField,
+            Proof: TranscriptVisitor,
         >,
         F: RescueParameter + PrimeField + EmulationConfig<P::ScalarField>,
         P: HasTEForm<BaseField = F>,

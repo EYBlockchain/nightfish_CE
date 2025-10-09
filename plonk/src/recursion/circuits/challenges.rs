@@ -21,7 +21,7 @@ use crate::{
         },
         mle::mle_structs::{MLEChallenges, SAMLEProof},
     },
-    proof_system::{RecursiveOutput, UniversalSNARK},
+    proof_system::{RecursiveOutput, UniversalRecursiveSNARK},
     transcript::{CircuitTranscript, Transcript},
 };
 
@@ -135,7 +135,7 @@ where
         Evaluation = P::ScalarField,
         Point = Vec<P::ScalarField>,
     >,
-    Scheme: UniversalSNARK<PCS, RecursiveProof = SAMLEProof<PCS>>,
+    Scheme: UniversalRecursiveSNARK<PCS, RecursiveProof = SAMLEProof<PCS>>,
     P: HasTEForm<BaseField = F>,
     P::ScalarField: PrimeField + RescueParameter + EmulationConfig<F>,
     P::BaseField: PrimeField,
