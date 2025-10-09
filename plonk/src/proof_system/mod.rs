@@ -37,9 +37,6 @@ where
     /// The SNARK proof computed by the prover.
     type Proof: Clone + Send + Sync;
 
-    /// The SNARK proof struct used in a recursive setting.
-    type RecursiveProof: Default + Clone + Send + Sync;
-
     /// The parameters required by the prover to compute a proof for a specific
     /// circuit.
     type ProvingKey: Clone;
@@ -102,6 +99,28 @@ where
         R: CryptoRng + RngCore,
         T: Transcript;
 
+    /// Verify a SNARK proof `proof` of the circuit `circuit`, with respect to
+    /// the public input `pub_input`.
+    ///
+    /// `extra_transcript_init_msg`: refer to documentation of `prove`
+    fn verify<T: Transcript>(
+        verify_key: &Self::VerifyingKey,
+        public_input: &[<PCS::Commitment as AffineRepr>::ScalarField],
+        proof: &Self::Proof,
+        extra_transcript_init_msg: Option<Vec<u8>>,
+    ) -> Result<(), Self::Error>;
+}
+
+/// An interface for recursive SNARKs with universal setup.
+pub trait UniversalRecursiveSNARK<PCS: PolynomialCommitmentScheme>: UniversalSNARK<PCS>
+where
+    PCS::Commitment: AffineRepr,
+    <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
+    <PCS::Commitment as AffineRepr>::ScalarField: PrimeField,
+{
+    /// The SNARK proof struct used in a recursive setting.
+    type RecursiveProof: Default + Clone + Send + Sync;
+
     /// Compute a SNARK proof of a circuit `circuit` for use in a recursive proving system, using the corresponding
     /// proving key `prove_key`. The witness used to
     /// generate the proof can be obtained from `circuit`.
@@ -127,17 +146,6 @@ where
         T: Transcript + CanonicalSerialize + CanonicalDeserialize,
         Self::RecursiveProof: CanonicalSerialize + CanonicalDeserialize,
         <PCS::Commitment as AffineRepr>::ScalarField: CanonicalSerialize + CanonicalDeserialize;
-
-    /// Verify a SNARK proof `proof` of the circuit `circuit`, with respect to
-    /// the public input `pub_input`.
-    ///
-    /// `extra_transcript_init_msg`: refer to documentation of `prove`
-    fn verify<T: Transcript>(
-        verify_key: &Self::VerifyingKey,
-        public_input: &[<PCS::Commitment as AffineRepr>::ScalarField],
-        proof: &Self::Proof,
-        extra_transcript_init_msg: Option<Vec<u8>>,
-    ) -> Result<(), Self::Error>;
 }
 
 /// This struct defines the output to the recursive prover.
@@ -149,7 +157,7 @@ where
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
     <PCS::Commitment as AffineRepr>::ScalarField:
         PrimeField + CanonicalSerialize + CanonicalDeserialize,
-    Scheme: UniversalSNARK<PCS>,
+    Scheme: UniversalRecursiveSNARK<PCS>,
     Scheme::RecursiveProof: CanonicalSerialize + CanonicalDeserialize,
     T: Transcript + CanonicalSerialize + CanonicalDeserialize,
 {
@@ -168,7 +176,7 @@ where
     <PCS::Commitment as AffineRepr>::BaseField: PrimeField,
     <PCS::Commitment as AffineRepr>::ScalarField:
         PrimeField + CanonicalSerialize + CanonicalDeserialize,
-    Scheme: UniversalSNARK<PCS>,
+    Scheme: UniversalRecursiveSNARK<PCS>,
     Scheme::RecursiveProof: CanonicalSerialize + CanonicalDeserialize,
     T: Transcript + CanonicalSerialize + CanonicalDeserialize,
 {
