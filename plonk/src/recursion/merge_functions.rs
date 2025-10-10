@@ -1273,6 +1273,16 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .map(|scalar_vars| scalar_vars.pi_hash)
         .collect::<Vec<Variable>>();
 
+    let acc_comms: Vec<(PointVariable, EmulatedVariable<Fq254>)> = grumpkin_info
+        .old_accumulators
+        .iter()
+        .map(|acc| {
+            let p = circuit.create_point_variable(&Point::<Fr254>::from(acc.comm))?;
+            let v = circuit.create_emulated_variable(acc.value)?;
+            Ok((p, v))
+        })
+        .collect::<Result<Vec<_>, CircuitError>>()?;
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
         izip!(
@@ -1280,7 +1290,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             grumpkin_info.grumpkin_outputs.iter(),
             impl_specific_pi.iter(),
             grumpkin_info.forwarded_acumulators.iter(),
-            grumpkin_info.old_accumulators.chunks_exact(2),
+            acc_comms.chunks_exact(2),
             recursion_scalars.iter(),
             vk_scalars_vars.chunks_exact(2),
             output_base_vars.chunks_exact(2),
@@ -1315,9 +1325,9 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 let grumpkin_accs = if !IS_BASE {
                     grumpkin_accumulators
                         .iter()
-                        .map(|acc| {
-                            let comm_x = circuit.create_variable(acc.comm.x)?;
-                            let comm_y = circuit.create_variable(acc.comm.y)?;
+                        .map(|(comm, eval)| {
+                            let comm_x = comm.get_x();
+                            let comm_y = comm.get_y();
                             let concat_vec = [comm_x, comm_y];
                             let mut prepped_vec = concat_vec
                                 .iter()
@@ -1326,9 +1336,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                                 .into_iter()
                                 .flatten()
                                 .collect::<Vec<Variable>>();
-                            let eval_bytes = acc.value.into_bigint().to_bytes_le();
+                            let eval_wit = circuit.emulated_witness(eval)?;
+                            let eval_bytes = eval_wit.into_bigint().to_bytes_le();
                             let [low_eval, high_eval]: [Fr254; 2] =
-                                bytes_to_field_elements::<_, Fr254>(eval_bytes)[1..]
+                                bytes_to_field_elements::<_, Fr254>(eval_bytes.clone())[1..]
                                     .try_into()
                                     .map_err(|_| {
                                         CircuitError::ParameterError(
@@ -1345,6 +1356,15 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
 
                             circuit.enforce_in_range(low_var, bits)?;
                             circuit.enforce_in_range(high_var, leftover_bits)?;
+
+                            let low_e   = circuit.to_emulated_variable::<Fq254>(low_var)?;
+                            let high_e  = circuit.to_emulated_variable::<Fq254>(high_var)?;
+
+                            let radix_fq = Fq254::from(2u64).pow([bits as u64, 0, 0, 0]);
+
+                            let hi_shifted = circuit.emulated_mul_constant::<Fq254>(&high_e, radix_fq)?;
+                            let recomposed = circuit.emulated_add::<Fq254>(&hi_shifted, &low_e)?;
+                            circuit.enforce_emulated_var_equal::<Fq254>(&recomposed, eval)?;
 
                             prepped_vec.push(low_var);
                             prepped_vec.push(high_var);
@@ -1669,12 +1689,22 @@ pub fn decider_circuit(
         .map(|o| o.pi_hash)
         .collect::<Vec<Variable>>();
 
+    let acc_comms: Vec<(PointVariable, EmulatedVariable<Fq254>)> = grumpkin_info
+        .old_accumulators
+        .iter()
+        .map(|acc| {
+            let p = circuit.create_point_variable(&Point::<Fr254>::from(acc.comm))?;
+            let v = circuit.create_emulated_variable(acc.value)?;
+            Ok((p, v))
+        })
+        .collect::<Result<Vec<_>, CircuitError>>()?;
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
         grumpkin_info.grumpkin_outputs.iter(),
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
-        grumpkin_info.old_accumulators.chunks_exact(2),
+        acc_comms.chunks_exact(2),
         recursion_scalars.iter(),
         output_base_vars.chunks_exact(2),
         bn254_pi_hashes.chunks_exact(2),
@@ -1707,9 +1737,9 @@ pub fn decider_circuit(
 
             let grumpkin_accs = grumpkin_accumulators
                 .iter()
-                .map(|acc| {
-                    let comm_x = circuit.create_variable(acc.comm.x)?;
-                    let comm_y = circuit.create_variable(acc.comm.y)?;
+                .map(|(comm, eval)| {
+                    let comm_x = comm.get_x();
+                    let comm_y = comm.get_y();
 
                     let concat_vec = [comm_x, comm_y];
                     let mut prepped_vec = concat_vec
@@ -1719,9 +1749,10 @@ pub fn decider_circuit(
                         .into_iter()
                         .flatten()
                         .collect::<Vec<Variable>>();
-                    let eval_bytes = acc.value.into_bigint().to_bytes_le();
+                    let eval_wit = circuit.emulated_witness(eval)?;
+                    let eval_bytes = eval_wit.into_bigint().to_bytes_le();
                     let [low_eval, high_eval]: [Fr254; 2] =
-                        bytes_to_field_elements::<_, Fr254>(eval_bytes)[1..]
+                        bytes_to_field_elements::<_, Fr254>(eval_bytes.clone())[1..]
                             .try_into()
                             .map_err(|_| {
                                 CircuitError::ParameterError(
@@ -1737,6 +1768,15 @@ pub fn decider_circuit(
 
                     circuit.enforce_in_range(low_var, bits)?;
                     circuit.enforce_in_range(high_var, leftover_bits)?;
+
+                    let low_e = circuit.to_emulated_variable::<Fq254>(low_var)?;
+                    let high_e = circuit.to_emulated_variable::<Fq254>(high_var)?;
+
+                    let radix_fq = Fq254::from(2u64).pow([bits as u64, 0, 0, 0]);
+
+                    let hi_shifted = circuit.emulated_mul_constant::<Fq254>(&high_e, radix_fq)?;
+                    let recomposed = circuit.emulated_add::<Fq254>(&hi_shifted, &low_e)?;
+                    circuit.enforce_emulated_var_equal::<Fq254>(&recomposed, eval)?;
 
                     prepped_vec.push(low_var);
                     prepped_vec.push(high_var);
@@ -1851,6 +1891,7 @@ pub fn decider_circuit(
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
+        &acc_comms,
         &pk_grumpkin.verifying_key.gate_info,
         circuit,
     )?;
@@ -1860,12 +1901,6 @@ pub fn decider_circuit(
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
     let proof_two =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
-
-    let acc_comms = grumpkin_info
-        .old_accumulators
-        .iter()
-        .map(|acc| circuit.create_point_variable(&Point::<Fr254>::from(acc.comm)))
-        .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
 
     // We have already checked that lookup is supported so the following unwrap is safe.
     let lookup_vk = pk_grumpkin
@@ -1900,7 +1935,7 @@ pub fn decider_circuit(
         lookup_bases,
         proof_two.wire_commitments_var.as_slice(),
         &[proof_two.lookup_proof_var.as_ref().unwrap().m_poly_comm_var],
-        acc_comms.as_slice(),
+        &acc_comms.into_iter().map(|e| e.0).collect::<Vec<_>>(),
     ]
     .concat();
 

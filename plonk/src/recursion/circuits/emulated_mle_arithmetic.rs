@@ -24,7 +24,7 @@ use ark_ff::{batch_inversion, Field};
 use ark_std::{string::ToString, vec::Vec};
 use jf_relation::{
     errors::CircuitError,
-    gadgets::{ecc::Point, EmulatedVariable},
+    gadgets::{ecc::PointVariable, EmulatedVariable},
     PlonkCircuit,
 };
 use nf_curves::grumpkin::short_weierstrass::SWGrumpkin;
@@ -427,6 +427,7 @@ type MLEScalarsAndAccEval = (Vec<EmulatedVariable<Fq254>>, EmulatedVariable<Fq25
 pub fn emulated_combine_mle_proof_scalars(
     outputs: &[GrumpkinOutput],
     acc_info: &SplitAccumulationInfo,
+    old_accs: &[(PointVariable, EmulatedVariable<Fq254>)],
     gate_info: &GateInfo<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
@@ -479,15 +480,14 @@ pub fn emulated_combine_mle_proof_scalars(
     let old_acc_vars = acc_info
         .old_accumulators()
         .iter()
-        .map(|acc| {
-            let comm = circuit.create_point_variable(&Point::<Fr254>::from(acc.comm))?;
+        .zip(old_accs)
+        .map(|(acc, (comm, value))| {
             let point = acc
                 .point
                 .iter()
                 .map(|&p| circuit.create_emulated_variable(p))
                 .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
-            let value = circuit.create_emulated_variable(acc.value)?;
-            Ok(EmulatedPCSInstanceVar::new(comm, value, point))
+            Ok(EmulatedPCSInstanceVar::new(*comm, value.clone(), point))
         })
         .collect::<Result<Vec<EmulatedPCSInstanceVar<SWGrumpkin>>, CircuitError>>()?;
 
@@ -643,7 +643,7 @@ mod tests {
                 accs.push(PCSWitness::<Zmorph>::new(poly, comm, eval, eval_point));
             }
 
-            let accumulators: [PCSWitness<Zmorph>; 4] = accs.try_into().unwrap();
+            let accumulators: [PCSWitness<Zmorph>; 4] = accs.clone().try_into().unwrap();
 
             let split_acc_info = SplitAccumulationInfo::perform_accumulation(
                 &outputs,
@@ -653,9 +653,19 @@ mod tests {
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
 
+            let accs = accs
+                .into_iter()
+                .map(|e| {
+                    let comm = verifier_circuit.create_point_variable(&e.comm.into())?;
+                    let value = verifier_circuit.create_emulated_variable(e.value)?;
+                    Ok((comm, value))
+                })
+                .collect::<Result<Vec<(PointVariable, EmulatedVariable<Fq254>)>, CircuitError>>()?;
+
             let (combined_scalars, combined_eval) = emulated_combine_mle_proof_scalars(
                 &outputs,
                 &split_acc_info,
+                &accs,
                 &vk.gate_info,
                 &mut verifier_circuit,
             )?;
