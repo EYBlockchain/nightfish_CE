@@ -675,10 +675,7 @@ mod tests {
         errors::PlonkError,
         nightfall::{
             accumulation::accumulation_structs::PCSWitness,
-            circuit::{
-                plonk_partial_verifier::MLEVerifyingKeyVar,
-                subroutine_verifiers::gkr::tests::extract_gkr_challenges,
-            },
+            circuit::subroutine_verifiers::gkr::tests::extract_gkr_challenges,
             mle::{
                 mle_structs::MLEChallenges, snark::tests::gen_circuit_for_test,
                 zeromorph::Zeromorph, MLEPlonk,
@@ -750,7 +747,6 @@ mod tests {
             let mle_challenges = MLEChallenges::<P::ScalarField>::new_recursion(
                 &proof.proof,
                 &[public_input[0]],
-                &_vk1,
                 &mut transcript,
             )
             .unwrap();
@@ -921,24 +917,22 @@ mod tests {
             )?;
 
             let mut challenges_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
-            let vk_var = MLEVerifyingKeyVar::new(&mut challenges_circuit, &vk)?;
             let mle_proof_challenges = outputs
                 .iter()
                 .map(|output| {
                     let pi_hash = challenges_circuit
                         .create_emulated_variable(output.pi_hash)
                         .unwrap();
-                    let (stuff, _) = reconstruct_mle_challenges::<
-                        _,
-                        _,
-                        _,
-                        _,
-                        RescueTranscript<Fr254>,
-                        RescueTranscriptVar<Fr254>,
-                    >(
-                        output, &vk_var, &mut challenges_circuit, &pi_hash
-                    )
-                    .unwrap();
+                    let (stuff, _) =
+                        reconstruct_mle_challenges::<
+                            _,
+                            _,
+                            _,
+                            _,
+                            RescueTranscript<Fr254>,
+                            RescueTranscriptVar<Fr254>,
+                        >(output, &mut challenges_circuit, &pi_hash)
+                        .unwrap();
                     stuff
                 })
                 .collect::<Vec<MLEProofChallenges<Fq254>>>();

@@ -209,9 +209,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     {
         let mut transcript = T::new_transcript(b"mle_plonk");
 
-        // Append Vk and public input to transcript.
-        transcript.append_visitor(&pk.verifying_key)?;
-
+        // Append public input to transcript.
         for public_input in circuit.public_input()? {
             transcript.push_message(b"public input", &public_input)?;
         }
@@ -575,9 +573,6 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
         let mut transcript = T::new_transcript(b"mle_plonk");
 
-        // Append Vk to the transcript.
-        transcript.append_visitor(&pk.verifying_key)?;
-
         // Compute the wire polynomials.
         let wire_polys = circuit.compute_wire_mles()?;
 
@@ -848,7 +843,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let pi_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars, pi_evals);
 
         let challenges =
-            MLEChallenges::<P::ScalarField>::new(proof, public_input, vk, &mut transcript)?;
+            MLEChallenges::<P::ScalarField>::new(proof, public_input, &mut transcript)?;
 
         let gkr_deferred_check = batch_verify_gkr::<P, _>(&proof.gkr_proof, &mut transcript)?;
 
@@ -1062,7 +1057,6 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let challenges = MLEChallenges::<P::ScalarField>::new_recursion(
             proof,
             &[public_input],
-            vk,
             &mut transcript,
         )?;
 

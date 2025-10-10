@@ -10,11 +10,11 @@ use crate::{
         circuit::{
             plonk_partial_verifier::{
                 emulated_eq_x_r_eval_circuit, EmulatedMLEChallenges, MLELookupEvaluationsVar,
-                MLEProofEvaluationsVar, MLEVerifyingKeyVar, SAMLEProofVar,
+                MLEProofEvaluationsVar, SAMLEProofVar,
             },
             subroutine_verifiers::{structs::EmulatedSumCheckProofVar, sumcheck::SumCheckGadget},
         },
-        mle::mle_structs::{GateInfo, MLEVerifyingKey},
+        mle::mle_structs::GateInfo,
     },
     recursion::merge_functions::GrumpkinOutput,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
@@ -427,10 +427,9 @@ type MLEScalarsAndAccEval = (Vec<EmulatedVariable<Fq254>>, EmulatedVariable<Fq25
 pub fn emulated_combine_mle_proof_scalars(
     outputs: &[GrumpkinOutput],
     acc_info: &SplitAccumulationInfo,
-    vk: &MLEVerifyingKey<Zmorph>,
+    gate_info: &GateInfo<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
-    let vk_var = MLEVerifyingKeyVar::<Zmorph>::new(circuit, vk)?;
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
     let mut points = Vec::new();
@@ -442,7 +441,6 @@ pub fn emulated_combine_mle_proof_scalars(
         let mut transcript_var = RescueTranscriptVar::<Fr254>::new_transcript(circuit);
         let challenges = EmulatedMLEChallenges::<Fq254>::compute_challenges_vars(
             circuit,
-            &vk_var,
             &pi,
             &proof_var,
             &mut transcript_var,
@@ -466,7 +464,7 @@ pub fn emulated_combine_mle_proof_scalars(
             &challenges,
             &pi_eval,
             &mut transcript_var,
-            &vk.gate_info,
+            gate_info,
         )?;
 
         scalar_list.push(scalars);
@@ -658,7 +656,7 @@ mod tests {
             let (combined_scalars, combined_eval) = emulated_combine_mle_proof_scalars(
                 &outputs,
                 &split_acc_info,
-                &vk,
+                &vk.gate_info,
                 &mut verifier_circuit,
             )?;
 

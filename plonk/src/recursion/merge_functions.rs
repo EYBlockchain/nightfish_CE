@@ -1253,9 +1253,6 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
     };
 
-    // Make a vk variable
-    let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
-
     // Now we make variables for the specific pi as we will have to use these in the following for loop and later on.
     let impl_specific_pi = grumpkin_info
         .specific_pi
@@ -1487,7 +1484,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     _,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(output, &vk_var, circuit, &pi_hash_emul)?;
+                >(output, circuit, &pi_hash_emul)?;
                 Ok(next_grumpkin_challenges)
             },
         )
@@ -1651,7 +1648,7 @@ pub fn decider_circuit(
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
     // Make a vk variable
-    let vk_var = MLEVerifyingKeyVar::new(circuit, &pk_grumpkin.verifying_key)?;
+    let vk_var = MLEVerifyingKeyVar::new_constant(circuit, &pk_grumpkin.verifying_key)?;
 
     // Now we make variables for the specific pi as we will have to use these in the following for loop and later on.
     let impl_specific_pi = grumpkin_info
@@ -1854,7 +1851,7 @@ pub fn decider_circuit(
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &grumpkin_info.grumpkin_outputs,
         &split_acc_info,
-        &pk_grumpkin.verifying_key,
+        &pk_grumpkin.verifying_key.gate_info,
         circuit,
     )?;
 

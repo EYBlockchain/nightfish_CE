@@ -368,7 +368,6 @@ impl<F: PrimeField> MLEChallenges<F> {
     pub fn new<PCS, P, T>(
         proof: &MLEProof<PCS>,
         public_input: &[F],
-        vk: &MLEVerifyingKey<PCS>,
         transcript: &mut T,
     ) -> Result<Self, PlonkError>
     where
@@ -378,9 +377,7 @@ impl<F: PrimeField> MLEChallenges<F> {
         PCS: PolynomialCommitmentScheme<Commitment = Affine<P>, Evaluation = P::ScalarField>,
         T: Transcript,
     {
-        // Append Vk and public input to transcript.
-        transcript.append_visitor(vk)?;
-
+        // Append public input to transcript.
         for pi in public_input.iter() {
             transcript.push_message(b"public input", pi)?;
         }
@@ -419,7 +416,6 @@ impl<F: PrimeField> MLEChallenges<F> {
     pub fn new_recursion<PCS, P, T>(
         proof: &SAMLEProof<PCS>,
         public_input: &[F],
-        vk: &MLEVerifyingKey<PCS>,
         transcript: &mut T,
     ) -> Result<Self, PlonkError>
     where
@@ -434,9 +430,7 @@ impl<F: PrimeField> MLEChallenges<F> {
         >,
         T: Transcript,
     {
-        // Append Vk and public input to transcript.
-        transcript.append_visitor(vk)?;
-
+        // Append public input to transcript.
         transcript.push_message(b"public input", &public_input[0])?;
 
         // We know that the commitments we are using will always be points on an SW curve.

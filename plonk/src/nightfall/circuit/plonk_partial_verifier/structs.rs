@@ -29,7 +29,7 @@ use crate::{
             sumcheck::SumCheckGadget,
         },
         hops::srs::UnivariateUniversalIpaParams,
-        ipa_structs::{Challenges as PCSChallenges, PlookupProof, Proof as PCSProof, VK},
+        ipa_structs::{Challenges as PCSChallenges, PlookupProof, Proof as PCSProof},
         mle::mle_structs::{
             MLEChallenges, MLELookupEvals, MLELookupProof, MLEProofEvals, MLEVerifyingKey,
             SAMLEProof,
@@ -222,7 +222,6 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
     /// Computes challenges from a proof.
     pub fn compute_challenges_vars<PCS, P>(
         circuit: &mut PlonkCircuit<P::BaseField>,
-        vk_var: &MLEVerifyingKeyVar<PCS>,
         pi: &EmulatedVariable<P::ScalarField>,
         proof_var: &SAMLEProofVar<PCS>,
         transcript_var: &mut RescueTranscriptVar<P::BaseField>,
@@ -233,7 +232,6 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
         P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
     {
-        transcript_var.append_visitor(vk_var, circuit)?;
         transcript_var.push_emulated_variable(pi, circuit)?;
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
@@ -326,7 +324,6 @@ impl MLEChallengesVar {
     /// Computes challenges from a proof.
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
-        vk_var: &MLEVerifyingKeyVar<PCS>,
         pi_hash: &EmulatedVariable<P::ScalarField>,
         proof_var: &SAMLEProofVar<PCS>,
         transcript_var: &mut C,
@@ -339,7 +336,6 @@ impl MLEChallengesVar {
         F: PrimeField,
         C: CircuitTranscript<F>,
     {
-        transcript_var.append_visitor(vk_var, circuit)?;
         transcript_var.push_emulated_variable(pi_hash, circuit)?;
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
@@ -1599,8 +1595,7 @@ where
     pub selector_commitments_var: Vec<PointVariable>,
     /// Representing commitments to the permutations.
     pub permutation_commitments_var: Vec<PointVariable>,
-    /// The hash of the verifying key.
-    pub hash: EmulatedVariable<PCS::Evaluation>,
+    _phantom: PhantomData<PCS>,
 }
 
 #[allow(dead_code)]
@@ -1628,28 +1623,40 @@ impl<PCS: PolynomialCommitmentScheme> MLEVerifyingKeyVar<PCS> {
             permutation_commitments_var.push(comm_var);
         }
 
-        let hash = circuit.create_emulated_variable(vk.hash())?;
+        Ok(Self {
+            selector_commitments_var,
+            permutation_commitments_var,
+            _phantom: PhantomData::<PCS>,
+        })
+    }
+
+    pub(crate) fn new_constant<F, P>(
+        circuit: &mut PlonkCircuit<F>,
+        vk: &MLEVerifyingKey<PCS>,
+    ) -> Result<Self, CircuitError>
+    where
+        PCS: PolynomialCommitmentScheme<Commitment = Affine<P>>,
+        P: HasTEForm<BaseField = F>,
+        F: PrimeField,
+        PCS::Evaluation: EmulationConfig<F>,
+    {
+        let mut selector_commitments_var = Vec::<PointVariable>::new();
+        for selector_commitment in vk.selector_commitments.iter() {
+            let comm_point = Point::<F>::from(*selector_commitment);
+            let comm_var = circuit.create_constant_point_variable(&comm_point)?;
+            selector_commitments_var.push(comm_var);
+        }
+        let mut permutation_commitments_var = Vec::<PointVariable>::new();
+        for permutation_commitment in vk.permutation_commitments.iter() {
+            let comm_point = Point::<F>::from(*permutation_commitment);
+            let comm_var = circuit.create_constant_point_variable(&comm_point)?;
+            permutation_commitments_var.push(comm_var);
+        }
 
         Ok(Self {
             selector_commitments_var,
             permutation_commitments_var,
-            hash,
+            _phantom: PhantomData::<PCS>,
         })
-    }
-}
-
-impl<T, F, PCS> CircuitTranscriptVisitor<T, F> for MLEVerifyingKeyVar<PCS>
-where
-    T: CircuitTranscript<F>,
-    F: PrimeField,
-    PCS: PolynomialCommitmentScheme,
-    PCS::Evaluation: EmulationConfig<F>,
-{
-    fn append_to_transcript(
-        &self,
-        transcript: &mut T,
-        circuit: &mut PlonkCircuit<F>,
-    ) -> Result<(), CircuitError> {
-        transcript.push_emulated_variable(&self.hash, circuit)
     }
 }

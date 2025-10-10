@@ -16,7 +16,7 @@ use crate::{
     errors::PlonkError,
     nightfall::{
         circuit::{
-            plonk_partial_verifier::{MLEChallengesVar, MLEVerifyingKeyVar, SAMLEProofVar},
+            plonk_partial_verifier::{MLEChallengesVar, SAMLEProofVar},
             subroutine_verifiers::sumcheck::SumCheckGadget,
         },
         mle::mle_structs::{MLEChallenges, SAMLEProof},
@@ -125,7 +125,6 @@ impl<F: PrimeField> MLEProofChallenges<F> {
 /// It is assumed that this circuit is defined over the same field that commitments are. By returning the challenges we mean that it sets the associate variables to be public.
 pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     output: &RecursiveOutput<PCS, Scheme, T>,
-    vk: &MLEVerifyingKeyVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
     pi_hash: &EmulatedVariable<P::ScalarField>,
 ) -> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
@@ -150,7 +149,7 @@ where
 
     // Now we begin by recovering the circuit version of the MLEChallenges struct.
     let mle_challenges =
-        MLEChallengesVar::compute_challenges(circuit, vk, pi_hash, &proof_var, &mut transcript)?;
+        MLEChallengesVar::compute_challenges(circuit, pi_hash, &proof_var, &mut transcript)?;
 
     let mle_challenges_field = mle_challenges.to_field(circuit)?;
     // Next we need to know the number of variables the polynomials used in the proof had, this is the same as `proof_var.opening_point_var.len()`.
