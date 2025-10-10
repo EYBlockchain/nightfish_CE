@@ -635,16 +635,16 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
 
-        let forwarded_accs: Vec<Vec<Variable>> = bn254info
+        let forwarded_accs: Vec<[Variable; 2]> = bn254info
             .forwarded_acumulators
             .iter()
             .map(|acc| {
                 let comm_x = circuit.create_variable(fq_to_fr::<Fr254, SWGrumpkin>(&acc.comm.x))?;
                 let comm_y = circuit.create_variable(fq_to_fr::<Fr254, SWGrumpkin>(&acc.comm.y))?;
 
-                Ok(vec![comm_x, comm_y])
+                Ok([comm_x, comm_y])
             })
-            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+            .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?;
 
         let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
@@ -739,12 +739,10 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .try_for_each(|var| circuit.set_variable_public(*var))?;
         scalars_and_acc_evals
             .iter()
-            .zip(bn254info.forwarded_acumulators.iter())
-            .try_for_each(|((_, acc_eval), forwarded_acc)| {
-                let _ = circuit
-                    .create_public_variable(fq_to_fr::<Fr254, SWGrumpkin>(&forwarded_acc.comm.x))?;
-                let _ = circuit
-                    .create_public_variable(fq_to_fr::<Fr254, SWGrumpkin>(&forwarded_acc.comm.y))?;
+            .zip(forwarded_accs.iter())
+            .try_for_each(|((_, acc_eval), [comm_x, comm_y])| {
+                circuit.set_variable_public(*comm_x)?;
+                circuit.set_variable_public(*comm_y)?;
 
                 let low_var = acc_eval[0];
                 let high_var = acc_eval[1];
