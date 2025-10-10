@@ -16,7 +16,6 @@ use crate::{
         },
         mle::mle_structs::GateInfo,
     },
-    recursion::merge_functions::GrumpkinOutput,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
@@ -425,7 +424,7 @@ type MLEScalarsAndAccEval = (Vec<EmulatedVariable<Fq254>>, EmulatedVariable<Fq25
 /// This function takes in two ['RecursiveOutput']s and some pre-calculated challenges and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn emulated_combine_mle_proof_scalars(
-    outputs: &[GrumpkinOutput],
+    proof_vars: &[(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>)],
     acc_info: &SplitAccumulationInfo,
     old_accs: &[(PointVariable, EmulatedVariable<Fq254>)],
     gate_info: &GateInfo<Fq254>,
@@ -436,14 +435,12 @@ pub fn emulated_combine_mle_proof_scalars(
     let mut points = Vec::new();
     let mut transcripts = Vec::new();
     let one_var = circuit.emulated_one();
-    for output in outputs.iter() {
-        let proof_var = SAMLEProofVar::<Zmorph>::from_struct(circuit, &output.proof)?;
-        let pi = circuit.create_emulated_variable(output.pi_hash)?;
+    for (proof_var, pi) in proof_vars.iter() {
         let mut transcript_var = RescueTranscriptVar::<Fr254>::new_transcript(circuit);
         let challenges = EmulatedMLEChallenges::<Fq254>::compute_challenges_vars(
             circuit,
-            &pi,
-            &proof_var,
+            pi,
+            proof_var,
             &mut transcript_var,
         )?;
 
@@ -457,11 +454,11 @@ pub fn emulated_combine_mle_proof_scalars(
                     circuit.emulated_sub(&acc, &tmp1)
                 })?;
 
-        let pi_eval = circuit.emulated_mul(&pi, &zero_eval)?;
+        let pi_eval = circuit.emulated_mul(pi, &zero_eval)?;
 
         let (scalars, eval) = verify_mleplonk_emulated_scalar_arithmetic(
             circuit,
-            &proof_var,
+            proof_var,
             &challenges,
             &pi_eval,
             &mut transcript_var,
@@ -662,8 +659,17 @@ mod tests {
                 })
                 .collect::<Result<Vec<(PointVariable, EmulatedVariable<Fq254>)>, CircuitError>>()?;
 
+            let proof_vars: Vec<(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>)> = outputs
+                .iter()
+                .map(|o| {
+                    let p = SAMLEProofVar::from_struct(&mut verifier_circuit, &o.proof)?;
+                    let h = verifier_circuit.create_emulated_variable(o.pi_hash)?;
+                    Ok::<(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>), CircuitError>((p, h))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+
             let (combined_scalars, combined_eval) = emulated_combine_mle_proof_scalars(
-                &outputs,
+                &proof_vars,
                 &split_acc_info,
                 &accs,
                 &vk.gate_info,

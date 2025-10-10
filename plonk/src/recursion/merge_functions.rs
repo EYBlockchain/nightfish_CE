@@ -1699,9 +1699,15 @@ pub fn decider_circuit(
         })
         .collect::<Result<Vec<_>, CircuitError>>()?;
 
+    let pi_hashes: Vec<EmulatedVariable<Fq254>> = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|o| circuit.create_emulated_variable(o.pi_hash))
+        .collect::<Result<Vec<EmulatedVariable<Fq254>>, _>>()?;
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
-        grumpkin_info.grumpkin_outputs.iter(),
+        pi_hashes.iter(),
         impl_specific_pi.iter(),
         grumpkin_info.forwarded_acumulators.iter(),
         acc_comms.chunks_exact(2),
@@ -1711,7 +1717,7 @@ pub fn decider_circuit(
     )
     .try_for_each(
         |(
-            output,
+            pi_hash_emul,
             impl_pi,
             bn254_accumulator,
             grumpkin_accumulators,
@@ -1877,8 +1883,7 @@ pub fn decider_circuit(
                 &[Fr254::one(), coeff, Fr254::zero(), Fr254::zero()],
             )?;
 
-            let pi_hash_emul = circuit.create_emulated_variable(output.pi_hash)?;
-            let pi_native = circuit.mod_to_native_field(&pi_hash_emul)?;
+            let pi_native = circuit.mod_to_native_field(pi_hash_emul)?;
 
             circuit.enforce_equal(pi_native, pi_hash)
         },
@@ -1887,13 +1892,6 @@ pub fn decider_circuit(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
-    )?;
-    let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
-        &grumpkin_info.grumpkin_outputs,
-        &split_acc_info,
-        &acc_comms,
-        &pk_grumpkin.verifying_key.gate_info,
-        circuit,
     )?;
 
     // Create the variables for the commitments in the two proofs
@@ -1935,9 +1933,20 @@ pub fn decider_circuit(
         lookup_bases,
         proof_two.wire_commitments_var.as_slice(),
         &[proof_two.lookup_proof_var.as_ref().unwrap().m_poly_comm_var],
-        &acc_comms.into_iter().map(|e| e.0).collect::<Vec<_>>(),
+        &acc_comms.iter().map(|e| e.0).collect::<Vec<_>>(),
     ]
     .concat();
+
+    let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
+        &[proof_one, proof_two]
+            .into_iter()
+            .zip_eq(pi_hashes)
+            .collect::<Vec<(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>)>>(),
+        &split_acc_info,
+        &acc_comms,
+        &pk_grumpkin.verifying_key.gate_info,
+        circuit,
+    )?;
 
     let accumulated_comm = EmulMultiScalarMultiplicationCircuit::<Fr254, SWGrumpkin>::msm(
         circuit,
