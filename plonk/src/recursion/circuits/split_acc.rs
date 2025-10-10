@@ -188,7 +188,7 @@ impl SplitAccumulationInfo {
     /// Used to verify the accumulation performed in [`Self::perform_accumulation`] in a Bn254 circuit.
     pub fn verify_split_accumulation(
         &self,
-        outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>; 2],
+        proof_vars: &[SAMLEProofVar<Zmorph>; 2],
         accumulators: &[PCSWitness<Zmorph>; 4],
         deltas: &[Fq254],
         vk: &MLEVerifyingKey<Zmorph>,
@@ -222,8 +222,8 @@ impl SplitAccumulationInfo {
                 .collect::<Vec<Fq254>>();
 
         // Create the variables for the commitments in the two proofs
-        let proof_one = SAMLEProofVar::<Zmorph>::from_struct(circuit, &outputs[0].proof)?;
-        let proof_two = SAMLEProofVar::<Zmorph>::from_struct(circuit, &outputs[1].proof)?;
+        let proof_one = &proof_vars[0];
+        let proof_two = &proof_vars[1];
 
         let proof_scalars = compute_mle_scalars(&accumulation_coeffs[..2], deltas)?;
 

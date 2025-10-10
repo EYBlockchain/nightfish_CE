@@ -675,7 +675,10 @@ mod tests {
         errors::PlonkError,
         nightfall::{
             accumulation::accumulation_structs::PCSWitness,
-            circuit::subroutine_verifiers::gkr::tests::extract_gkr_challenges,
+            circuit::{
+                plonk_partial_verifier::SAMLEProofVar,
+                subroutine_verifiers::gkr::tests::extract_gkr_challenges,
+            },
             mle::{
                 mle_structs::MLEChallenges, snark::tests::gen_circuit_for_test,
                 zeromorph::Zeromorph, MLEPlonk,
@@ -923,15 +926,17 @@ mod tests {
                     let pi_hash = challenges_circuit
                         .create_emulated_variable(output.pi_hash)
                         .unwrap();
+                    let proof_var =
+                        SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
                     let (stuff, _) =
                         reconstruct_mle_challenges::<
                             _,
                             _,
-                            _,
-                            _,
+                            Zmorph,
+                            MLEPlonk<Zmorph>,
                             RescueTranscript<Fr254>,
                             RescueTranscriptVar<Fr254>,
-                        >(output, &mut challenges_circuit, &pi_hash)
+                        >(&proof_var, &mut challenges_circuit, &pi_hash)
                         .unwrap();
                     stuff
                 })

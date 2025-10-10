@@ -1,6 +1,7 @@
 //! This file defines functions to take in two `RecursiveOutputs` and perform the necessary accumulation steps,
 //! they return the scalars necessary for the various MSMs in the next circuit.
 
+use ark_std::format;
 use core::iter;
 
 use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254, Fr as Fr254};
@@ -1283,11 +1284,24 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         })
         .collect::<Result<Vec<_>, CircuitError>>()?;
 
+    let grumpkin_split_accumulation_proofs: Vec<SAMLEProofVar<_>> = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|e| SAMLEProofVar::from_struct(circuit, &e.proof))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let grumpkin_pi_hashes: Vec<Fq254> = grumpkin_info
+        .grumpkin_outputs
+        .iter()
+        .map(|e| e.pi_hash)
+        .collect();
+
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     let next_grumpkin_challenges: Vec<(MLEProofChallenges<Fq254>, RescueTranscriptVar<Fr254>)> =
         izip!(
             bn254_pi_hashes.chunks_exact(2),
-            grumpkin_info.grumpkin_outputs.iter(),
+            grumpkin_pi_hashes.iter(),
+            grumpkin_split_accumulation_proofs.iter(),
             impl_specific_pi.iter(),
             grumpkin_info.forwarded_acumulators.iter(),
             acc_comms.chunks_exact(2),
@@ -1298,7 +1312,8 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .map(
             |(
                 bn254_pi_hashes,
-                output,
+                _grumpkin_pi_hash,
+                grumpkin_proof_vars,
                 impl_pi,
                 bn254_accumulator,
                 grumpkin_accumulators,
@@ -1492,7 +1507,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 {
                     assert_eq!(
                         circuit.witness(pi_hash).unwrap(),
-                        fr_to_fq::<Fr254, SWGrumpkin>(&output.pi_hash)
+                        fr_to_fq::<Fr254, SWGrumpkin>(&_grumpkin_pi_hash)
                     );
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
@@ -1500,11 +1515,11 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 let next_grumpkin_challenges = reconstruct_mle_challenges::<
                     _,
                     _,
-                    _,
-                    _,
+                    Zmorph,
+                    MLEPlonk<Zmorph>,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(output, circuit, &pi_hash_emul)?;
+                >(grumpkin_proof_vars, circuit, &pi_hash_emul)?;
                 Ok(next_grumpkin_challenges)
             },
         )
@@ -1524,8 +1539,14 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         &pk_grumpkin.pcs_prover_params,
     )?;
 
+    let split_acc_proofs: [SAMLEProofVar<Zmorph>; 2] = grumpkin_split_accumulation_proofs
+        .try_into()
+        .map_err(|v: Vec<SAMLEProofVar<Zmorph>>| {
+            PlonkError::InvalidParameters(format!("expected 2 split-acc proofs, got {}", v.len()))
+        })?;
+
     let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
-        &grumpkin_info.grumpkin_outputs,
+        &split_acc_proofs,
         &grumpkin_info.old_accumulators,
         &deltas,
         &pk_grumpkin.verifying_key,
