@@ -511,6 +511,7 @@ type MLEScalarsAndAccEval = (Vec<Variable>, Variable);
 pub fn combine_mle_proof_scalars(
     outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
     challenges: &[MLEProofChallenges<Fq254>],
+    pi_hashes: &[Variable],
     acc_info: &SplitAccumulationInfo,
     vk: &MLEVerifyingKey<Zmorph>,
     circuit: &mut PlonkCircuit<Fq254>,
@@ -520,15 +521,21 @@ pub fn combine_mle_proof_scalars(
             "The number of outputs should be equal to the number of challenges".to_string(),
         ));
     }
+    if outputs.len() != pi_hashes.len() {
+        return Err(CircuitError::ParameterError(
+            "The number of outputs should be equal to the number of public input hashes"
+                .to_string(),
+        ));
+    }
 
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
     let mut points = Vec::new();
-    for (output, proof_challenges) in outputs.iter().zip(challenges.iter()) {
+    for ((output, pi_hash), proof_challenges) in
+        outputs.iter().zip(pi_hashes).zip(challenges.iter())
+    {
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
         let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
-
-        let pi_hash = circuit.create_variable(output.pi_hash)?;
 
         let zero_eval =
             proof_var
@@ -542,7 +549,7 @@ pub fn combine_mle_proof_scalars(
                     )
                 })?;
 
-        let pi_eval = circuit.mul(pi_hash, zero_eval)?;
+        let pi_eval = circuit.mul(*pi_hash, zero_eval)?;
 
         let (scalars, eval) = verify_mleplonk_scalar_arithmetic(
             circuit,
@@ -675,7 +682,10 @@ mod tests {
         errors::PlonkError,
         nightfall::{
             accumulation::accumulation_structs::PCSWitness,
-            circuit::subroutine_verifiers::gkr::tests::extract_gkr_challenges,
+            circuit::{
+                plonk_partial_verifier::SAMLEProofVar,
+                subroutine_verifiers::gkr::tests::extract_gkr_challenges,
+            },
             mle::{
                 mle_structs::MLEChallenges, snark::tests::gen_circuit_for_test,
                 zeromorph::Zeromorph, MLEPlonk,
@@ -923,15 +933,17 @@ mod tests {
                     let pi_hash = challenges_circuit
                         .create_emulated_variable(output.pi_hash)
                         .unwrap();
+                    let proof_var =
+                        SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
                     let (stuff, _) =
                         reconstruct_mle_challenges::<
                             _,
                             _,
-                            _,
-                            _,
+                            Zmorph,
+                            MLEPlonk<Zmorph>,
                             RescueTranscript<Fr254>,
                             RescueTranscriptVar<Fr254>,
-                        >(output, &mut challenges_circuit, &pi_hash)
+                        >(&proof_var, &mut challenges_circuit, &pi_hash)
                         .unwrap();
                     stuff
                 })
@@ -939,9 +951,15 @@ mod tests {
 
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
 
+            let pi_hashes: Vec<Variable> = outputs
+                .iter()
+                .map(|o| verifier_circuit.create_variable(o.pi_hash))
+                .collect::<Result<Vec<Variable>, _>>()
+                .unwrap();
             let (combined_scalars, combined_eval) = combine_mle_proof_scalars(
                 &outputs,
                 &mle_proof_challenges,
+                &pi_hashes,
                 &split_acc_info,
                 &vk,
                 &mut verifier_circuit,
