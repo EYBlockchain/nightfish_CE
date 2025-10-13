@@ -142,39 +142,39 @@
 // 26 b354d098efff1c5ded84124fa9020eb2620b0faa62c2c7989217e062bf387651
 pub const PSE_PPOT_SHA256: &[(&str, &str)] = &[
     (
-        "1",
+        "01",
         "c6874ee66aed417f1c6e8472f0851ae3125756c5855b7254f58e6c08b3fa6056",
     ),
     (
-        "2",
+        "02",
         "d1df5e998972f10d4d5295893ad8ffc6cfb2ba02134071705630f5392499173a",
     ),
     (
-        "3",
+        "03",
         "3b009905582ca9f1d11ca84d29f14a1d7a15aec10d6bd780fd7917dbdf8d86a1",
     ),
     (
-        "4",
+        "04",
         "e1fc46e17e9dcf344c0af3f4863874e9814a4d69e9e30ab47fa1c2673c3e86e6",
     ),
     (
-        "5",
+        "05",
         "9c1bfc4a2895b9beb1df6e95c96785dc9382bee84d84a0d8c56b1061e09d89d1",
     ),
     (
-        "6",
+        "06",
         "dc32ccae808b5ada09fdba465c939897b741cb321b48819f06b33def7bbbb208",
     ),
     (
-        "7",
+        "07",
         "cbc0287ae471c59e89f46ba0b61f19613364fb182ca544db8a5abc37765d80aa",
     ),
     (
-        "8",
+        "08",
         "5c411c13838e8e3ff80b6f87b81a0a92a66d2e64e82dd6af88ffc8ea89a548f6",
     ),
     (
-        "9",
+        "09",
         "67e59e346767e179a5bd88b4789a56ce376708244c01a32b520ee208dbfb2595",
     ),
     (
@@ -246,7 +246,7 @@ pub const PSE_PPOT_SHA256: &[(&str, &str)] = &[
         "b354d098efff1c5ded84124fa9020eb2620b0faa62c2c7989217e062bf387651",
     ),
     // ("27", "PLACEHOLDER_FOR_27"), // Placeholder, replace with actual hash if needed
-     // ("final", "PLACEHOLDER_FOR_FINAL"), // Placeholder, replace with actual hash if needed
+    // ("final", "PLACEHOLDER_FOR_FINAL"), // Placeholder, replace with actual hash if needed
 ];
 
 pub fn expected_sha256_for_label(label: &str) -> Option<&'static str> {
