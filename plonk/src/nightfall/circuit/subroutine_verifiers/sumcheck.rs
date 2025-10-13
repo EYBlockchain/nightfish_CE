@@ -378,6 +378,10 @@ where
     {
         let num_rounds = sum_check_proof_var.point_var.len();
         let mut eval_var = sum_check_proof_var.eval_var;
+
+        assert_eq!(num_rounds, sum_check_proof_var.oracles_var.len());
+        assert_eq!(num_rounds, sum_check_proof_var.r_0_evals_var.len());
+
         transcript.push_variable(&eval_var)?;
         for i in 0..num_rounds {
             transcript.push_variable(&sum_check_proof_var.r_0_evals_var[i])?;
