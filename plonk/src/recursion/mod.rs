@@ -150,6 +150,7 @@ pub trait RecursiveProver {
                 products: vec![],
             },
             num_inputs: 0,
+            num_vars: circuit.gates.len().ilog2(),
         };
 
         let client_vk_list = Self::get_vk_list();

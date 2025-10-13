@@ -177,6 +177,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             pcs_verifier_params: verifier_param,
             gate_info: turbo_gate,
             num_inputs: circuit.num_inputs(),
+            num_vars: circuit.num_gates().ilog2(),
         };
 
         let pk = MLEProvingKey {
@@ -835,7 +836,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     {
         let mut transcript = T::new_transcript(b"mle_plonk");
 
-        let num_vars = proof.gkr_proof.challenge_point().len();
+        let num_vars = vk.num_vars as usize;
         let n = 1usize << num_vars;
 
         let mut pi_evals = public_input.to_vec();
@@ -1047,7 +1048,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     {
         let mut transcript = T::new_transcript(b"mle_plonk");
         let proof = &recursion_output.proof;
-        let num_vars = proof.gkr_proof.challenge_point().len();
+        let num_vars = vk.num_vars as usize;
         let n = 1usize << num_vars;
 
         let mut pi_evals = vec![public_input];

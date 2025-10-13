@@ -107,6 +107,8 @@ pub struct MLEVerifyingKey<PCS: PolynomialCommitmentScheme> {
     pub gate_info: GateInfo<PCS::Evaluation>,
     /// The number of public inputs to the proof.
     pub num_inputs: usize,
+    /// Number of variables in the multivariate polynomial for the sumcheck protocol
+    pub num_vars: u32,
 }
 
 impl<PCS> VK<PCS> for MLEVerifyingKey<PCS>
