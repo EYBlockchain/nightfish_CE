@@ -22,10 +22,9 @@ use ark_ff::{FftField, Field, PrimeField};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, Polynomial, Radix2EvaluationDomain,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
-use ark_serialize::{Read, Write};
-use ark_std::path::Path;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate, Read, Write};
 use ark_std::{
+    path::Path,
     borrow::Borrow,
     boxed::Box,
     end_timer, format, fs,
@@ -668,7 +667,6 @@ impl UnivariateKzgPCS<Bn254> {
         ptau_file: &Path,
         max_degree: usize,
         cache_file: &PathBuf,
-        // cache_dir: &Path,
     ) -> Result<UnivariateUniversalParams<Bn254>, PCSError> {
         // Ensure cache directory exists
         if let Some(parent) = cache_file.parent() {
@@ -695,7 +693,7 @@ impl UnivariateKzgPCS<Bn254> {
                         match UnivariateUniversalParams::<Bn254>::deserialize_with_mode(
                             &*payload,
                             Compress::Yes,
-                            Validate::Yes,
+                            Validate::No,
                         ) {
                             Ok(params) => {
                                 // Sanity checks before accepting the cache hit
@@ -715,6 +713,7 @@ impl UnivariateKzgPCS<Bn254> {
                                     && ok_beta_h
                                     && ok_relation
                                 {
+                                    ark_std::println!("Loaded KZG cache from {}", cache_file.display());
                                     return Ok(params);
                                 } else {
                                     error!(
@@ -1105,15 +1104,15 @@ mod tests {
     fn cached_params_roundtrip_equals_original() {
         // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
         // Universal setup expects the actual 'max_degree' (number of powers), not the label.
-        let max_degree = 1usize << 7;
+        let max_degree = 1usize << 20;
         let bin_dir = new_tmpdir();
-        let ptau_path = bin_dir.join("ppot_7.ptau");
+        let ptau_path = bin_dir.join("ppot_20.ptau");
 
         // Clean slate
         let _ = fs::remove_file(&ptau_path);
 
-        // 1) Download a verified PTAU(07). Function auto-heals corrupt files.
-        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+        // 1) Download a verified PTAU(20). Function auto-heals corrupt files.
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(20, &ptau_path)
             .expect("PTAU download/verify should succeed");
 
         // 2) First load: derives the params from the real PTAU and writes the cache
@@ -1165,7 +1164,7 @@ mod tests {
             "cache mtime changed; second load should not rewrite"
         );
         // tidy up
-        // let _ = fs::remove_file(&ptau_path);
-        // let _ = fs::remove_file(&cache_path);
+        let _ = fs::remove_file(&ptau_path);
+        let _ = fs::remove_file(&cache_path);
     }
 }
