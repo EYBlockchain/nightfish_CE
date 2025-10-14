@@ -22,9 +22,8 @@ use ark_ff::{FftField, Field, PrimeField};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, Polynomial, Radix2EvaluationDomain,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate, Read, Write};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Read, Validate, Write};
 use ark_std::{
-    path::Path,
     borrow::Borrow,
     boxed::Box,
     end_timer, format, fs,
@@ -33,6 +32,7 @@ use ark_std::{
     io,
     marker::PhantomData,
     ops::Mul,
+    path::Path,
     path::PathBuf,
     rand::{CryptoRng, RngCore},
     start_timer,
@@ -713,7 +713,10 @@ impl UnivariateKzgPCS<Bn254> {
                                     && ok_beta_h
                                     && ok_relation
                                 {
-                                    ark_std::println!("Loaded KZG cache from {}", cache_file.display());
+                                    ark_std::println!(
+                                        "Loaded KZG cache from {}",
+                                        cache_file.display()
+                                    );
                                     return Ok(params);
                                 } else {
                                     error!(
