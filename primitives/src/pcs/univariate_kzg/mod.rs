@@ -22,9 +22,7 @@ use ark_ff::{FftField, Field, PrimeField};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, Polynomial, Radix2EvaluationDomain,
 };
-use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
-use ark_serialize::{Read, Write};
-use ark_std::path::Path;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Read, Validate, Write};
 use ark_std::{
     borrow::Borrow,
     boxed::Box,
@@ -34,6 +32,7 @@ use ark_std::{
     io,
     marker::PhantomData,
     ops::Mul,
+    path::Path,
     path::PathBuf,
     rand::{CryptoRng, RngCore},
     start_timer,
@@ -43,7 +42,7 @@ use ark_std::{
     One, UniformRand, Zero,
 };
 use jf_utils::par_utils::parallelizable_slice_iter;
-use log::{error, warn};
+use log::{error, info, warn};
 use memmap2::MmapOptions;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
@@ -527,7 +526,7 @@ impl UnivariateKzgPCS<Bn254> {
         let (powers_of_g, h) =
             parse_ptau_file::<Fq, Bn254ConfigOne, Bn254ConfigTwo>(ptau_file, max_degree, 2)
                 .map_err(|e| {
-                    ark_std::println!("Error parsing PTAU file: {:?}", e);
+                    error!("Error parsing PTAU file: {:?}", e);
                     PCSError::InvalidSRS
                 })?;
 
@@ -668,7 +667,6 @@ impl UnivariateKzgPCS<Bn254> {
         ptau_file: &Path,
         max_degree: usize,
         cache_file: &PathBuf,
-        // cache_dir: &Path,
     ) -> Result<UnivariateUniversalParams<Bn254>, PCSError> {
         // Ensure cache directory exists
         if let Some(parent) = cache_file.parent() {
@@ -695,7 +693,7 @@ impl UnivariateKzgPCS<Bn254> {
                         match UnivariateUniversalParams::<Bn254>::deserialize_with_mode(
                             &*payload,
                             Compress::Yes,
-                            Validate::Yes,
+                            Validate::No,
                         ) {
                             Ok(params) => {
                                 // Sanity checks before accepting the cache hit
@@ -715,6 +713,7 @@ impl UnivariateKzgPCS<Bn254> {
                                     && ok_beta_h
                                     && ok_relation
                                 {
+                                    info!("Loaded KZG cache from {}", cache_file.display());
                                     return Ok(params);
                                 } else {
                                     error!(
@@ -1105,15 +1104,15 @@ mod tests {
     fn cached_params_roundtrip_equals_original() {
         // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
         // Universal setup expects the actual 'max_degree' (number of powers), not the label.
-        let max_degree = 1usize << 7;
+        let max_degree = 1usize << 20;
         let bin_dir = new_tmpdir();
-        let ptau_path = bin_dir.join("ppot_7.ptau");
+        let ptau_path = bin_dir.join("ppot_20.ptau");
 
         // Clean slate
         let _ = fs::remove_file(&ptau_path);
 
-        // 1) Download a verified PTAU(07). Function auto-heals corrupt files.
-        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
+        // 1) Download a verified PTAU(20). Function auto-heals corrupt files.
+        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(20, &ptau_path)
             .expect("PTAU download/verify should succeed");
 
         // 2) First load: derives the params from the real PTAU and writes the cache
@@ -1165,7 +1164,7 @@ mod tests {
             "cache mtime changed; second load should not rewrite"
         );
         // tidy up
-        // let _ = fs::remove_file(&ptau_path);
-        // let _ = fs::remove_file(&cache_path);
+        let _ = fs::remove_file(&ptau_path);
+        let _ = fs::remove_file(&cache_path);
     }
 }
