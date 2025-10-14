@@ -5,6 +5,7 @@
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
 //! Main module for univariate KZG commitment scheme
+use super::Accumulation;
 use crate::{
     pcs::{
         poly::GeneralDensePolynomial,
@@ -24,6 +25,7 @@ use ark_poly::{
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, Validate};
 use ark_serialize::{Read, Write};
 use ark_std::path::Path;
+use ark_std::time::Instant;
 use ark_std::{
     borrow::Borrow,
     boxed::Box,
@@ -48,8 +50,6 @@ use memmap2::MmapOptions;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use srs::{UnivariateProverParam, UnivariateUniversalParams, UnivariateVerifierParam};
-
-use super::Accumulation;
 
 pub mod ptau;
 pub mod ptau_digests;
@@ -552,17 +552,25 @@ impl UnivariateKzgPCS<Bn254> {
         // Map degree -> server label
         // e.g. 1 -> "01", 7 -> "07", 26 -> "26"
         // because the server uses 2-digit labels
+        ark_std::println!("Inside download_ptau_file_if_needed");
+        let start = Instant::now();
         let degree_label = match max_degree {
             1..=26 => format!("{:02}", max_degree),
             _ => {
                 return Err(PtauError::InvalidMaxDegree);
             },
         };
-
+        ark_std::println!("It takes :{:?} to compute degree_label", start.elapsed());
+        let start = Instant::now();
         // Lookup canonical expected hash from the embedded table
         let expected_ptau_checksum =
             expected_sha256_for_label(&degree_label).ok_or(PtauError::InvalidMaxDegree)?;
+        ark_std::println!(
+            "It takes :{:?} to compute expected_ptau_checksum",
+            start.elapsed()
+        );
 
+        let start = Instant::now();
         // If a file already exists but the checksum is wrong, delete it and continue as if missing.
         if fs::metadata(ptau_file).is_ok() {
             match Self::verify_ptau_checksum_against_label(
@@ -581,9 +589,9 @@ impl UnivariateKzgPCS<Bn254> {
                 },
             }
         }
-
+        ark_std::println!("It takes :{:?} to check existing file", start.elapsed());
         // Remote URL (PSE Trusted Setup bucket)
-
+        let start = Instant::now();
         let url = format!(
         "https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_{}.ptau",
         degree_label,
@@ -616,7 +624,8 @@ impl UnivariateKzgPCS<Bn254> {
         let mut temp_file = fs::File::create(&tmp_path)?;
         io::copy(&mut response, &mut temp_file)?;
         drop(temp_file); // Ensure file is closed before verification
-
+        ark_std::println!("It takes :{:?} to download the file", start.elapsed());
+        let start = Instant::now();
         // Verify temp file against embedded digest; delete on mismatch
         if let Err(e) =
             Self::verify_ptau_checksum_against_label(tmp_path.as_path(), expected_ptau_checksum)
@@ -628,6 +637,10 @@ impl UnivariateKzgPCS<Bn254> {
                 source: Box::new(e),
             });
         }
+        ark_std::println!(
+            "It takes :{:?} to verify checksum of temp file",
+            start.elapsed()
+        );
 
         // Atomic move into place (verified)
         fs::rename(tmp_path, ptau_file)?;
@@ -673,17 +686,20 @@ impl UnivariateKzgPCS<Bn254> {
         // Ensure cache dir
         fs::create_dir_all(cache_dir)
             .map_err(|e| PCSError::InvalidParameters(format!("cache dir error: {e}")))?;
-
+        let start = Instant::now();
         // Bind cache identity to the exact PTAU content
         let (ptau_hash_bytes, ptau_hash_hex) = file_sha256(ptau_file)
             .map_err(|e| PCSError::InvalidParameters(format!("ptau sha256: {e}")))?;
-
+        ark_std::println!(
+            "It takes :{:?} to compute sha256 of ptau file",
+            start.elapsed()
+        );
         let cache_path = cache_dir.join(format!(
             "kzg_srs_bn254_deg{}_ptau_{}.bin",
             max_degree,
             &ptau_hash_hex[..16] // short prefix for readability
         ));
-
+        let start = Instant::now();
         // Try loading from cache
         if let Ok(mut f) = fs::File::open(&cache_path) {
             if let Ok(header) = KzgCacheHeader::read_from(&mut f) {
@@ -744,10 +760,12 @@ impl UnivariateKzgPCS<Bn254> {
                 error!("KZG cache header parse error (fallback).");
             }
         }
-
+        ark_std::println!("It takes :{:?} to try loading from cache", start.elapsed());
+        let start = Instant::now();
         // Miss or invalid cache -> derive once from PTAU
         let params = Self::universal_setup_bn254(&ptau_file.to_path_buf(), max_degree)?;
-
+        ark_std::println!("It takes :{:?} to derive params from ptau", start.elapsed());
+        let start = Instant::now();
         // Serialize and write atomically
         let tmp = cache_path.with_extension("tmp");
         {
@@ -773,6 +791,7 @@ impl UnivariateKzgPCS<Bn254> {
             w.flush()
                 .map_err(|e| PCSError::InvalidParameters(format!("cache flush: {e}")))?;
         }
+        ark_std::println!("It takes :{:?} to write to temp file", start.elapsed());
         fs::rename(&tmp, &cache_path)
             .map_err(|e| PCSError::InvalidParameters(format!("cache rename: {e}")))?;
 
