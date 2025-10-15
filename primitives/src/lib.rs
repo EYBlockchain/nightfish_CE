@@ -19,7 +19,6 @@ extern crate derivative;
 #[doc(hidden)]
 extern crate alloc;
 
-pub mod aead;
 pub mod circuit;
 pub mod commitment;
 pub mod constants;

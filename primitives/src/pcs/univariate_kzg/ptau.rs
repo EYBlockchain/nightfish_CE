@@ -3,7 +3,7 @@ use ark_bn254::Fq2Config;
 use ark_ec::short_weierstrass::{Affine, SWCurveConfig};
 use ark_ff::{fields::PrimeField, BigInt, Fp2};
 use ark_serialize::{CanonicalDeserialize, Read, SerializationError};
-use ark_std::{fmt::Display, vec, vec::Vec};
+use ark_std::{boxed::Box, fmt::Display, io, string::String, vec, vec::Vec};
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::{
     collections::BTreeMap,
@@ -13,7 +13,6 @@ use std::{
     io::{Seek, SeekFrom},
     path::PathBuf,
 };
-
 type IoResult<T> = Result<T, SerializationError>;
 type G1Points<POne> = Vec<Affine<POne>>;
 type G2Points<PTwo> = Vec<Affine<PTwo>>;
@@ -55,6 +54,17 @@ const EXPECTED_NUM_SECTIONS: u32 = 11;
 #[derive(Debug)]
 /// The error type for parsing a ptau file.
 pub enum PtauError {
+    /// The checksum of the downloaded file does not match the expected checksum.
+    DownloadedChecksumMismatch {
+        label: String,
+        source: Box<dyn Error>,
+    },
+    /// IO error
+    IoError(io::Error),
+    /// Network error during download
+    NetworkError(String),
+    /// The max degree is invalid.
+    InvalidMaxDegree,
     /// The magic string in the ptau file is invalid.
     InvalidMagicString,
     /// The version of the ptau file is invalid.
@@ -80,6 +90,12 @@ impl Error for PtauError {}
 impl Display for PtauError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::DownloadedChecksumMismatch { label, source } => {
+                write!(f, "Downloaded checksum mismatch for {}: {}", label, source)
+            },
+            Self::IoError(e) => write!(f, "IO error: {}", e),
+            Self::NetworkError(e) => write!(f, "Network error: {e}"),
+            Self::InvalidMaxDegree => write!(f, "The max degree is invalid"),
             Self::InvalidMagicString => write!(f, "Failed to read magic string from ptau file"),
             Self::InvalidVersion => write!(f, "Failed to read version from ptau file"),
             Self::InvalidPrimeOrder => write!(f, "Failed to read prime order from ptau file"),
@@ -104,6 +120,11 @@ impl Display for PtauError {
 impl From<SerializationError> for PtauError {
     fn from(err: SerializationError) -> PtauError {
         PtauError::SerializationError(err)
+    }
+}
+impl From<io::Error> for PtauError {
+    fn from(err: io::Error) -> PtauError {
+        PtauError::IoError(err)
     }
 }
 
