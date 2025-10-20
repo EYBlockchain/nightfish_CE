@@ -190,7 +190,7 @@ impl SplitAccumulationInfo {
         &self,
         proof_vars: &[SAMLEProofVar<Zmorph>; 2],
         acc_point_vars: &[PointVariable; 4],
-        deltas: &[Fq254],
+        deltas: &[EmulatedVariable<Fq254>],
         vk: &MLEVerifyingKey<Zmorph>,
         transcript: &mut RescueTranscriptVar<Fr254>,
         circuit: &mut PlonkCircuit<Fr254>,
@@ -214,18 +214,29 @@ impl SplitAccumulationInfo {
         )?;
 
         // Calculate the coefficients for the accumulation.
-        let accumulation_coeffs =
-            iter::successors(Some(Fq254::one()), |x| Some(self.batch_challenge * x))
-                .take(6)
-                .zip(self.sumcheck_proof().poly_evals[6..].iter())
-                .map(|(x, y)| x * *y)
-                .collect::<Vec<Fq254>>();
+        let batch_challenge = circuit.create_emulated_variable(self.batch_challenge)?;
+        let accumulation_coeffs = {
+            let initial_var = circuit.emulated_one();
+            iter::successors(Some(initial_var), |x| {
+                circuit.emulated_mul(x, &batch_challenge).ok()
+            })
+            .take(6)
+            .zip(self.sumcheck_proof().poly_evals[6..].iter())
+            .map(|(x, y)| (x, *y))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(x, y)| {
+                let y = circuit.create_emulated_variable(y).unwrap();
+                circuit.emulated_mul(&x, &y)
+            })
+            .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?
+        };
 
         // Create the variables for the commitments in the two proofs
         let proof_one = &proof_vars[0];
         let proof_two = &proof_vars[1];
 
-        let proof_scalars = compute_mle_scalars(&accumulation_coeffs[..2], deltas)?;
+        let proof_scalars = compute_mle_scalars(&accumulation_coeffs[..2], deltas, circuit)?;
 
         // Create the bases from the verifying key.
         let selector_variables = vk
@@ -274,8 +285,8 @@ impl SplitAccumulationInfo {
         let final_msm_scalars = proof_scalars
             .iter()
             .chain(accumulation_coeffs[2..].iter())
-            .map(|f| circuit.create_emulated_variable(*f))
-            .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+            .cloned()
+            .collect::<Vec<_>>();
 
         let final_bases = [proof_msm_bases, acc_point_vars.into()].concat();
 
@@ -300,9 +311,10 @@ impl SplitAccumulationInfo {
 /// This function computes the scalars used for the MSM that is performed in a Bn254 recursion circuit.
 /// We work on the assumption that the proof uses lookups because if it isn't the circuit before was probably too big to prove anyway.
 fn compute_mle_scalars(
-    accumulation_scalars: &[Fq254],
-    deltas: &[Fq254],
-) -> Result<Vec<Fq254>, CircuitError> {
+    accumulation_scalars: &[EmulatedVariable<Fq254>],
+    deltas: &[EmulatedVariable<Fq254>],
+    circuit: &mut PlonkCircuit<Fr254>,
+) -> Result<Vec<EmulatedVariable<Fq254>>, CircuitError> {
     // The individual proof scalars are structured in the order:
     // wire commits (6) [0..6]
     // selector commitments (17) [6..23]
@@ -319,28 +331,36 @@ fn compute_mle_scalars(
         .iter()
         .zip(deltas.iter())
         .map(|(acc_scalar, delta)| {
-            iter::successors(Some(*acc_scalar), |x| Some(*delta * *x))
-                .take(35)
-                .collect::<Vec<Fq254>>()
+            (0..35).try_fold(Vec::with_capacity(35), |mut result, i| {
+                let current = if i == 0 {
+                    acc_scalar.clone()
+                } else {
+                    circuit.emulated_mul(delta, result.last().unwrap())?
+                };
+                result.push(current);
+                Ok(result)
+            })
         })
-        .collect::<Vec<Vec<Fq254>>>();
+        .collect::<Result<Vec<Vec<EmulatedVariable<Fq254>>>, CircuitError>>()?;
 
     let mut out_scalars = scalars[0].clone();
 
     out_scalars[6..29]
         .iter_mut()
         .zip(scalars[1][6..29].iter())
-        .for_each(|(out, s)| {
-            *out += *s;
-        });
+        .try_for_each(|(out, s)| {
+            *out = circuit.emulated_add(out, s)?;
+            Ok::<(), CircuitError>(())
+        })?;
     out_scalars[30..35]
         .iter_mut()
         .zip(scalars[1][30..35].iter())
-        .for_each(|(out, s)| {
-            *out += *s;
-        });
+        .try_for_each(|(out, s)| {
+            *out = circuit.emulated_add(out, s)?;
+            Ok::<(), CircuitError>(())
+        })?;
 
     out_scalars.extend_from_slice(&scalars[1][0..6]);
-    out_scalars.push(scalars[1][29]);
+    out_scalars.push(scalars[1][29].clone());
     Ok(out_scalars)
 }
