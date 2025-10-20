@@ -1557,7 +1557,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
         &split_acc_proofs,
         &acc_comms,
-        &deltas,
+        &deltas
+            .into_iter()
+            .map(|e| circuit.create_emulated_variable(e).unwrap())
+            .collect::<Vec<_>>(),
         &pk_grumpkin.verifying_key,
         &mut transcript,
         circuit,
