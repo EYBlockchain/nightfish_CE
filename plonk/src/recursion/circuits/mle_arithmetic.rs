@@ -935,7 +935,7 @@ mod tests {
                         .unwrap();
                     let proof_var =
                         SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
-                    let (stuff, _) =
+                    let (challenges, _) =
                         reconstruct_mle_challenges::<
                             _,
                             _,
@@ -945,7 +945,9 @@ mod tests {
                             RescueTranscriptVar<Fr254>,
                         >(&proof_var, &mut challenges_circuit, &pi_hash)
                         .unwrap();
-                    stuff
+                    challenges
+                        .to_struct::<SWGrumpkin>(&mut challenges_circuit)
+                        .unwrap()
                 })
                 .collect::<Vec<MLEProofChallenges<Fq254>>>();
 
