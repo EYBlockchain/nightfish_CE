@@ -43,7 +43,9 @@ use crate::{
     },
     proof_system::RecursiveOutput,
     recursion::circuits::{
-        challenges::{reconstruct_mle_challenges, MLEProofChallengesEmulatedVar},
+        challenges::{
+            reconstruct_mle_challenges, MLEProofChallengesEmulatedVar, MLEProofChallengesVar,
+        },
         emulated_mle_arithmetic::emulated_combine_mle_proof_scalars,
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript, Transcript},
@@ -646,15 +648,38 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?;
 
+        let mle_plonk_challenges: Vec<MLEProofChallengesVar> = bn254info
+            .challenges
+            .iter()
+            .map(|chals| MLEProofChallengesVar::from_struct(circuit, chals))
+            .collect::<Result<Vec<MLEProofChallengesVar>, CircuitError>>()?;
+
+        let mle_plonk_challenges: Vec<[Variable; 12]> = mle_plonk_challenges
+            .iter()
+            .map(|c| -> Result<[Variable; 12], CircuitError> {
+                let [a_lo, a_hi] = convert_to_hash_form_fq254(circuit, c.challenges.alpha)?;
+                let [b_lo, b_hi] = convert_to_hash_form_fq254(circuit, c.challenges.beta)?;
+                let [g_lo, g_hi] = convert_to_hash_form_fq254(circuit, c.challenges.gamma)?;
+                let [d_lo, d_hi] = convert_to_hash_form_fq254(circuit, c.challenges.delta)?;
+                let [e_lo, e_hi] = convert_to_hash_form_fq254(circuit, c.challenges.epsilon)?;
+                let [t_lo, t_hi] = convert_to_hash_form_fq254(circuit, c.challenges.tau)?;
+
+                Ok([
+                    a_lo, a_hi, b_lo, b_hi, g_lo, g_hi, d_lo, d_hi, e_lo, e_hi, t_lo, t_hi,
+                ])
+            })
+            .collect::<Result<Vec<_>, CircuitError>>()?;
+
         let pi_hashes = izip!(
             scalars_and_acc_evals.iter(),
             impl_pi_vars.iter(),
             old_acc_vars.iter(),
             forwarded_accs.iter(),
             old_pi_hashes.chunks_exact(2),
+            mle_plonk_challenges.chunks_exact(2),
         )
         .map(
-            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes)| {
+            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes, mle_plonk_challenge)| {
                 let prepped_scalars = scalars
                     .iter()
                     .map(|&var| convert_to_hash_form_fq254(circuit, var))
@@ -662,6 +687,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     .into_iter()
                     .flatten()
                     .collect::<Vec<Variable>>();
+                let mle_challenges_flat: Vec<Variable> =
+                    mle_plonk_challenge.iter().flatten().copied().collect();
                 let in_vars = [
                     pi.as_slice(),
                     prepped_scalars.as_slice(),
@@ -669,6 +696,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     forwarded_acc.as_slice(),
                     acc_eval.as_slice(),
                     old_hashes,
+                    mle_challenges_flat.as_slice(),
                 ]
                 .concat();
 
@@ -1581,6 +1609,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     // forwarded accumulators
     // new accumulator
     // old_pi_hashes
+    // MLE PLONK challenges
 
     specific_pi
         .iter()
@@ -1617,6 +1646,29 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     // Finally pi hashes are constructed to fit into either field
     for var in pi_hash_vars.iter() {
         circuit.set_variable_public(*var)?;
+    }
+
+    assert!(next_grumpkin_challenges.len() == 2);
+    for challenge in &next_grumpkin_challenges {
+        let c = &challenge.0.challenges;
+        let (alpha_lo, alpha_hi) = emulated_as_two_limbs(circuit, &c.alpha)?;
+        circuit.set_variable_public(alpha_lo)?;
+        circuit.set_variable_public(alpha_hi)?;
+        let (beta_lo, beta_hi) = emulated_as_two_limbs(circuit, &c.beta)?;
+        circuit.set_variable_public(beta_lo)?;
+        circuit.set_variable_public(beta_hi)?;
+        let (gamma_lo, gamma_hi) = emulated_as_two_limbs(circuit, &c.gamma)?;
+        circuit.set_variable_public(gamma_lo)?;
+        circuit.set_variable_public(gamma_hi)?;
+        let (delta_lo, delta_hi) = emulated_as_two_limbs(circuit, &c.delta)?;
+        circuit.set_variable_public(delta_lo)?;
+        circuit.set_variable_public(delta_hi)?;
+        let (epsilon_lo, epsilon_hi) = emulated_as_two_limbs(circuit, &c.epsilon)?;
+        circuit.set_variable_public(epsilon_lo)?;
+        circuit.set_variable_public(epsilon_hi)?;
+        let (tau_lo, tau_hi) = emulated_as_two_limbs(circuit, &c.tau)?;
+        circuit.set_variable_public(tau_lo)?;
+        circuit.set_variable_public(tau_hi)?;
     }
 
     let specific_pi_field = specific_pi
@@ -2118,4 +2170,41 @@ fn convert_to_hash_form_fq254(
     )?;
 
     Ok([low_var, high_var])
+}
+
+// Helper: expose an emulated Fq254 variable as two public Fr254 limbs.
+fn emulated_as_two_limbs(
+    circuit: &mut PlonkCircuit<Fr254>,
+    var: &EmulatedVariable<Fq254>,
+) -> Result<(Variable, Variable), CircuitError> {
+    let wit = circuit.emulated_witness(var)?;
+    let bytes = wit.into_bigint().to_bytes_le();
+
+    let [low_fe, high_fe]: [Fr254; 2] = bytes_to_field_elements::<_, Fr254>(bytes.clone())[1..]
+        .try_into()
+        .map_err(|_| {
+            CircuitError::ParameterError(
+                "Could not convert slice to fixed length array".to_string(),
+            )
+        })?;
+
+    let low_var = circuit.create_variable(low_fe)?;
+    let high_var = circuit.create_variable(high_fe)?;
+
+    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+    let bits = field_bytes_length * 8;
+    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+    circuit.enforce_in_range(low_var, bits)?;
+    circuit.enforce_in_range(high_var, leftover_bits)?;
+
+    let low_e = circuit.to_emulated_variable::<Fq254>(low_var)?;
+    let high_e = circuit.to_emulated_variable::<Fq254>(high_var)?;
+
+    let radix_fq = Fq254::from(2u64).pow([248u64]);
+    let hi_shifted = circuit.emulated_mul_constant::<Fq254>(&high_e, radix_fq)?;
+    let recomposed = circuit.emulated_add::<Fq254>(&hi_shifted, &low_e)?;
+    circuit.enforce_emulated_var_equal::<Fq254>(&recomposed, var)?;
+
+    Ok((low_var, high_var))
 }
