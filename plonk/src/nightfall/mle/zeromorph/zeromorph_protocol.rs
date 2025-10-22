@@ -97,7 +97,6 @@ where
             Hash::hash(&commit, state);
         }
         Hash::hash(&self.degree_check_proof, state);
-        Hash::hash(&self.degree_check_proof, state);
     }
 }
 
