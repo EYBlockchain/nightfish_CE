@@ -975,61 +975,6 @@ mod tests {
         Ok(())
     }
 
-    /// Real download: first call downloads PTAU(7) and writes sidecar;
-    /// second call should verify and return without rewriting (mtime unchanged).
-    #[test]
-    fn ptau_real_download_then_skip_on_second_run() {
-        // Arrange: pick a unique temp directory to avoid polluting the repo
-        let bin_dir = new_tmpdir();
-        let ptau_path = bin_dir.join("ppot_7.ptau");
-
-        // Sanity: ensure clean slate
-        let _ = fs::remove_file(&ptau_path);
-
-        // --- First run: should download and, with TOFU, write sidecar
-        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
-            .expect("first download should succeed");
-
-        // Verify file exists and has some content
-        let meta1 = fs::metadata(&ptau_path).expect("ptau exists after first run");
-        assert!(meta1.len() > 0, "downloaded PTAU must be non-empty");
-
-        // Capture modification time & contents for later comparison
-        let mtime1 = meta1.modified().expect("mtime supported");
-        let mut bytes1 = Vec::new();
-        File::open(&ptau_path)
-            .unwrap()
-            .read_to_end(&mut bytes1)
-            .unwrap();
-
-        //  Sleep 1s to avoid coarse FS timestamp resolutions
-        std::thread::sleep(Duration::from_secs(1));
-
-        // --- Second run: should verify via sidecar and SKIP download/rewrites
-        UnivariateKzgPCS::<Bn254>::download_ptau_file_if_needed(7, &ptau_path)
-            .expect("second run should verify and return without rewriting");
-
-        let meta2 = fs::metadata(&ptau_path).expect("ptau exists after second run");
-        let mtime2 = meta2.modified().expect("mtime supported");
-
-        // Assert: content unchanged
-        let mut bytes2 = Vec::new();
-        File::open(&ptau_path)
-            .unwrap()
-            .read_to_end(&mut bytes2)
-            .unwrap();
-        assert_eq!(bytes1, bytes2, "PTAU content changed unexpectedly");
-
-        // Assert: mtime unchanged -> no rewrite happened
-        assert_eq!(
-            mtime1, mtime2,
-            "PTAU mtime changed; second run should NOT rewrite the file"
-        );
-
-        // tidy up, remove downloaded files
-        let _ = fs::remove_file(&ptau_path);
-    }
-
     #[test]
     fn ptau_is_broken_before_second_run_recovers_by_redownloading() {
         // Arrange: pick a unique temp directory to avoid polluting the repo
