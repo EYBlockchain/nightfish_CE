@@ -287,21 +287,29 @@ where
             <RescueTranscript<E::BaseField> as Transcript>::new_transcript(&[]);
 
         // We append the commitments to the transcript
-        for commitment in u_commitments.iter() {
+        for qk_hat_comm in u_commitments.iter().take(num_vars) {
             transcript
-                .append_curve_point(b"commitment", commitment)
+                .append_curve_point(b"commit_qk_hat", qk_hat_comm)
                 .map_err(|_| {
                     PCSError::InvalidParameters(
-                        "Could not append commitment to transcript".to_string(),
+                        "Could not append commit_qk_hat to transcript".to_string(),
                     )
                 })?;
         }
 
+        transcript
+            .append_curve_point(b"commit_f_hat", &u_commitments[num_vars])
+            .map_err(|_| {
+                PCSError::InvalidParameters(
+                    "Could not append commit_f_hat to transcript".to_string(),
+                )
+            })?;
+
         // This challenge y is used for the batched degree check on u_vec.
         let y = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"y")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_y")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge y scalar".to_string())
             })?;
 
         // We construct the `q_hat` poly and push its commitment to the transcript.
@@ -317,23 +325,25 @@ where
         let q_hat_comm = UnivariateIpaPCS::<E>::commit(prover_param, &q_hat)?;
         u_commitments.push(q_hat_comm);
         transcript
-            .append_curve_point(b"commitment", &q_hat_comm)
+            .append_curve_point(b"commit_q_hat", &q_hat_comm)
             .map_err(|_| {
-                PCSError::InvalidParameters("Could not append commitment to transcript".to_string())
+                PCSError::InvalidParameters(
+                    "Could not append commit_q_hat to transcript".to_string(),
+                )
             })?;
 
         // This challenge x is used to construct our Z_x polynomial.
         let x = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"x")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_x")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge x scalar".to_string())
             })?;
 
         // This challenge z is used to batch our two degree checks.
         let z = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"z")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_z")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge z scalar".to_string())
             })?;
 
         // We construct the `zeta` and `Z_x` polys.
@@ -387,13 +397,13 @@ where
         let mut transcript: RescueTranscript<E::BaseField> =
             <RescueTranscript<E::BaseField> as Transcript>::new_transcript(&[]);
 
-        // We append each commitment to the transcript.
+        // We append each commitment to the univariate encoding of the polynomials to the transcript.
         for commitment in batch_commitment.iter() {
             transcript
-                .append_curve_point(b"commitment", commitment)
+                .append_curve_point(b"commit_f_hat", commitment)
                 .map_err(|_| {
                     PCSError::InvalidParameters(
-                        "Could not append commitment to transcript".to_string(),
+                        "Could not append commit_f_hat to transcript".to_string(),
                     )
                 })?;
         }
@@ -472,42 +482,52 @@ where
             <RescueTranscript<E::BaseField> as Transcript>::new_transcript(&[]);
 
         // We push the commitments to the `q_k`s and `f` to the transcript.
-        for commitment in commitments.iter().take(num_vars + 1) {
+        for commitment in commitments.iter().take(num_vars) {
             transcript
-                .append_curve_point(b"commitment", commitment)
+                .append_curve_point(b"commit_qk_hat", commitment)
                 .map_err(|_| {
                     PCSError::InvalidParameters(
-                        "Could not append commitment to transcript".to_string(),
+                        "Could not append commit_qk_hat to transcript".to_string(),
                     )
                 })?;
         }
 
+        transcript
+            .append_curve_point(b"commit_f_hat", &commitments[num_vars])
+            .map_err(|_| {
+                PCSError::InvalidParameters(
+                    "Could not append commit_f_hat to transcript".to_string(),
+                )
+            })?;
+
         // This challenge y is used for the batched degree check on all the `U(q_k)`s.
         let y = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"y")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_y")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge y scalar".to_string())
             })?;
 
         // We push the commitment to `q_hat` to the transcript.
         transcript
-            .append_curve_point(b"commitment", q_hat_comm)
+            .append_curve_point(b"commit_q_hat", q_hat_comm)
             .map_err(|_| {
-                PCSError::InvalidParameters("Could not append commitment to transcript".to_string())
+                PCSError::InvalidParameters(
+                    "Could not append commit_q_hat to transcript".to_string(),
+                )
             })?;
 
         // This challenge x is used to construct our Z_x polynomial.
         let x = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"x")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_x")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge x scalar".to_string())
             })?;
 
         // This challenge z is used to batch our two degree checks.
         let z = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"z")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_z")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge z scalar".to_string())
             })?;
 
         // We construct the commitment to the poly `zeta`.
@@ -572,13 +592,13 @@ where
         let mut transcript: RescueTranscript<E::BaseField> =
             <RescueTranscript<E::BaseField> as Transcript>::new_transcript(&[]);
 
-        // We append each commitment to the transcript.
+        // We append each commitment to the univariate encoding of the polynomials to the transcript.
         for commitment in multi_commitment.iter() {
             transcript
-                .append_curve_point(b"commitment", commitment)
+                .append_curve_point(b"commit_f_hat", commitment)
                 .map_err(|_| {
                     PCSError::InvalidParameters(
-                        "Could not append commitment to transcript".to_string(),
+                        "Could not append commit_f_hat to transcript".to_string(),
                     )
                 })?;
         }
@@ -672,21 +692,29 @@ where
             <RescueTranscript<E::BaseField> as Transcript>::new_transcript(&[]);
 
         // We append the commitments to the transcript
-        for commitment in u_commitments.iter() {
+        for commitment in u_commitments.iter().take(num_vars) {
             transcript
-                .append_curve_point(b"commitment", commitment)
+                .append_curve_point(b"commit_qk_hat", commitment)
                 .map_err(|_| {
                     PCSError::InvalidParameters(
-                        "Could not append commitment to transcript".to_string(),
+                        "Could not append commit_qk_hat to transcript".to_string(),
                     )
                 })?;
         }
 
+        transcript
+            .append_curve_point(b"commit_f_hat", &u_commitments[num_vars])
+            .map_err(|_| {
+                PCSError::InvalidParameters(
+                    "Could not append commit_f_hat to transcript".to_string(),
+                )
+            })?;
+
         // This challenge y is used for the batched degree check on u_vec.
         let y = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"y")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_y")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge y scalar".to_string())
             })?;
 
         // We construct the `q_hat` poly and push its commitment to the transcript.
@@ -702,23 +730,25 @@ where
         let q_hat_comm = UnivariateIpaPCS::<E>::commit(prover_param, &q_hat)?;
         u_commitments.push(q_hat_comm);
         transcript
-            .append_curve_point(b"commitment", &q_hat_comm)
+            .append_curve_point(b"commit_q_hat", &q_hat_comm)
             .map_err(|_| {
-                PCSError::InvalidParameters("Could not append commitment to transcript".to_string())
+                PCSError::InvalidParameters(
+                    "Could not append commit_q_hat to transcript".to_string(),
+                )
             })?;
 
         // This challenge x is used to construct our Z_x polynomial.
         let x = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"x")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_x")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge x scalar".to_string())
             })?;
 
         // This challenge z is used to batch our two degree checks.
         let z = transcript
-            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"z")
+            .squeeze_scalar_challenge::<<E::G1Affine as AffineRepr>::Config>(b"challenge_z")
             .map_err(|_| {
-                PCSError::InvalidParameters("could not squeeze challenge scalar".to_string())
+                PCSError::InvalidParameters("could not squeeze challenge z scalar".to_string())
             })?;
 
         // We construct the `zeta` and `Z_x` polys.
