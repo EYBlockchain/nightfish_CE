@@ -553,6 +553,204 @@ where
         circuit.check_vars_bound(&scalar.0[..])?;
     }
 
+    if P::has_glv() {
+        // ================================================
+        // Find scalar length for GLV method
+        // ================================================
+
+        let scalar_bit_length = scalar_bit_length.next_power_of_two() / 2;
+
+        // ================================================
+        // set up parameters
+        // ================================================
+
+        let c = if scalar_bit_length < 32 {
+            3
+        } else {
+            ln_without_floats(scalar_bit_length)
+        };
+        // ================================================
+        // compute lookup tables and window sums
+        // ================================================
+
+        // Each window is of size `c`.
+        // We divide up the bits 0..scalar_bit_length into windows of size `c`, and
+        // in parallel process each such window.
+        let mut window_sums = Vec::new();
+        let mut skews_one = vec![];
+        let mut skews_two = vec![];
+        let mut neg_bases_one = vec![];
+        let mut neg_bases_two = vec![];
+        for (base_var, scalar_var) in bases.iter().zip(scalars.iter()) {
+            let (scalar_one, scalar_two, sign_var) =
+                circuit.scalar_decomposition_gate::<P>(scalar_var)?;
+
+            // decompose scalar into c-bit scalars
+            let (decomposed_scalar_one_vars, skew_one) =
+                decompose_scalar_var_signed::<P, F>(circuit, scalar_one, c, scalar_bit_length)?;
+
+            let (decomposed_scalar_two_vars, skew_two) =
+                decompose_scalar_var_signed::<P, F>(circuit, scalar_two, c, scalar_bit_length)?;
+
+            // We need to contrain the last scalar in each decomposition to be positive and
+            // ensure that we don't exceed the `scalar_bit_length`. All the other scalars
+            // will be constrained appropriately by the lookup table.
+            if scalar_bit_length % c != 0 {
+                for decomposed_scalar_vars in
+                    &[&decomposed_scalar_one_vars, &decomposed_scalar_two_vars]
+                {
+                    let last_scalar_var = decomposed_scalar_vars.last().unwrap();
+                    circuit.range_gate_with_lookup(*last_scalar_var, scalar_bit_length % c)?;
+                }
+            }
+
+            // We need the inverse of both the base and the endomorphism applied to the base.
+            let neg_base = circuit.inverse_point(base_var)?;
+            let temp_endo_point = circuit.endomorphism_circuit::<P>(base_var)?;
+            let temp_neg_endo_point = circuit.endomorphism_circuit::<P>(&neg_base)?;
+            // If `sign_var` represents a minus, we swap the roles of endo_point and neg_endo_point.
+            let endo_point = circuit.binary_point_vars_select(
+                sign_var,
+                &temp_neg_endo_point,
+                &temp_endo_point,
+            )?;
+            let neg_endo_point = circuit.binary_point_vars_select(
+                sign_var,
+                &temp_endo_point,
+                &temp_neg_endo_point,
+            )?;
+            // We add `neg_base` and `neg_end_point` to the our vector of negated bases.
+            neg_bases_one.push(neg_base);
+            neg_bases_two.push(neg_endo_point);
+
+            // create point table [0 * base, 1 * base, ..., (2^c-1) * base]
+            // let mut table_point_vars_one = vec![point_zero_var, *base_var];
+            let mut table_point_vars_one = vec![*base_var];
+            let mut table_point_vars_two = vec![endo_point];
+            let double_base_var = circuit.ecc_add_no_neutral::<P>(base_var, base_var)?;
+
+            for i in 1usize..(1 << (c - 1)) {
+                let base_point_var = circuit
+                    .ecc_add_no_neutral::<P>(&table_point_vars_one[i - 1], &double_base_var)?;
+                let endo_point_var = circuit.endomorphism_circuit::<P>(&base_point_var)?;
+                table_point_vars_one.push(base_point_var);
+                table_point_vars_two.push(endo_point_var);
+            }
+
+            let mut neg_points_one = vec![neg_base];
+            let mut neg_points_two = vec![neg_endo_point];
+            if !P::has_te_form() {
+                for point in table_point_vars_one.iter().skip(1) {
+                    let point_x = point.get_x();
+                    let point_y = point.get_y();
+                    let new_y = circuit.sub(circuit.zero(), point_y)?;
+                    let neg_point = PointVariable::SW(point_x, new_y);
+                    let neg_endo_point = circuit.endomorphism_circuit::<P>(&neg_point)?;
+                    neg_points_one.push(neg_point);
+                    neg_points_two.push(neg_endo_point);
+                }
+                table_point_vars_one.extend_from_slice(&neg_points_one);
+                table_point_vars_two.extend_from_slice(&neg_points_two);
+            } else {
+                for point in table_point_vars_one.iter().skip(1) {
+                    let neg_point = circuit.inverse_point(point)?;
+                    let neg_endo_point = circuit.endomorphism_circuit::<P>(&neg_point)?;
+                    neg_points_one.push(neg_point);
+                    neg_points_two.push(neg_endo_point);
+                }
+                table_point_vars_one.extend_from_slice(&neg_points_one);
+                table_point_vars_two.extend_from_slice(&neg_points_two);
+            }
+
+            // create lookup point variables
+            let mut lookup_point_vars_one = Vec::new();
+            for &scalar_var in decomposed_scalar_one_vars.iter() {
+                let lookup_point =
+                    compute_scalar_mul_value_signed::<F, P>(circuit, scalar_var, base_var)?;
+                let lookup_point_var = circuit.create_point_variable(&lookup_point)?;
+                lookup_point_vars_one.push(lookup_point_var);
+            }
+
+            // create lookup point variables
+            let mut lookup_point_vars_two = Vec::new();
+            for &scalar_var in decomposed_scalar_two_vars.iter() {
+                let lookup_point =
+                    compute_scalar_mul_value_signed::<F, P>(circuit, scalar_var, &endo_point)?;
+                let lookup_point_var = circuit.create_point_variable(&lookup_point)?;
+                lookup_point_vars_two.push(lookup_point_var);
+            }
+
+            create_point_lookup_gates_custom_keys::<P, F>(
+                circuit,
+                &table_point_vars_one,
+                &decomposed_scalar_one_vars,
+                &lookup_point_vars_one,
+            )?;
+
+            create_point_lookup_gates_custom_keys::<P, F>(
+                circuit,
+                &table_point_vars_two,
+                &decomposed_scalar_two_vars,
+                &lookup_point_vars_two,
+            )?;
+
+            let lookup_point_vars = lookup_point_vars_one
+                .iter()
+                .zip(lookup_point_vars_two.iter())
+                .map(|(a, b)| circuit.ecc_add_no_neutral::<P>(a, b))
+                .collect::<Result<Vec<_>, _>>()?;
+            // update window sums
+            if window_sums.is_empty() {
+                window_sums = lookup_point_vars;
+            } else {
+                for (window_sum_mut, lookup_point_var) in
+                    window_sums.iter_mut().zip(lookup_point_vars.iter())
+                {
+                    *window_sum_mut =
+                        circuit.ecc_add_no_neutral::<P>(window_sum_mut, lookup_point_var)?;
+                }
+            }
+            skews_one.push(skew_one);
+            skews_two.push(skew_two);
+        }
+
+        // ================================================
+        // performing additions
+        // ================================================
+        // We store the sum for the lowest window.
+        let lowest = window_sums.first().unwrap();
+        let mut last = *window_sums.last().unwrap();
+
+        for _ in 0..c {
+            last = circuit.ecc_add_no_neutral::<P>(&last, &last)?;
+        }
+        // We're traversing windows from high to low.
+        let b = &window_sums[1..]
+            .iter()
+            .rev()
+            .skip(1)
+            .fold(last, |mut total, sum_i| {
+                // total += sum_i
+                total = circuit.ecc_add_no_neutral::<P>(&total, sum_i).unwrap();
+                for _ in 0..c {
+                    // double
+                    total = circuit.ecc_add_no_neutral::<P>(&total, &total).unwrap();
+                }
+                total
+            });
+
+        let mut final_point = circuit.ecc_add_no_neutral::<P>(lowest, b)?;
+        for (skew, base) in skews_one.into_iter().zip(neg_bases_one.iter()) {
+            let point = circuit.ecc_add_no_neutral::<P>(&final_point, base)?;
+            final_point = circuit.binary_point_vars_select(skew, &final_point, &point)?;
+        }
+
+        for (skew, base) in skews_two.into_iter().zip(neg_bases_two.iter()) {
+            let point = circuit.ecc_add_no_neutral::<P>(&final_point, base)?;
+            final_point = circuit.binary_point_vars_select(skew, &final_point, &point)?;
+        }
+        Ok(final_point)
+    } else {
     // ================================================
     // set up parameters
     // ================================================
@@ -592,8 +790,15 @@ where
     for (base_vec, scalar_var) in bases_vec.iter().zip(scalars.iter()) {
         // decompose scalar into c-bit scalars
 
+        let num_gates = circuit.num_gates();
+
         let decomposed_scalar_vars =
             decompose_emulated_scalar_var(circuit, scalar_var, c, scalar_bit_length)?;
+
+        ark_std::println!(
+            "Decomposing scalar variable added {} gates",
+            circuit.num_gates() - num_gates,
+        );
 
         num_scalars = decomposed_scalar_vars.len();
 
@@ -628,6 +833,8 @@ where
             .map(|p| Point::<F>::from(*p))
             .collect::<Vec<_>>();
 
+        let mut num_gates = circuit.num_gates();
+
         create_fixed_point_lookup_gates(
             circuit,
             &table_points,
@@ -635,16 +842,30 @@ where
             &lookup_point_vars_one,
         )?;
 
+        ark_std::println!(
+            "Creating fixed point lookup gates for one base added {} gates",
+            circuit.num_gates() - num_gates,
+        );
+
         // update window sums
         if window_sums.is_empty() {
             window_sums = lookup_point_vars_one;
         } else {
+
+            num_gates = circuit.num_gates();
+
             for (window_sum_mut, lookup_point_var) in
                 window_sums.iter_mut().zip(lookup_point_vars_one.iter())
             {
                 *window_sum_mut =
                     circuit.ecc_add_no_neutral::<P>(window_sum_mut, lookup_point_var)?;
             }
+
+            ark_std::println!(
+                "Updating window sums for one base added {} gates",
+                circuit.num_gates() - num_gates,
+            );
+
         }
     }
 
@@ -664,6 +885,8 @@ where
         last = circuit.ecc_add_no_neutral::<P>(&last, &last)?;
     }
 
+    let num_gates = circuit.num_gates();
+
     // We're traversing windows from high to low.
     let b = &window_sums[1..]
         .iter()
@@ -678,6 +901,12 @@ where
             }
             total
         });
+    
+    ark_std::println!(
+        "Final additions in MSM with {} bases added {} gates",
+        bases.len(),
+        circuit.num_gates() - num_gates
+    );
 
     let tmp = circuit.ecc_add_no_neutral::<P>(&lowest, b)?;
     circuit.ecc_add_no_neutral::<P>(&tmp, &final_var)
@@ -1143,12 +1372,19 @@ mod tests {
                     .map(|x| circuit.create_emulated_variable(*x))
                     .collect::<Result<Vec<_>, _>>()?;
 
+                let num_gates = circuit.num_gates();
                 // compute circuit
                 let res_var = EmulMultiScalarMultiplicationCircuit::<F, P>::fixed_base_msm(
                     &mut circuit,
                     &bases,
                     &scalar_vars,
                 )?;
+
+                ark_std::println!(
+                    "Fixed-base MSM of dimension {} added {} gates",
+                    dim,
+                    circuit.num_gates() - num_gates
+                );
 
                 assert_eq!(circuit.point_witness(&res_var)?, res_point);
                 circuit.check_circuit_satisfiability(&[]).unwrap();
