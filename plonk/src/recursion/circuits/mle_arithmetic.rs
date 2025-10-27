@@ -1,6 +1,6 @@
 //! This module contains code for performing all the scalar arithmetic involved in verifying a [`MLEPlonk`] proof.
 //! We verify the scalar arithmetic as standard and then we check that the scalars used in the previous circuits MSM are correct.
-#![allow(dead_code)]
+
 use ark_ff::{batch_inversion, PrimeField};
 use ark_std::{string::ToString, vec, vec::Vec, One};
 
@@ -19,13 +19,14 @@ use crate::{
         },
     },
     proof_system::RecursiveOutput,
+    recursion::circuits::split_acc::SplitAccumulationInfoVar,
     transcript::RescueTranscript,
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
-use super::{challenges::MLEProofChallengesVar, split_acc::SplitAccumulationInfo, Zmorph};
+use super::{challenges::MLEProofChallengesVar, Zmorph};
 
 /// Function for taking the deferred evaluations output by verifying a GKR proof and combines them into the expected initial value of
 /// the final SumCheck proof.
@@ -508,7 +509,7 @@ pub fn combine_mle_proof_scalars(
     outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
     challenges: &[MLEProofChallengesVar],
     pi_hashes: &[Variable],
-    acc_info: &SplitAccumulationInfo,
+    acc_info: &SplitAccumulationInfoVar,
     vk: &MLEVerifyingKey<Zmorph>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
@@ -562,24 +563,11 @@ pub fn combine_mle_proof_scalars(
         points.push(proof_var.sumcheck_proof().point_var.clone());
     }
 
-    let old_acc_evals = acc_info
-        .old_accumulators()
-        .iter()
-        .map(|acc| circuit.create_variable(acc.value))
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let old_acc_evals = acc_info.old_accumulators_evals;
 
-    let acc_sumcheck_proof = circuit.sum_check_proof_to_var(acc_info.sumcheck_proof())?;
+    let acc_sumcheck_proof = acc_info.sumcheck_proof.clone();
 
-    let acc_eval_points = acc_info
-        .old_accumulators()
-        .iter()
-        .map(|acc| {
-            acc.point
-                .iter()
-                .map(|p| circuit.create_variable(*p))
-                .collect::<Result<Vec<Variable>, CircuitError>>()
-        })
-        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+    let acc_eval_points = &acc_info.old_accumulators_points;
 
     let eval_points = points
         .iter()
@@ -587,7 +575,7 @@ pub fn combine_mle_proof_scalars(
         .map(|p| p.as_slice())
         .collect::<Vec<&[Variable]>>();
 
-    let batching_scalar = circuit.create_variable(acc_info.batch_challenge)?;
+    let batching_scalar = acc_info.batch_challenge;
     let (accumulation_scalars, accumulated_eval) = verify_split_accumulation(
         circuit,
         &evals,
@@ -688,7 +676,9 @@ mod tests {
             UnivariateIpaPCS,
         },
         proof_system::{UniversalRecursiveSNARK, UniversalSNARK},
-        recursion::circuits::challenges::reconstruct_mle_challenges,
+        recursion::circuits::{
+            challenges::reconstruct_mle_challenges, split_acc::SplitAccumulationInfo,
+        },
         transcript::{rescue::RescueTranscriptVar, RescueTranscript, Transcript},
     };
 
@@ -926,6 +916,8 @@ mod tests {
             let mut challenges_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
 
+            let split_acc_info_var = split_acc_info.to_variables(&mut verifier_circuit)?;
+
             let mle_proof_challenges = outputs
                 .iter()
                 .map(|output| {
@@ -961,7 +953,7 @@ mod tests {
                 &outputs,
                 &mle_proof_challenges,
                 &pi_hashes,
-                &split_acc_info,
+                &split_acc_info_var,
                 &vk,
                 &mut verifier_circuit,
             )?;

@@ -50,6 +50,7 @@ use crate::{
             reconstruct_mle_challenges, MLEProofChallengesEmulatedVar, MLEProofChallengesVar,
         },
         emulated_mle_arithmetic::emulated_combine_mle_proof_scalars,
+        split_acc::SplitAccumulationInfoVar,
     },
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript, RescueTranscript, Transcript},
 };
@@ -602,11 +603,25 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .map(|chals| MLEProofChallengesVar::from_struct(circuit, chals))
             .collect::<Result<Vec<MLEProofChallengesVar>, CircuitError>>()?;
 
+        let split_acc_info_var: Vec<SplitAccumulationInfoVar> = bn254info
+            .split_acc_info
+            .iter()
+            .map(|e| e.to_variables(circuit))
+            .collect::<Result<_, CircuitError>>()?;
+
+        let split_acc_info_var: [SplitAccumulationInfoVar; 2] =
+            split_acc_info_var.try_into().map_err(|v: Vec<_>| {
+                CircuitError::ParameterError(format!(
+                    "expected exactly 2 elements, got {}",
+                    v.len()
+                ))
+            })?;
+
         let scalars_and_acc_evals: Vec<(Vec<Variable>, Vec<Variable>)> = izip!(
             bn254info.grumpkin_outputs.chunks_exact(2),
             old_pi_hashes.chunks_exact(2),
             mle_plonk_challenges.chunks_exact(2),
-            bn254info.split_acc_info.iter()
+            split_acc_info_var.iter()
         )
         .map(
             |(output_pair, old_pi_hashes, challenges_pair, split_acc_info)| {
@@ -695,9 +710,18 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             forwarded_accs.iter(),
             old_pi_hashes.chunks_exact(2),
             mle_plonk_challenges.chunks_exact(2),
+            split_acc_info_var.iter()
         )
         .map(
-            |((scalars, acc_eval), pi, old_acc, forwarded_acc, old_hashes, mle_plonk_challenge)| {
+            |(
+                (scalars, acc_eval),
+                pi,
+                old_acc,
+                forwarded_acc,
+                old_hashes,
+                mle_plonk_challenge,
+                split_acc,
+            )| {
                 let prepped_scalars = scalars
                     .iter()
                     .map(|&var| convert_to_hash_form_fq254(circuit, var))
@@ -707,6 +731,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     .collect::<Vec<Variable>>();
                 let mle_challenges_flat: Vec<Variable> =
                     mle_plonk_challenge.iter().flatten().copied().collect();
+                let batch_challenge =
+                    convert_to_hash_form_fq254(circuit, split_acc.batch_challenge)?;
                 let in_vars = [
                     pi.as_slice(),
                     prepped_scalars.as_slice(),
@@ -715,6 +741,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     acc_eval.as_slice(),
                     old_hashes,
                     mle_challenges_flat.as_slice(),
+                    batch_challenge.as_slice(),
                 ]
                 .concat();
 
@@ -1638,7 +1665,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
             ))
         })?;
 
-    let (acc_comm, msm_scalars) = split_acc_info.verify_split_accumulation(
+    let (acc_comm, msm_scalars, batch_challenge) = split_acc_info.verify_split_accumulation(
         &split_acc_proofs,
         &acc_comms,
         &deltas,
@@ -1656,6 +1683,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     // new accumulator
     // old_pi_hashes
     // MLE PLONK challenges
+    // split accumulation batch challenge
 
     specific_pi
         .iter()
@@ -1700,6 +1728,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         }
         Ok::<_, CircuitError>(())
     })?;
+
+    let vars = convert_to_hash_form_emulated(circuit, &batch_challenge)?;
+    vars.iter()
+        .try_for_each(|var| circuit.set_variable_public(*var))?;
 
     let specific_pi_field = specific_pi
         .into_iter()
