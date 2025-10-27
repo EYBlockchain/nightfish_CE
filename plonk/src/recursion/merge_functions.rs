@@ -1690,7 +1690,6 @@ pub fn decider_circuit(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
-
     let mut num_gates = circuit.num_gates();
 
     // We first construct variables for the two bn254 proofs that we will be verifying.
@@ -2334,13 +2333,13 @@ impl MLEProofChallengesVar {
         out.extend(plonk_challenges);
         out.extend_from_slice(&self.gkr_r_challenges);
         out.extend_from_slice(&self.gkr_lambda_challenges);
-        out.extend(
+        /*out.extend(
             self.gkr_sumcheck_challenges
                 .clone()
                 .into_iter()
                 .flatten()
                 .collect::<Vec<Variable>>(),
-        );
+        );*/
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<[Variable; 2]> = out
             .iter()
@@ -2362,13 +2361,13 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
         out.extend(plonk_challenges);
         out.extend_from_slice(&self.gkr_r_challenges);
         out.extend_from_slice(&self.gkr_lambda_challenges);
-        out.extend(
+        /*out.extend(
             self.gkr_sumcheck_challenges
                 .clone()
                 .into_iter()
                 .flatten()
                 .collect::<Vec<EmulatedVariable<Fq254>>>(),
-        );
+        );*/
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<_> = out
             .iter()
