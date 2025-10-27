@@ -208,7 +208,14 @@ where
     ]
     .concat();
 
+    let mut num_gates = circuit.num_gates();
+
     let batch_comm = EmulMultiScalarMultiplicationCircuit::<F, P>::msm(circuit, &bases, &scalars)?;
+
+    ark_std::println!(
+        "Zeromorph IPA verification MSM used {} gates",
+        circuit.num_gates() - num_gates
+    );
 
     let proof_l_i: Vec<PointVariable> = proof
         .degree_check_proof
@@ -226,11 +233,18 @@ where
         .map(|p| circuit.create_point_variable(&Point::<F>::from(p)))
         .collect::<Result<Vec<PointVariable>, _>>()?;
 
+    num_gates = circuit.num_gates();
+
     for point_var in proof_l_i.iter().chain(proof_r_i.iter()) {
         let is_neutral: BoolVar = circuit.is_neutral_point::<P>(point_var)?;
         circuit.enforce_false(is_neutral.into())?;
         circuit.enforce_on_curve::<P>(point_var)?;
     }
+
+    ark_std::println!(
+        "Zeromorph IPA verification point checks used {} gates",
+        circuit.num_gates() - num_gates
+    );
 
     verify_ipa_circuit(
         circuit,

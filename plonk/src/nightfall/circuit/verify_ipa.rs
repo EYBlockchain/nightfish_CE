@@ -72,6 +72,8 @@ where
         ));
     }
 
+    let mut num_gates = circuit.num_gates();
+
     for (l, r) in proof_l_i.iter().zip(proof_r_i.iter()) {
         let commit_vars = vec![*l, *r];
 
@@ -92,6 +94,11 @@ where
         u_j_inv_vec.push(u_j_inv_idx);
     }
 
+    ark_std::println!(
+        "IPA Verification Circuit: Number of gates added for challenges and inverses: {}",
+        circuit.num_gates() - num_gates
+    );
+
     // Calc LHS and MSM
     let mut scalar_vars = [u_j_inv_vec.as_slice(), u_j_vec.as_slice()].concat();
     let mut bases_vars: Vec<PointVariable> = proof_l_i.into_iter().chain(proof_r_i).collect();
@@ -109,19 +116,37 @@ where
 
     let mut b_powers = vec![eval_point_var.clone()];
     let mut current_power = eval_point_var;
+
+    num_gates = circuit.num_gates();
+
     for _ in 0..k - 1 {
         current_power = circuit.emulated_mul(&current_power, &current_power)?;
         b_powers.push(current_power.clone());
     }
+
+    ark_std::println!(
+        "IPA Verification Circuit: Number of gates added for b powers: {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     let mut b_0 = one_emul_var.clone();
     for (b_power, u_j) in b_powers.iter().zip(u_j_vec.iter().rev()) {
         let tmp = circuit.emulated_mul_add(b_power, u_j, &one_emul_var)?;
         b_0 = circuit.emulated_mul(&b_0, &tmp)?;
     }
+
+    ark_std::println!(
+        "IPA Verification Circuit: Number of gates added for b_0: {}",
+        circuit.num_gates() - num_gates
+    );
+
     let c_var = circuit.create_emulated_variable(proof_c)?;
     let c_var = circuit.emulated_sub(&zero_var, &c_var)?;
     let mut msm_scalars = vec![c_var.clone()];
+
+    num_gates = circuit.num_gates();
+
     for u_j in u_j_vec.iter().rev() {
         let mut temporary_vec = vec![];
         for scalar in msm_scalars.iter() {
@@ -130,6 +155,11 @@ where
         }
         msm_scalars.extend(temporary_vec);
     }
+
+    ark_std::println!(
+        "IPA Verification Circuit: Number of gates added for MSM scalars: {}",
+        circuit.num_gates() - num_gates
+    );
 
     let c_b = circuit.emulated_mul(&c_var, &b_0)?;
 
@@ -143,13 +173,27 @@ where
     let bases_vars = [bases_vars.as_slice(), &[verifier_u_var, verifier_h_var]].concat();
     let scalars = [scalar_vars.as_slice(), &[u_scalar.clone(), f_var.clone()]].concat();
 
+    num_gates = circuit.num_gates();
+
     let g_base = EmulMultiScalarMultiplicationCircuit::<_, P>::fixed_base_msm(
         circuit,
         g_prime,
         &msm_scalars,
     )?;
+
+    ark_std::println!(
+        "IPA Verification Circuit: Number of gates added for fixed base MSM: {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
+
     let intermediate =
         EmulMultiScalarMultiplicationCircuit::<_, P>::msm(circuit, &bases_vars, &scalars)?;
+
+    ark_std::println!(
+        "IPA Verification Circuit: Number of gates added for variable base MSM: {}",
+        circuit.num_gates() - num_gates
+    );
 
     let out = circuit.ecc_add::<P>(commitment, &intermediate)?;
     let out = circuit.ecc_add::<P>(&out, &g_base)?;
