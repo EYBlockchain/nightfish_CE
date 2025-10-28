@@ -813,6 +813,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         };
         let output_accumulator =
             AtomicInstance::<Kzg>::new(acc_instance_real, Fr254::zero(), Fr254::zero(), kzg_proof);
+
+        ark_std::println!("prove_bn254_accumulation accumulators");
+        for acc in bn254info.forwarded_acumulators.clone() {
+            ark_std::println!("acc poly num_vars: {:?}", acc.poly.num_vars);
+            ark_std::println!("acc point length: {:?}", acc.point.len());
+        }
+
         Ok(GrumpkinCircuitOutput::new(
             bn254info.bn254_outputs.clone(),
             specific_pi_out,
@@ -1565,6 +1572,13 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .iter()
         .map(|challenges| challenges.0.challenges.delta.clone())
         .collect::<Vec<EmulatedVariable<Fq254>>>();
+
+    ark_std::println!("Old accumulators info before perform_accumulation:");
+    for acc in grumpkin_info.old_accumulators.clone() {
+        ark_std::println!("Old acc poly num_vars: {:?}", acc.poly.num_vars);
+        ark_std::println!("Old acc point length: {:?}", acc.point.len());
+    }
+
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
@@ -1665,6 +1679,10 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         .map_err(|v: Vec<_>| {
             CircuitError::ParameterError(format!("expected 2, got {}", v.len()))
         })?;
+
+    ark_std::println!("New accumulator info after perform_accumulation:");
+    ark_std::println!("new_acc poly num_vars: {}", split_acc_info.new_accumulator.poly.num_vars);
+    ark_std::println!("new_acc point length: {}", split_acc_info.new_accumulator.point.len());
 
     Ok(Bn254CircuitOutput::new(
         specific_pi_field,

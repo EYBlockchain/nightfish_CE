@@ -1,6 +1,7 @@
 //! Code for recursively proving plonk proofs over a cycle of curves.
 
 use ark_bn254::{Bn254, Fq as Fq254, Fr as Fr254};
+use ark_ec::bn;
 use ark_poly::DenseMultilinearExtension;
 
 use ark_std::{
@@ -192,7 +193,15 @@ pub trait RecursiveProver {
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
             Vec<GrumpkinCircuitOutput>,
-        ) = outputs.into_iter().unzip();
+        ) = outputs.clone().into_iter().unzip();
+
+        ark_std::println!("base_bn254_circuit accumulation info:");
+        for output in grumpkin_circuit_outs_vec.iter() {
+            for acc in output.accumulators.iter() {
+                ark_std::println!("old acc poly num_vars: {:?}", acc.poly.num_vars);
+                ark_std::println!("old acc point length: {:?}", acc.point.len());
+            }
+        }
 
         let circuit_outputs: [GrumpkinCircuitOutput; 2] =
             grumpkin_circuit_outs_vec.try_into().map_err(|_| {
@@ -289,6 +298,16 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        ark_std::println!("base_bn254_circuit post-prove_grumpkin_accumulation accumulation info:");
+        for acc in bn254_circuit_out.split_acc_info.old_accumulators.iter() {
+            ark_std::println!("old acc poly num_vars: {:?}", acc.poly.num_vars);
+            ark_std::println!("old acc point length: {:?}", acc.point.len());
+        }
+        ark_std::println!("new acc poly num_vars: {:?}", bn254_circuit_out.split_acc_info.new_accumulator.poly.num_vars);
+        ark_std::println!("new acc point length: {:?}", bn254_circuit_out.split_acc_info.new_accumulator.point.len());
+        ark_std::println!("output acc num_vars: {:?}", bn254_circuit_out.output_accumulator.poly.num_vars);
+        ark_std::println!("output acc point length: {:?}", bn254_circuit_out.output_accumulator.point.len());
+
         bn254_circuit_out.specific_pi =
             [extra_checks_pi_field, bn254_circuit_out.specific_pi].concat();
 
@@ -318,6 +337,17 @@ pub trait RecursiveProver {
         base_bn254_pk: &ProvingKey<Kzg>,
         base_grumpkin_pk: &MLEProvingKey<Zmorph>,
     ) -> Result<GrumpkinOut, PlonkError> {
+
+        ark_std::println!("Merge Grumpkin Circuit pre-prove_bn254_accumulation:");
+        for output in outputs.clone() {
+            for acc in output.1.split_acc_info.old_accumulators.iter() {
+                ark_std::println!("old acc poly num_vars: {:?}", acc.poly.num_vars);
+                ark_std::println!("old acc point length: {:?}", acc.point.len());
+            }
+            ark_std::println!("new acc poly num_vars: {:?}", output.1.split_acc_info.new_accumulator.poly.num_vars);
+            ark_std::println!("new acc point length: {:?}", output.1.split_acc_info.new_accumulator.point.len());
+        }
+
         let (circuits, bn254_circuit_outs_vec): (
             Vec<PlonkCircuit<Fr254>>,
             Vec<Bn254CircuitOutput>,
@@ -361,6 +391,12 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        ark_std::println!("Merge Grumpkin Circuit - accumulators:");
+        for acc in grumpkin_circuit_out.accumulators.clone() {
+            ark_std::println!("acc poly num_vars: {:?}", acc.poly.num_vars);
+            ark_std::println!("acc point length: {:?}", acc.point.len());
+        }
+
         #[cfg(test)]
         {
             ark_std::println!(
@@ -398,6 +434,15 @@ pub trait RecursiveProver {
                     "Could not create an array of length 2 for GrumpkinCircuitOutput".to_string(),
                 )
             })?;
+
+        ark_std::println!("Merge BN254 Circuit - accumulators:");
+        for output in circuit_outputs.clone() {
+            for acc in output.accumulators.iter() {
+                ark_std::println!("acc poly num_vars: {:?}", acc.poly.num_vars);
+                ark_std::println!("acc point length: {:?}", acc.point.len());
+            }
+        }
+
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
             .map(|circuit| {
                 let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
@@ -673,6 +718,16 @@ pub trait RecursiveProver {
         let mut merge_grumpkin_pks = vec![];
         let intermediate_group = (outputs.len().ilog2() - 4) / 2;
 
+        ark_std::println!("pre Merge Grumpkin Circuit accumulation info:");
+        for output in current_bn254_out.into_iter() {
+            for acc in output.1.split_acc_info.old_accumulators.iter() {
+                ark_std::println!("old acc poly num_vars: {:?}", acc.poly.num_vars);
+                ark_std::println!("old acc point length: {:?}", acc.point.len());
+            }
+            ark_std::println!("new acc poly num_vars: {:?}", output.1.split_acc_info.new_accumulator.poly.num_vars);
+            ark_std::println!("new acc point length: {:?}", output.1.split_acc_info.new_accumulator.point.len());
+        }
+
         for _ in 0..intermediate_group {
             // 1. Merge Bn254 → Grumpkin
             let bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
@@ -693,6 +748,14 @@ pub trait RecursiveProver {
                     Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+
+            ark_std::println!("pre-merge_bn254_circuit - accumulators:");
+            for output in grumpkin_out.clone() {
+                for acc in output.1.accumulators.iter() {
+                    ark_std::println!("acc poly num_vars: {:?}", acc.poly.num_vars);
+                    ark_std::println!("acc point length: {:?}", acc.point.len());
+                }
+            }
 
             let grumpkin_circuit = &grumpkin_out[0].0;
             let (new_grumpkin_pk, _) =

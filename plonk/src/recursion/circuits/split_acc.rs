@@ -118,27 +118,8 @@ impl SplitAccumulationInfo {
             .collect::<Vec<&Vec<Fq254>>>();
 
         let eq_polys = cfg_iter!(opening_points)
-            .map(|point| {
-                ark_std::println!("point length: {:?}", point.len());
-                Arc::new(build_eq_x_r(point))
-            })
+            .map(|point| Arc::new(build_eq_x_r(point)))
             .collect::<Vec<_>>();
-
-        for poly in witness_polys.iter() {
-            if poly.num_vars != num_vars {
-                ark_std::println!("Witness poly num_vars: {}, expected: {}", poly.num_vars, num_vars);
-            } else {
-                ark_std::println!("Witness poly num_vars correct: {}", poly.num_vars);
-            }
-        }
-
-        for poly in eq_polys.iter() {
-            if poly.num_vars != num_vars {
-                ark_std::println!("eq_poly num_vars: {}, expected: {}", poly.num_vars, num_vars);
-            } else {
-                ark_std::println!("eq_poly num_vars correct: {}", poly.num_vars);
-            }
-        }
 
         let polys = [witness_polys.clone(), eq_polys].concat();
 
@@ -153,14 +134,8 @@ impl SplitAccumulationInfo {
 
         let vp = VirtualPolynomial::new(2, num_vars, polys, products);
 
-        ark_std::println!("virtual poly num_vars: {}", vp.num_vars);
-
         let sumcheck_proof =
             <VPSumCheck<SWGrumpkin> as SumCheck<SWGrumpkin>>::prove(&vp, &mut transcript)?;
-
-        ark_std::println!("Sumcheck proof point len: {}",
-            sumcheck_proof.point.len(),
-        );
 
         let scalars = [
             Fq254::one(),
@@ -197,12 +172,6 @@ impl SplitAccumulationInfo {
             .fold(Fq254::zero(), |acc, (s, e1)| acc + s * e1);
 
         let commitment = Zmorph::commit(commit_key, &accumulated_poly)?;
-
-        ark_std::println!(
-            "Accumulated poly num_vars: {}, point length: {}",
-            accumulated_poly.num_vars,
-            sumcheck_proof.point.len()
-        );
 
         let new_accumulator = PCSWitness::<Zmorph>::new(
             accumulated_poly,
