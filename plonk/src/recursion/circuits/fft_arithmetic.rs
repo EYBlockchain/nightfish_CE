@@ -91,7 +91,7 @@ pub fn partial_verify_fft_plonk(
         env!("CARGO_PKG_VERSION"),
         &0u32.to_be_bytes(),
         "rollup_prover",
-        layer,
+        "",
         [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
         [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
         0,
