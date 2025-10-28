@@ -719,7 +719,7 @@ pub trait RecursiveProver {
         let intermediate_group = (outputs.len().ilog2() - 4) / 2;
 
         ark_std::println!("pre Merge Grumpkin Circuit accumulation info:");
-        for output in current_bn254_out.into_iter() {
+        for output in current_bn254_out.clone().into_iter() {
             for acc in output.1.split_acc_info.old_accumulators.iter() {
                 ark_std::println!("old acc poly num_vars: {:?}", acc.poly.num_vars);
                 ark_std::println!("old acc point length: {:?}", acc.point.len());
