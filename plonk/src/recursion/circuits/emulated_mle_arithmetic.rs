@@ -4,6 +4,7 @@
 //! of this accumulator.
 
 use super::{split_acc::SplitAccumulationInfo, Zmorph};
+use crate::constants::EXTRA_TRANSCRIPT_MSG_LABEL;
 use crate::{
     nightfall::{
         accumulation::circuit::structs::EmulatedPCSInstanceVar,
@@ -16,6 +17,7 @@ use crate::{
         },
         mle::mle_structs::GateInfo,
     },
+    recursion::fs_domain::fs_domain_bytes,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
@@ -437,6 +439,28 @@ pub fn emulated_combine_mle_proof_scalars(
     let one_var = circuit.emulated_one();
     for (proof_var, pi) in proof_vars.iter() {
         let mut transcript_var = RescueTranscriptVar::<Fr254>::new_transcript(circuit);
+
+        let fs_msg = fs_domain_bytes(
+            "nightfish.pcd",
+            "plonk-recursion",
+            env!("CARGO_PKG_VERSION"),
+            &0u32.to_be_bytes(),
+            "rollup_prover",
+            "",
+            [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+            [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+            0,
+            256,
+            1,
+            &[],
+        );
+
+        transcript_var.push_message::<_, ark_bn254::g1::Config>(
+            EXTRA_TRANSCRIPT_MSG_LABEL,
+            &fs_msg,
+            circuit,
+        )?;
+
         let challenges = EmulatedMLEChallenges::<Fq254>::compute_challenges_vars(
             circuit,
             pi,
@@ -623,6 +647,7 @@ mod tests {
                     &vk,
                     output.pi_hash,
                     rng,
+                    None, // TODO
                 )
                 .unwrap();
             }

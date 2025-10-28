@@ -8,6 +8,7 @@ use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254, Fr as Fr254};
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 
+use crate::recursion::fs_domain_bytes;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
 use itertools::Itertools;
@@ -438,11 +439,29 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .zip(vk_bases_var.iter())
         .map(|(output, vk)| {
             let verifier = Verifier::new(vk.domain_size)?;
+
+            //let layer = if IS_FIRST_ROUND { "base_bn254" } else { "merge_bn254" };
+            let fs_msg = fs_domain_bytes(
+                "nightfish.pcd",
+                "plonk-recursion",
+                env!("CARGO_PKG_VERSION"),
+                &0u32.to_be_bytes(),
+                "rollup_prover",
+                "",
+                [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                0,
+                256,
+                1,
+                &[],
+            );
+
+
             verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                 vk,
                 &[output.pi_hash],
                 output,
-                &None,
+                &Some(fs_msg),
                 circuit,
             )
         })
@@ -1509,6 +1528,21 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
 
+                let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );
+
                 let next_grumpkin_challenges = reconstruct_mle_challenges::<
                     _,
                     _,
@@ -1516,7 +1550,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     MLEPlonk<Zmorph>,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(grumpkin_proof_vars, circuit, &pi_hash_emul)?;
+                >(grumpkin_proof_vars, circuit, &pi_hash_emul, &Some(fs_msg))?;
                 Ok(next_grumpkin_challenges)
             },
         )

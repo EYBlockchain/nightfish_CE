@@ -464,7 +464,9 @@ mod tests {
             _,
             _,
             RescueTranscript<FrBn254>,
-        >(&circuit, &pk)
+        >(
+            &circuit, &pk, None, // TODO
+        )
         .unwrap()
         .0;
     }

@@ -115,6 +115,18 @@ pub trait CircuitTranscript<F: PrimeField> {
     /// Create a new circuit transcript.
     fn new_transcript(circuit: &mut PlonkCircuit<F>) -> Self;
 
+    /// Append a serializable message to the transcript.
+    /// The message is serialized using `CanonicalSerialize`.
+    fn push_message<S: CanonicalSerialize + ?Sized + 'static, E>(
+        &mut self,
+        label: &'static [u8],
+        msg: &S,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<(), PlonkError>
+    where
+        E: HasTEForm,
+        E::BaseField: PrimeField;
+
     /// Append a variable to the transcript
     fn push_variable(&mut self, var: &Variable) -> Result<(), CircuitError>;
 

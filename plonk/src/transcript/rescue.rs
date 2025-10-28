@@ -178,6 +178,38 @@ where
         }
     }
 
+    fn push_message<S: CanonicalSerialize + ?Sized + 'static, E>(
+        &mut self,
+        _label: &'static [u8],
+        msg: &S,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<(), PlonkError>
+    where
+        E: HasTEForm,
+        E::BaseField: PrimeField,
+    {
+        // We remove the labels for better efficiency
+        if TypeId::of::<S>() == TypeId::of::<F>() {
+            let mut writer = Vec::new();
+            msg.serialize_compressed(&mut writer)?;
+            let msg = F::from_le_bytes_mod_order(writer.as_slice());
+            let msg_var = circuit.create_variable(msg)?;
+            self.transcript_var.push(msg_var);
+            Ok(())
+        } else {
+            let mut writer = Vec::new();
+            msg.serialize_compressed(&mut writer)?;
+
+            let f = bytes_to_field_elements(writer.as_slice());
+
+            for e in f[1..].iter() {
+                let e_var = circuit.create_variable(*e)?;
+                self.transcript_var.push(e_var);
+            }
+            Ok(())
+        }
+    }
+
     fn push_variable(&mut self, var: &Variable) -> Result<(), CircuitError> {
         self.transcript_var.push(*var);
         Ok(())

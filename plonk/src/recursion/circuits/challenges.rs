@@ -13,6 +13,7 @@ use jf_relation::{
 };
 
 use crate::{
+    constants::EXTRA_TRANSCRIPT_MSG_LABEL,
     errors::PlonkError,
     nightfall::{
         circuit::{
@@ -127,6 +128,7 @@ pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     proof_var: &SAMLEProofVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
     pi_hash: &EmulatedVariable<P::ScalarField>,
+    initialisation_msg: &Option<Vec<u8>>,
 ) -> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
 where
     PCS: Accumulation<
@@ -144,6 +146,9 @@ where
 {
     // First lets instantiate the transcript and make the variable version of the proof and pi_commitment.
     let mut transcript = C::new_transcript(circuit);
+    if let Some(initialisation_msg) = initialisation_msg {
+        transcript.push_message::<_, P>(EXTRA_TRANSCRIPT_MSG_LABEL, initialisation_msg, circuit)?;
+    }
 
     // Now we begin by recovering the circuit version of the MLEChallenges struct.
     let mle_challenges =

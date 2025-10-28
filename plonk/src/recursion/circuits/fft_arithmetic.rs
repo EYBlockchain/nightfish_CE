@@ -6,6 +6,8 @@ use ark_std::{string::ToString, vec::Vec};
 
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
+use crate::constants::EXTRA_TRANSCRIPT_MSG_LABEL;
+use crate::recursion::fs_domain_bytes;
 use crate::{
     nightfall::{
         circuit::plonk_partial_verifier::{
@@ -75,6 +77,22 @@ pub fn partial_verify_fft_plonk(
     } = scalar_var;
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
+    let fs_msg = fs_domain_bytes(
+        "nightfish.pcd",
+        "plonk-recursion",
+        env!("CARGO_PKG_VERSION"),
+        &0u32.to_be_bytes(),
+        "rollup_prover",
+        "",
+        [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+        [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+        0,
+        256,
+        1,
+        &[],
+    );
+
+    transcript.push_message::<_, BnConfig>(EXTRA_TRANSCRIPT_MSG_LABEL, &fs_msg, circuit)?;
 
     // Generate the challenges
     // As this is the non-base version, the verification key is fixed and we do not pass in the vk_id to be added to the transcript.
@@ -115,6 +133,23 @@ pub(crate) fn partial_verify_fft_plonk_base(
     } = scalar_var;
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
+
+    let fs_msg = fs_domain_bytes(
+        "nightfish.pcd",
+        "plonk-recursion",
+        env!("CARGO_PKG_VERSION"),
+        &0u32.to_be_bytes(),
+        "rollup_prover",
+        "",
+        [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+        [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+        0,
+        256,
+        1,
+        &[],
+    );
+
+    transcript.push_message::<_, BnConfig>(EXTRA_TRANSCRIPT_MSG_LABEL, &fs_msg, circuit)?;
 
     // Generate the challenges
     let challenges = ChallengesVar::compute_challenges::<Kzg, _, _, _>(

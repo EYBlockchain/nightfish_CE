@@ -4,13 +4,8 @@ use ark_bn254::{Bn254, Fq as Fq254, Fr as Fr254};
 use ark_poly::DenseMultilinearExtension;
 
 use ark_std::{
-    cfg_chunks, cfg_into_iter, format,
-    rand::{rngs::OsRng, SeedableRng},
-    string::ToString,
-    sync::Arc,
-    vec,
-    vec::Vec,
-    One, Zero,
+    cfg_chunks, cfg_into_iter, format, rand::SeedableRng, string::ToString, sync::Arc, vec,
+    vec::Vec, One, Zero,
 };
 
 use itertools::Itertools;
@@ -52,7 +47,10 @@ use crate::{
 };
 
 pub mod circuits;
+pub mod fs_domain;
 pub mod merge_functions;
+
+use fs_domain::{fs_domain_bytes, rng_seed_from_fs};
 
 // There are 5 main circuits/proofs this trait uses to do this, two "base circuits", one defined over Bn254 and one defined over Grumpkin,
 // two "compress circuit", one for each of the curves and a final circuit that out puts a single Bn254 KZG proof.
@@ -200,14 +198,47 @@ pub trait RecursiveProver {
                     "Could not create an array of length 2 for GrumpkinCircuitOutput".to_string(),
                 )
             })?;
+
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
-            .map(|circuit| {
-                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
-                    PlonkError::InvalidParameters(format!(
-                        "ChaCha20Rng initialization failure: {e}"
-                    ))
-                })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, base_grumpkin_pk, None)
+            .enumerate()
+            .map(|(_index, circuit)| {
+                /*let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "base_grumpkin",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );*/
+                let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );
+
+                let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
+
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    base_grumpkin_pk,
+                    Some(fs_msg.clone()),
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -315,7 +346,7 @@ pub trait RecursiveProver {
     /// This function takes in [`Bn254Out`] types, proves the circuits and then produces another circuit proving their correct accumulation.
     fn merge_grumpkin_circuit(
         outputs: [Bn254Out; 2],
-        base_bn254_pk: &ProvingKey<Kzg>,
+        bn254_pk: &ProvingKey<Kzg>, // can be both base and merge pks
         base_grumpkin_pk: &MLEProvingKey<Zmorph>,
     ) -> Result<GrumpkinOut, PlonkError> {
         let (circuits, bn254_circuit_outs_vec): (
@@ -332,13 +363,40 @@ pub trait RecursiveProver {
 
         let bn254_outputs: [Bn254Output; 2] = circuits
             .into_iter()
-            .map(|circuit| {
-                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
-                    PlonkError::InvalidParameters(format!(
-                        "ChaCha20Rng initialization failure: {e}"
-                    ))
-                })?;
-                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None)
+            .enumerate()
+            .map(|(_index, circuit)| {
+                /*let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "base_bn254",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );*/
+                let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );
+
+                let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
+
+                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, bn254_pk, Some(fs_msg.clone()))
             })
             .collect::<Result<Vec<Bn254Output>, PlonkError>>()?
             .try_into()
@@ -354,7 +412,7 @@ pub trait RecursiveProver {
 
         let grumpkin_circuit_out = prove_bn254_accumulation::<false>(
             &bn254info,
-            &[base_bn254_pk.vk.clone(), base_bn254_pk.vk.clone()],
+            &[bn254_pk.vk.clone(), bn254_pk.vk.clone()],
             None,
             &base_grumpkin_pk.verifying_key,
             Self::grumpkin_merge_circuit_checks,
@@ -399,13 +457,45 @@ pub trait RecursiveProver {
                 )
             })?;
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
-            .map(|circuit| {
-                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
-                    PlonkError::InvalidParameters(format!(
-                        "ChaCha20Rng initialization failure: {e}"
-                    ))
-                })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
+            .enumerate()
+            .map(|(_index, circuit)| {
+                /*let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "merge_grumpkin",
+                    [0u8; 32], //hash_canonical(&merge_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&merge_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );*/
+                let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );
+
+                let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
+
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    merge_grumpkin_pk,
+                    Some(fs_msg.clone()),
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -465,13 +555,45 @@ pub trait RecursiveProver {
                 )
             })?;
         let grumpkin_outputs: [GrumpkinOutput; 2] = cfg_into_iter!(circuits)
-            .map(|circuit| {
-                let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
-                    PlonkError::InvalidParameters(format!(
-                        "ChaCha20Rng initialization failure: {e}"
-                    ))
-                })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
+            .enumerate()
+            .map(|(_index, circuit)| {
+                /*let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "merge_grumpkin",
+                    [0u8; 32], //hash_canonical(&merge_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&merge_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );*/
+                let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    env!("CARGO_PKG_VERSION"),
+                    &0u32.to_be_bytes(),
+                    "rollup_prover",
+                    "",
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                    [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                    0,
+                    256,
+                    1,
+                    &[],
+                );
+
+                let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
+
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    merge_grumpkin_pk,
+                    Some(fs_msg.clone()),
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -998,14 +1120,28 @@ pub trait RecursiveProver {
             &current_bn254_pk,
         )?;
 
-        let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
-            PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
-        })?;
+        let fs_msg = fs_domain_bytes(
+            "nightfish.pcd",
+            "plonk-recursion",
+            env!("CARGO_PKG_VERSION"),
+            &0u32.to_be_bytes(),
+            "rollup_prover",
+            "",
+            [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+            [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+            0,
+            256,
+            1,
+            &[],
+        );
+
+        let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
+
         let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
             &mut rng,
             &circuit,
             &decider_pk,
-            None,
+            Some(fs_msg),
         )?;
 
         Ok(RecursiveProof {
@@ -1541,10 +1677,27 @@ mod tests {
                     };
                     let pk = if i < 32 { &pk_one } else { &pk_two };
                     circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
-                    let input_output =
-                        FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            &mut rng, &circuit, pk, None,
-                        )?;
+
+                    let fs_msg = fs_domain_bytes(
+                        "nightfish.pcd",
+                        "plonk-recursion",
+                        env!("CARGO_PKG_VERSION"),
+                        &0u32.to_be_bytes(),
+                        "rollup_prover",
+                        "",
+                        [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+                        [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+                        0,
+                        256,
+                        1,
+                        &[],
+                    );
+
+                    let input_output = FFTPlonk::<Kzg>::recursive_prove::<
+                        _,
+                        _,
+                        RescueTranscript<Fr254>,
+                    >(&mut rng, &circuit, pk, Some(fs_msg))?;
                     Ok((
                         (input_output, pk.vk.clone()),
                         [&[hash], other_pi.as_slice()].concat(),
@@ -1555,6 +1708,7 @@ mod tests {
                 .into_iter()
                 .unzip();
 
+        ark_std::println!("before preprocess");
         TestProver::preprocess(
             &prove_inputs,
             &hashes,
@@ -1574,7 +1728,9 @@ mod tests {
             &ipa_srs,
             &kzg_srs,
         )?;
+        ark_std::println!("after preprocess");
 
+        ark_std::println!("before prove");
         let now = ark_std::time::Instant::now();
         let proof = TestProver::prove(
             &prove_inputs,
@@ -1597,6 +1753,7 @@ mod tests {
             "Time taken to generate 64 recursive proofs: {:?}",
             now.elapsed()
         );
+        ark_std::println!("after prove");
 
         let field_pi = proof
             .pi
@@ -1607,11 +1764,26 @@ mod tests {
         // Generate challenge from state bytes using little-endian order
         let pi_hash = host_sha_hash(field_pi, &proof);
 
+        let fs_msg = fs_domain_bytes(
+            "nightfish.pcd",
+            "plonk-recursion",
+            env!("CARGO_PKG_VERSION"),
+            &0u32.to_be_bytes(),
+            "rollup_prover",
+            "",
+            [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
+            [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
+            0,
+            256,
+            1,
+            &[],
+        );
+
         assert!(PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(
             &TestProver::get_decider_pk().vk,
             &[pi_hash],
             &proof.proof,
-            None
+            Some(fs_msg)
         )
         .is_ok());
         Ok(())
