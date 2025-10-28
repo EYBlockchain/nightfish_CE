@@ -195,13 +195,11 @@ impl SplitAccumulationInfo {
 
         let commitment = Zmorph::commit(commit_key, &accumulated_poly)?;
 
-        if accumulated_poly.num_vars != sumcheck_proof.point.len() {
-            ark_std::println!(
-                "Accumulated poly num_vars: {}, point length: {}",
-                accumulated_poly.num_vars,
-                sumcheck_proof.point.len()
-            );
-        }
+        ark_std::println!(
+            "Accumulated poly num_vars: {}, point length: {}",
+            accumulated_poly.num_vars,
+            sumcheck_proof.point.len()
+        );
 
         let new_accumulator = PCSWitness::<Zmorph>::new(
             accumulated_poly,
