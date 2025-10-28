@@ -118,7 +118,10 @@ impl SplitAccumulationInfo {
             .collect::<Vec<&Vec<Fq254>>>();
 
         let eq_polys = cfg_iter!(opening_points)
-            .map(|point| Arc::new(build_eq_x_r(point)))
+            .map(|point| {
+                ark_std::println!("point length: {:?}", point.len());
+                Arc::new(build_eq_x_r(point))
+            })
             .collect::<Vec<_>>();
 
         for poly in witness_polys.iter() {
