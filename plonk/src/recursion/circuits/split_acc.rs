@@ -121,6 +121,22 @@ impl SplitAccumulationInfo {
             .map(|point| Arc::new(build_eq_x_r(point)))
             .collect::<Vec<_>>();
 
+        for poly in witness_polys.iter() {
+            if poly.num_vars != num_vars {
+                ark_std::println!("Witness poly num_vars: {}, expected: {}", poly.num_vars, num_vars);
+            } else {
+                ark_std::println!("Witness poly num_vars correct: {}", poly.num_vars);
+            }
+        }
+
+        for poly in eq_polys.iter() {
+            if poly.num_vars != num_vars {
+                ark_std::println!("eq_poly num_vars: {}, expected: {}", poly.num_vars, num_vars);
+            } else {
+                ark_std::println!("eq_poly num_vars correct: {}", poly.num_vars);
+            }
+        }
+
         let polys = [witness_polys.clone(), eq_polys].concat();
 
         let products = vec![
