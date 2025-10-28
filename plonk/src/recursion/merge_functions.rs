@@ -2199,7 +2199,7 @@ impl MLEProofChallengesVar {
         let ch = &self.challenges;
         let plonk_challenges = [ch.alpha, ch.beta, ch.gamma, ch.delta, ch.epsilon, ch.tau];
         out.extend(plonk_challenges);
-        /*out.extend_from_slice(&self.gkr_r_challenges);
+        out.extend_from_slice(&self.gkr_r_challenges);
         out.extend_from_slice(&self.gkr_lambda_challenges);
         out.extend(
             self.gkr_sumcheck_challenges
@@ -2208,7 +2208,7 @@ impl MLEProofChallengesVar {
                 .flatten()
                 .collect::<Vec<Variable>>(),
         );
-        out.extend_from_slice(&self.final_sumcheck_challenges);*/
+        out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<[Variable; 2]> = out
             .iter()
             .map(|&v| convert_to_hash_form_fq254(circuit, v))
@@ -2227,7 +2227,7 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
         let ch = self.challenges.clone();
         let plonk_challenges = [ch.alpha, ch.beta, ch.gamma, ch.delta, ch.epsilon, ch.tau];
         out.extend(plonk_challenges);
-        /*out.extend_from_slice(&self.gkr_r_challenges);
+        out.extend_from_slice(&self.gkr_r_challenges);
         out.extend_from_slice(&self.gkr_lambda_challenges);
         out.extend(
             self.gkr_sumcheck_challenges
@@ -2236,7 +2236,7 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
                 .flatten()
                 .collect::<Vec<EmulatedVariable<Fq254>>>(),
         );
-        out.extend_from_slice(&self.final_sumcheck_challenges);*/
+        out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<_> = out
             .iter()
             .map(|v| convert_to_hash_form_emulated(circuit, v))
