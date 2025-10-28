@@ -127,6 +127,7 @@ pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     proof_var: &SAMLEProofVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
     pi_hash: &EmulatedVariable<P::ScalarField>,
+    initialisation_msg: &Option<Vec<u8>>,
 ) -> Result<(MLEProofChallenges<P::ScalarField>, C), CircuitError>
 where
     PCS: Accumulation<
@@ -143,7 +144,11 @@ where
     C: CircuitTranscript<F>,
 {
     // First lets instantiate the transcript and make the variable version of the proof and pi_commitment.
-    let mut transcript = C::new_transcript(circuit);
+    let mut transcript: C = if let Some(msg) = initialisation_msg {
+        C::new_with_initial_message::<_, P>(msg, circuit)?
+    } else {
+        C::new_transcript(circuit)
+    };
 
     // Now we begin by recovering the circuit version of the MLEChallenges struct.
     let mle_challenges =

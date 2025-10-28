@@ -6,12 +6,6 @@
 
 //! Crate wide constants.
 
-/// Proof-system-related constants.
-///
-/// label for the extra data field to be appended to the transcript during
-/// initialization
-pub(crate) const EXTRA_TRANSCRIPT_MSG_LABEL: &[u8] = b"extra info";
-
 /// Compute the ratio between the quotient polynomial domain size and
 /// the vanishing polynomial domain size
 #[inline]
