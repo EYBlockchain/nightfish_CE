@@ -222,7 +222,7 @@ pub trait RecursiveProver {
                     env!("CARGO_PKG_VERSION"),
                     &0u32.to_be_bytes(),
                     "rollup_prover",
-                    "",
+                    "base_grumpkin",
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
                     0,
@@ -318,6 +318,7 @@ pub trait RecursiveProver {
             base_grumpkin_pk,
             Self::base_bn254_checks,
             &mut circuit,
+            0usize,
         )?;
 
         bn254_circuit_out.specific_pi =
@@ -348,6 +349,7 @@ pub trait RecursiveProver {
         outputs: [Bn254Out; 2],
         bn254_pk: &ProvingKey<Kzg>, // can be both base and merge pks
         base_grumpkin_pk: &MLEProvingKey<Zmorph>,
+        recursion_depth: usize,
     ) -> Result<GrumpkinOut, PlonkError> {
         let (circuits, bn254_circuit_outs_vec): (
             Vec<PlonkCircuit<Fr254>>,
@@ -379,13 +381,19 @@ pub trait RecursiveProver {
                     1,
                     &[],
                 );*/
+                // 0: base_grumpkin, 1: base_bn254, 2: merge_grumpkin, 3: merge_bn254 (partially verifies four base_bn254 proofs)
+                let layer = if recursion_depth == 2 {
+                    "base_bn254"
+                } else {
+                    "merge_bn254"
+                };
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
                     env!("CARGO_PKG_VERSION"),
                     &0u32.to_be_bytes(),
                     "rollup_prover",
-                    "",
+                    layer,
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
                     0,
@@ -444,6 +452,7 @@ pub trait RecursiveProver {
         outputs: [GrumpkinOut; 2],
         merge_grumpkin_pk: &MLEProvingKey<Zmorph>,
         bn254_pk: &ProvingKey<Kzg>,
+        recursion_depth: usize,
     ) -> Result<Bn254Out, PlonkError> {
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
@@ -479,7 +488,7 @@ pub trait RecursiveProver {
                     env!("CARGO_PKG_VERSION"),
                     &0u32.to_be_bytes(),
                     "rollup_prover",
-                    "",
+                    "merge_grumpkin",
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
                     0,
@@ -522,6 +531,7 @@ pub trait RecursiveProver {
             merge_grumpkin_pk,
             Self::bn254_merge_circuit_checks,
             &mut circuit,
+            recursion_depth,
         )?;
 
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
@@ -542,6 +552,7 @@ pub trait RecursiveProver {
         extra_decider_info: &[Fr254],
         merge_grumpkin_pk: &MLEProvingKey<Zmorph>,
         merge_bn254_pk: &ProvingKey<Kzg>,
+        recursion_depth: usize,
     ) -> Result<DeciderOut, PlonkError> {
         let (circuits, grumpkin_circuit_outs_vec): (
             Vec<PlonkCircuit<Fq254>>,
@@ -577,7 +588,7 @@ pub trait RecursiveProver {
                     env!("CARGO_PKG_VERSION"),
                     &0u32.to_be_bytes(),
                     "rollup_prover",
-                    "",
+                    "merge_grumpkin",
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
                     0,
@@ -615,6 +626,7 @@ pub trait RecursiveProver {
             extra_decider_info,
             Self::decider_circuit_checks,
             &mut circuit,
+            recursion_depth,
         )?;
 
         #[cfg(test)]
@@ -795,6 +807,7 @@ pub trait RecursiveProver {
         let mut merge_grumpkin_pks = vec![];
         let intermediate_group = (outputs.len().ilog2() - 4) / 2;
 
+        let mut recursion_depth = 2usize; // 0: base grumpkin, 1: base bn254, 2: merge grumpkin, 3: merge bn254, ...
         for _ in 0..intermediate_group {
             // 1. Merge Bn254 → Grumpkin
             let bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
@@ -812,7 +825,12 @@ pub trait RecursiveProver {
 
             let grumpkin_out = cfg_into_iter!(bn254_chunks)
                 .map(|chunk| {
-                    Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+                    Self::merge_grumpkin_circuit(
+                        chunk,
+                        &current_bn254_pk,
+                        &current_grumpkin_pk,
+                        recursion_depth,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -821,6 +839,8 @@ pub trait RecursiveProver {
                 MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
             merge_grumpkin_pks.push(new_grumpkin_pk.clone());
             current_grumpkin_pk = new_grumpkin_pk;
+
+            recursion_depth += 1;
 
             // 2. Merge Grumpkin → Bn254
             let grumpkin_chunks: Vec<[GrumpkinOut; 2]> = grumpkin_out
@@ -838,7 +858,12 @@ pub trait RecursiveProver {
 
             current_bn254_out = cfg_into_iter!(grumpkin_chunks)
                 .map(|chunk| {
-                    Self::merge_bn254_circuit(chunk, &current_grumpkin_pk, &current_bn254_pk)
+                    Self::merge_bn254_circuit(
+                        chunk,
+                        &current_grumpkin_pk,
+                        &current_bn254_pk,
+                        recursion_depth,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
@@ -846,6 +871,8 @@ pub trait RecursiveProver {
             let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit)?;
             merge_bn254_pks.push(new_bn254_pk.clone());
             current_bn254_pk = new_bn254_pk;
+
+            recursion_depth += 1;
         }
         // Now we need to run merge grumpkin one more time
         let merge_bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
@@ -863,9 +890,16 @@ pub trait RecursiveProver {
 
         let decider_input = cfg_into_iter!(merge_bn254_chunks)
             .map(|chunk| {
-                Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+                Self::merge_grumpkin_circuit(
+                    chunk,
+                    &current_bn254_pk,
+                    &current_grumpkin_pk,
+                    recursion_depth,
+                )
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+
+        recursion_depth += 1;
 
         let grumpkin_circuit = &decider_input[0].0;
         let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
@@ -887,6 +921,7 @@ pub trait RecursiveProver {
             extra_decider_info,
             &current_grumpkin_pk,
             &current_bn254_pk,
+            recursion_depth,
         )?;
 
         let (decider_pk, decider_vk) =
@@ -1044,6 +1079,8 @@ pub trait RecursiveProver {
             ))?
             .clone();
 
+        let mut recursion_depth = 2usize; // 0: base grumpkin, 1: base bn254, 2: merge grumpkin, 3: merge bn254, ...
+
         for (merge_bn254_pk, merge_grumpkin_pk) in merge_bn254_pks
             .iter()
             .zip(merge_grumpkin_pks)
@@ -1062,9 +1099,16 @@ pub trait RecursiveProver {
 
             let grumpkin_out = cfg_into_iter!(bn254_chunks)
                 .map(|chunk| {
-                    Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+                    Self::merge_grumpkin_circuit(
+                        chunk,
+                        &current_bn254_pk,
+                        &current_grumpkin_pk,
+                        recursion_depth,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
+
+            recursion_depth += 1;
 
             let grumpkin_chunks: Vec<[GrumpkinOut; 2]> = grumpkin_out
                 .into_iter()
@@ -1082,10 +1126,17 @@ pub trait RecursiveProver {
 
             current_bn254_out = cfg_into_iter!(grumpkin_chunks)
                 .map(|chunk| {
-                    Self::merge_bn254_circuit(chunk, &current_grumpkin_pk, &current_bn254_pk)
+                    Self::merge_bn254_circuit(
+                        chunk,
+                        &current_grumpkin_pk,
+                        &current_bn254_pk,
+                        recursion_depth,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             current_bn254_pk = merge_bn254_pk.clone();
+
+            recursion_depth += 1;
         }
 
         let final_bn254_chunks: Vec<[Bn254Out; 2]> = current_bn254_out
@@ -1101,9 +1152,16 @@ pub trait RecursiveProver {
 
         let decider_input = cfg_into_iter!(final_bn254_chunks)
             .map(|chunk| {
-                Self::merge_grumpkin_circuit(chunk, &current_bn254_pk, &current_grumpkin_pk)
+                Self::merge_grumpkin_circuit(
+                    chunk,
+                    &current_bn254_pk,
+                    &current_grumpkin_pk,
+                    recursion_depth,
+                )
             })
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
+
+        recursion_depth += 1;
 
         let decider_input_exact: [GrumpkinOut; 2] = decider_input.try_into().map_err(|_| {
             PlonkError::InvalidParameters("Could not create final decider input".to_string())
@@ -1118,6 +1176,7 @@ pub trait RecursiveProver {
             extra_decider_info,
             &final_grumpkin_pk,
             &current_bn254_pk,
+            recursion_depth,
         )?;
 
         let fs_msg = fs_domain_bytes(
@@ -1126,7 +1185,7 @@ pub trait RecursiveProver {
             env!("CARGO_PKG_VERSION"),
             &0u32.to_be_bytes(),
             "rollup_prover",
-            "",
+            "decider",
             [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
             [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
             0,
@@ -1678,26 +1737,10 @@ mod tests {
                     let pk = if i < 32 { &pk_one } else { &pk_two };
                     circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
-                    let fs_msg = fs_domain_bytes(
-                        "nightfish.pcd",
-                        "plonk-recursion",
-                        env!("CARGO_PKG_VERSION"),
-                        &0u32.to_be_bytes(),
-                        "rollup_prover",
-                        "",
-                        [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
-                        [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
-                        0,
-                        256,
-                        1,
-                        &[],
-                    );
-
-                    let input_output = FFTPlonk::<Kzg>::recursive_prove::<
-                        _,
-                        _,
-                        RescueTranscript<Fr254>,
-                    >(&mut rng, &circuit, pk, Some(fs_msg))?;
+                    let input_output =
+                        FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
+                            &mut rng, &circuit, pk, None,
+                        )?;
                     Ok((
                         (input_output, pk.vk.clone()),
                         [&[hash], other_pi.as_slice()].concat(),
@@ -1770,7 +1813,7 @@ mod tests {
             env!("CARGO_PKG_VERSION"),
             &0u32.to_be_bytes(),
             "rollup_prover",
-            "",
+            "decider",
             [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
             [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
             0,

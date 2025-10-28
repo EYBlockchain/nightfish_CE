@@ -69,6 +69,7 @@ pub fn partial_verify_fft_plonk(
     base_vars: &ProofVarNative<BnConfig>,
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
+    recursion_depth: usize,
 ) -> Result<PCSInfoCircuit, CircuitError> {
     let ProofScalarsVarNative {
         evals: proof_evals,
@@ -77,13 +78,20 @@ pub fn partial_verify_fft_plonk(
     } = scalar_var;
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
+
+    // 0: base_grumpkin, 1: base_bn254, 2: merge_grumpkin, 3: merge_bn254 (partially verifies four base_bn254 proofs)
+    let layer = if recursion_depth == 3 {
+        "base_bn254"
+    } else {
+        "merge_bn254"
+    };
     let fs_msg = fs_domain_bytes(
         "nightfish.pcd",
         "plonk-recursion",
         env!("CARGO_PKG_VERSION"),
         &0u32.to_be_bytes(),
         "rollup_prover",
-        "",
+        layer,
         [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
         [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
         0,
@@ -134,7 +142,7 @@ pub(crate) fn partial_verify_fft_plonk_base(
 
     let mut transcript = RescueTranscriptVar::new_transcript(circuit);
 
-    let fs_msg = fs_domain_bytes(
+    /*let fs_msg = fs_domain_bytes(
         "nightfish.pcd",
         "plonk-recursion",
         env!("CARGO_PKG_VERSION"),
@@ -149,7 +157,7 @@ pub(crate) fn partial_verify_fft_plonk_base(
         &[],
     );
 
-    transcript.push_message::<_, BnConfig>(EXTRA_TRANSCRIPT_MSG_LABEL, &fs_msg, circuit)?;
+    transcript.push_message::<_, BnConfig>(EXTRA_TRANSCRIPT_MSG_LABEL, &fs_msg, circuit)?;*/
 
     // Generate the challenges
     let challenges = ChallengesVar::compute_challenges::<Kzg, _, _, _>(
@@ -180,12 +188,15 @@ pub(crate) fn calculate_recursion_scalars(
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
+    recursion_depth: usize,
 ) -> Result<Vec<Variable>, CircuitError> {
     // First prepare the pcs_infos for each proof
     let pcs_infos: [PCSInfoCircuit; 2] = scalar_vars
         .iter()
         .zip(base_vars.iter())
-        .map(|(scalar_var, base_var)| partial_verify_fft_plonk(scalar_var, base_var, vk, circuit))
+        .map(|(scalar_var, base_var)| {
+            partial_verify_fft_plonk(scalar_var, base_var, vk, circuit, recursion_depth)
+        })
         .collect::<Result<Vec<PCSInfoCircuit>, CircuitError>>()?
         .try_into()
         .map_err(|_| CircuitError::ParameterError("pcs_infos must have length 2".to_string()))?;
@@ -458,7 +469,7 @@ mod tests {
             let scalar_var = ProofScalarsVarNative::from_struct(&base_var, pi_hash)?;
 
             let pcs_info_circuit =
-                partial_verify_fft_plonk(&scalar_var, &base_var, &vk, &mut verifier_circuit)?;
+                partial_verify_fft_plonk(&scalar_var, &base_var, &vk, &mut verifier_circuit, 0)?; // TODO
 
             let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
 
@@ -710,6 +721,7 @@ mod tests {
                 &output_base_vars,
                 &vk,
                 &mut scalars_verifier_circuit,
+                0 // TODO
             )?;
             let (instance_scalar_vars, proof_scalar_vars) =
                 recursion_scalars.split_at(recursion_scalars.len() - 6);

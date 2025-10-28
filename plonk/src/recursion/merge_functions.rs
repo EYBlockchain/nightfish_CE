@@ -440,14 +440,14 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .map(|(output, vk)| {
             let verifier = Verifier::new(vk.domain_size)?;
 
-            //let layer = if IS_FIRST_ROUND { "base_bn254" } else { "merge_bn254" };
+            let layer = if IS_FIRST_ROUND { "base_bn254" } else { "merge_bn254" };
             let fs_msg = fs_domain_bytes(
                 "nightfish.pcd",
                 "plonk-recursion",
                 env!("CARGO_PKG_VERSION"),
                 &0u32.to_be_bytes(),
                 "rollup_prover",
-                "",
+                layer,
                 [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
                 [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
                 0,
@@ -1143,6 +1143,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         &mut PlonkCircuit<Fr254>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
+    recursion_depth: usize,
 ) -> Result<Bn254CircuitOutput, PlonkError> {
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
@@ -1243,6 +1244,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     .expect("base_vars_pair length verified by chunks_exact"),
                 &bn254_vks[0],
                 circuit,
+                recursion_depth,
             )
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
@@ -1528,13 +1530,14 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
 
+                let layer = if IS_BASE { "base_grumpkin" } else { "merge_grumpkin" };
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
                     env!("CARGO_PKG_VERSION"),
                     &0u32.to_be_bytes(),
                     "rollup_prover",
-                    "",
+                    layer,
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.verifying_key),
                     [0u8; 32], //hash_canonical(&base_grumpkin_pk.pcs_prover_params),
                     0,
@@ -1681,6 +1684,7 @@ pub fn decider_circuit(
         &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
+    recursion_depth: usize,
 ) -> Result<Vec<Fr254>, PlonkError> {
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
@@ -1727,6 +1731,7 @@ pub fn decider_circuit(
                 .expect("base_vars_pair length verified by chunks_exact"),
             vk_bn254,
             circuit,
+            recursion_depth,
         )
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
