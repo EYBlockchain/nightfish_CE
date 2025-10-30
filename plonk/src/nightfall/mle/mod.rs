@@ -94,6 +94,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        _blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         C: Arithmetization<
@@ -141,6 +142,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        _blind: bool,
     ) -> Result<crate::proof_system::RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,

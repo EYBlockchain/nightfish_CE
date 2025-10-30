@@ -1417,7 +1417,7 @@ pub mod tests {
 
             proofs.push(
                 MLEPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<F>>(
-                    rng, cs, pk_ref, None,
+                    rng, cs, pk_ref, None, true,
                 )
                 .unwrap(),
             );

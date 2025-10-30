@@ -414,7 +414,7 @@ mod tests {
             let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
@@ -477,7 +477,7 @@ mod tests {
             let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
@@ -550,7 +550,7 @@ mod tests {
                 .iter()
                 .map(|circuit| {
                     FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                        rng, circuit, &pk, None,
+                        rng, circuit, &pk, None, true,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -844,7 +844,7 @@ mod tests {
                 .zip(pks)
                 .map(|(circuit, pk)| {
                     FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                        rng, circuit, &pk, None,
+                        rng, circuit, &pk, None, true,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;

@@ -93,6 +93,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         C: Arithmetization<<PCS::Commitment as AffineRepr>::ScalarField>,
@@ -137,6 +138,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,

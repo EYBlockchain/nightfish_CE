@@ -941,7 +941,7 @@ mod test {
             // 3. Create proof
             let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit).unwrap();
             let proof = FFTPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             )
             .unwrap();
 

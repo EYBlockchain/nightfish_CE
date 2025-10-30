@@ -66,6 +66,7 @@ where
         prng: &mut R,
         circuits: &[&C],
         prove_keys: &[&ProvingKey<E>],
+        blind: bool,
     ) -> Result<BatchProof<E>, PlonkError>
     where
         C: Arithmetization<E::ScalarField>,
@@ -73,7 +74,7 @@ where
         T: Transcript,
     {
         let (batch_proof, ..) =
-            Self::batch_prove_internal::<_, _, T>(prng, circuits, prove_keys, None)?;
+            Self::batch_prove_internal::<_, _, T>(prng, circuits, prove_keys, None, blind)?;
         Ok(batch_proof)
     }
 
@@ -170,6 +171,7 @@ where
         circuits: &[&C],
         prove_keys: &[&ProvingKey<E>],
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<
         (
             BatchProof<E>,
@@ -253,7 +255,7 @@ where
         let mut wires_poly_comms_vec = vec![];
         for i in 0..circuits.len() {
             let ((wires_poly_comms, wire_polys), pi_poly) =
-                prover.run_1st_round(prng, &prove_keys[i].commit_key, circuits[i])?;
+                prover.run_1st_round(prng, &prove_keys[i].commit_key, circuits[i], blind)?;
             online_oracles[i].wire_polys = wire_polys;
             online_oracles[i].pub_inp_poly = pi_poly;
             for wire_poly_comm in wires_poly_comms.iter() {
@@ -277,6 +279,7 @@ where
                         &prove_keys[i].commit_key,
                         circuits[i],
                         challenges.tau,
+                        blind,
                     )?;
                 online_oracles[i].plookup_oracles.h_polys = h_polys;
                 for h_poly_comm in h_poly_comms.iter() {
@@ -297,8 +300,13 @@ where
         challenges.gamma = transcript.squeeze_scalar_challenge::<P>(b"gamma")?;
         let mut prod_perm_poly_comms_vec = vec![];
         for i in 0..circuits.len() {
-            let (prod_perm_poly_comm, prod_perm_poly) =
-                prover.run_2nd_round(prng, &prove_keys[i].commit_key, circuits[i], &challenges)?;
+            let (prod_perm_poly_comm, prod_perm_poly) = prover.run_2nd_round(
+                prng,
+                &prove_keys[i].commit_key,
+                circuits[i],
+                &challenges,
+                blind,
+            )?;
             online_oracles[i].prod_perm_poly = prod_perm_poly;
             transcript.append_curve_point(b"perm_poly_comms", &prod_perm_poly_comm)?;
             prod_perm_poly_comms_vec.push(prod_perm_poly_comm);
@@ -316,6 +324,7 @@ where
                     &challenges,
                     merged_table_list[i].as_ref(),
                     sorted_vec_list[i].as_ref(),
+                    blind,
                 )?;
                 online_oracles[i].plookup_oracles.prod_lookup_poly = prod_lookup_poly;
                 transcript.append_curve_point(b"plookup_poly_comms", &prod_lookup_poly_comm)?;
@@ -614,6 +623,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         Self: Sized,
@@ -625,6 +635,7 @@ where
             &[circuit],
             &[prove_key],
             extra_transcript_init_msg,
+            blind,
         )?;
         Ok(Proof {
             wires_poly_comms: batch_proof.wires_poly_comms_vec[0].clone(),
@@ -821,6 +832,7 @@ pub mod test {
             &circuit,
             &test_pk_plonk_kzg_snark,
             None,
+            true,
         )
         .unwrap();
         let proof_fftplonk =
@@ -829,6 +841,7 @@ pub mod test {
                 &circuit,
                 &test_pk_fftplonk,
                 None,
+                true,
             )
             .unwrap();
         assert!(
@@ -1074,7 +1087,8 @@ pub mod test {
                 Some(format!("extra message: {}", i).into_bytes())
             };
             proofs.push(
-                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone()).unwrap(),
+                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), true)
+                    .unwrap(),
             );
             extra_msgs.push(extra_msg);
         }
@@ -1290,8 +1304,8 @@ pub mod test {
         let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs2)?;
 
         // 4. Proving
-        assert!(PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk1, None).is_err());
-        let proof2 = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk2, None)?;
+        assert!(PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk1, None, true).is_err());
+        let proof2 = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk2, None, true)?;
 
         // 5. Verification
         assert!(
@@ -1378,8 +1392,13 @@ pub mod test {
         let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
 
         // 4. Proving
-        let (_, oracles, challenges, _) =
-            PlonkKzgSnark::<E>::batch_prove_internal::<_, _, T>(rng, &[&circuit], &[&pk], None)?;
+        let (_, oracles, challenges, _) = PlonkKzgSnark::<E>::batch_prove_internal::<_, _, T>(
+            rng,
+            &[&circuit],
+            &[&pk],
+            None,
+            true,
+        )?;
 
         // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
         check_plonk_prover_polynomials(plonk_type, &oracles[0], &pk, &challenges)?;
@@ -1642,7 +1661,7 @@ pub mod test {
 
         let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
         let proof =
-            PlonkKzgSnark::<E>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None)?;
+            PlonkKzgSnark::<E>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None, true)?;
 
         let base_fields: Vec<E::BaseField> = proof.clone().into();
         let res: Proof<E> = base_fields.try_into()?;
@@ -1688,7 +1707,7 @@ pub mod test {
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
         let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
-        let proof = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &circuit, &pk, None)?;
+        let proof = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &circuit, &pk, None, true)?;
 
         let mut ser_bytes = Vec::new();
         srs.serialize_compressed(&mut ser_bytes)?;

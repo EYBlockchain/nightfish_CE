@@ -747,7 +747,7 @@ mod tests {
             let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
 
             let mut output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             )?;
 
             let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;

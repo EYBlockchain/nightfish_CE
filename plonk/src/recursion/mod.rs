@@ -207,7 +207,13 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, base_grumpkin_pk, None)
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    base_grumpkin_pk,
+                    None,
+                    true,
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -338,7 +344,7 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None)
+                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None, true)
             })
             .collect::<Result<Vec<Bn254Output>, PlonkError>>()?
             .try_into()
@@ -405,7 +411,13 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    merge_grumpkin_pk,
+                    None,
+                    true,
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -471,7 +483,13 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    merge_grumpkin_pk,
+                    None,
+                    true,
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -1006,6 +1024,7 @@ pub trait RecursiveProver {
             &circuit,
             &decider_pk,
             None,
+            true,
         )?;
 
         Ok(RecursiveProof {
@@ -1543,7 +1562,7 @@ mod tests {
                     circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
                     let input_output =
                         FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            &mut rng, &circuit, pk, None,
+                            &mut rng, &circuit, pk, None, true,
                         )?;
                     Ok((
                         (input_output, pk.vk.clone()),

@@ -163,7 +163,9 @@ fn ipa_prove_turbo_benchmark(c: &mut Criterion) {
 
     c.bench_function("Ipa plonk prove", |b| {
         b.iter(|| {
-            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None);
+            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(
+                rng, &circuit, &pk, None, true,
+            );
         })
     });
 }
@@ -178,7 +180,9 @@ fn ipa_prove_ultra_benchmark(c: &mut Criterion) {
 
     c.bench_function("Ipa ultraplonk prove", |b| {
         b.iter(|| {
-            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None);
+            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(
+                rng, &circuit, &pk, None, true,
+            );
         })
     });
 }
@@ -230,7 +234,7 @@ fn fftplonk_prove_turbo_benchmark(c: &mut Criterion) {
     c.bench_function("Kzg FFT plonk prove", |b| {
         b.iter(|| {
             FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::prove::<_, _, RescueTranscript<Fq377>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });
@@ -249,7 +253,7 @@ fn fftplonk_prove_ultra_benchmark(c: &mut Criterion) {
     c.bench_function("Kzg FFT ultraplonk prove", |b| {
         b.iter(|| {
             FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::prove::<_, _, RescueTranscript<Fq377>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });

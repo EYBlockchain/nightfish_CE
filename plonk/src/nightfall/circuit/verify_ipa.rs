@@ -219,7 +219,7 @@ mod test {
         let (ipa_pk, ipa_vk) = PlonkIpaSnark::<Bls12_377>::preprocess(&ipa_srs, None, &circuit)?;
 
         let ipa_proof = PlonkIpaSnark::<Bls12_377>::prove::<_, _, RescueTranscript<Fq>>(
-            &mut rng, &circuit, &ipa_pk, None,
+            &mut rng, &circuit, &ipa_pk, None, true,
         )?;
 
         let public_inputs = circuit.public_input().unwrap();
@@ -305,7 +305,7 @@ mod test {
         ark_std::println!("KZG Proof Generated");
         let now = ark_std::time::Instant::now();
         let proof = PlonkKzgSnark::<BW6_761>::prove::<_, _, StandardTranscript>(
-            &mut rng, &circuit, &pk, None,
+            &mut rng, &circuit, &pk, None, true,
         )
         .unwrap();
         ark_std::println!("KZG Proof time: {:?}", now.elapsed());
