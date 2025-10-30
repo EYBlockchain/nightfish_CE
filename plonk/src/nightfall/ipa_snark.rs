@@ -293,6 +293,7 @@ where
             &challenges,
             &online_oracles,
             num_wire_types,
+            blind,
         )?;
 
         transcript.append_curve_points(b"quot_poly_comms", &split_quot_poly_comms)?;
@@ -517,6 +518,7 @@ where
             &challenges,
             &online_oracles,
             num_wire_types,
+            blind,
         )?;
 
         transcript.append_curve_points(b"quot_poly_comms", &split_quot_poly_comms)?;
