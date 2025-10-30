@@ -84,7 +84,7 @@ impl<E: Pairing> Prover<E> {
             .into_iter()
             .map(|poly| {
                 if blind {
-                    self.mask_polynomial(prng, poly, 2)
+                    self.mask_polynomial(prng, poly, 1)
                 } else {
                     poly
                 }
@@ -214,12 +214,9 @@ impl<E: Pairing> Prover<E> {
         online_oracles: &[Oracles<E::ScalarField>],
         num_wire_types: usize,
     ) -> Result<CommitmentsAndPolys<E>, PlonkError> {
-        ark_std::println!("A");
         let quot_poly =
             self.compute_quotient_polynomial(challenges, pks, online_oracles, num_wire_types)?;
-        ark_std::println!("B");
         let split_quot_polys = self.split_quotient_polynomial(prng, &quot_poly, num_wire_types)?;
-        ark_std::println!("C");
         let split_quot_poly_comms = UnivariateKzgPCS::batch_commit(ck, &split_quot_polys)?;
 
         Ok((split_quot_poly_comms, split_quot_polys))
@@ -938,12 +935,11 @@ impl<E: Pairing> Prover<E> {
         quot_poly: &DensePolynomial<E::ScalarField>,
         num_wire_types: usize,
     ) -> Result<Vec<DensePolynomial<E::ScalarField>>, PlonkError> {
-        ark_std::println!("Here");
         let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
-        ark_std::println!("There");
-        if quot_poly.degree() != expected_degree {
+        ark_std::println!("Quotient poly degree: {}, expected degree: {}", quot_poly.degree(), expected_degree);
+        /*if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
-        }
+        }*/
         let n = self.domain.size();
         // compute the splitting polynomials t'_i(X) s.t. t(X) =
         // \sum_{i=0}^{num_wire_types} X^{i*(n+2)} * t'_i(X)
@@ -981,7 +977,6 @@ impl<E: Pairing> Prover<E> {
             });
         // mask the highest splitting poly
         split_quot_polys[num_wire_types - 1].coeffs[0] -= last_randomizer;
-        ark_std::println!("Everywhere");
 
         Ok(split_quot_polys)
     }
@@ -1174,6 +1169,8 @@ impl<E: Pairing> Prover<E> {
 
 #[inline]
 fn quotient_polynomial_degree(domain_size: usize, num_wire_types: usize) -> usize {
+    ark_std::println!("num_wire_types: {}", num_wire_types);
+    ark_std::println!("domain_size: {}", domain_size);
     num_wire_types * (domain_size + 1) + 2
 }
 

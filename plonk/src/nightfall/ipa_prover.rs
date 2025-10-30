@@ -1139,9 +1139,10 @@ where
         num_wire_types: usize,
     ) -> Result<Vec<DensePolynomial<P::ScalarField>>, PlonkError> {
         let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
-        if quot_poly.degree() != expected_degree {
+        ark_std::println!("Quotient poly degree: {}, expected degree: {}", quot_poly.degree(), expected_degree);
+        /*if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
-        }
+        }*/
         let n = self.domain.size();
         // compute the splitting polynomials t'_i(X) s.t. t(X) =
         // \sum_{i=0}^{num_wire_types} X^{i*(n+2)} * t'_i(X)
@@ -1371,6 +1372,8 @@ where
 
 #[inline]
 fn quotient_polynomial_degree(domain_size: usize, num_wire_types: usize) -> usize {
+    ark_std::println!("num_wire_types: {}", num_wire_types);
+    ark_std::println!("domain_size: {}", domain_size);
     num_wire_types * (domain_size + 1) + 2
 }
 

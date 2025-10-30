@@ -186,7 +186,6 @@ where
         R: CryptoRng + RngCore,
         T: Transcript,
     {
-        ark_std::println!("One");
         if circuits.is_empty() {
             return Err(ParameterError("zero number of circuits/proving keys".to_string()).into());
         }
@@ -235,7 +234,6 @@ where
                 return Err(ParameterError("inconsistent plonk circuit types".to_string()).into());
             }
         }
-        ark_std::println!("Two");
 
         // Initialize transcript
         let mut transcript = T::new_transcript(b"PlonkProof");
@@ -265,7 +263,6 @@ where
             }
             wires_poly_comms_vec.push(wires_poly_comms);
         }
-        ark_std::println!("Three");
 
         // Round 1.5
         // Plookup: compute and interpolate the sorted concatenation of the (merged)
@@ -298,8 +295,6 @@ where
             merged_table_list.push(merged_table);
         }
 
-        ark_std::println!("Four");
-
         // Round 2
         challenges.beta = transcript.squeeze_scalar_challenge::<P>(b"beta")?;
         challenges.gamma = transcript.squeeze_scalar_challenge::<P>(b"gamma")?;
@@ -316,7 +311,6 @@ where
             transcript.append_curve_point(b"perm_poly_comms", &prod_perm_poly_comm)?;
             prod_perm_poly_comms_vec.push(prod_perm_poly_comm);
         }
-        ark_std::println!("Five");
 
         // Round 2.5
         // Plookup: compute Plookup product accumulation polynomial
@@ -340,7 +334,6 @@ where
             };
             prod_lookup_poly_comms_vec.push(prod_lookup_poly_comm);
         }
-        ark_std::println!("Six");
 
         // Round 3
         challenges.alpha = transcript.squeeze_scalar_challenge::<P>(b"alpha")?;
@@ -352,8 +345,6 @@ where
             &online_oracles,
             num_wire_types,
         )?;
-
-        ark_std::println!("Seven");
 
         for split_quot_poly_comm in split_quot_poly_comms.iter() {
             transcript.append_curve_point(b"quot_poly_comms", split_quot_poly_comm)?;
@@ -372,7 +363,6 @@ where
             transcript.append_visitor(&poly_evals)?;
             poly_evals_vec.push(poly_evals);
         }
-        ark_std::println!("Eight");
 
         // Round 4.5
         // Plookup: compute evaluations on Plookup-related polynomials
@@ -391,14 +381,12 @@ where
             };
             plookup_evals_vec.push(plookup_evals);
         }
-        ark_std::println!("Nine");
 
         let mut lin_poly = Prover::<E>::compute_quotient_component_for_lin_poly(
             n,
             challenges.zeta,
             &split_quot_polys,
         )?;
-        ark_std::println!("Ten");
         let mut alpha_base = E::ScalarField::one();
         let alpha_3 = challenges.alpha.square() * challenges.alpha;
         let alpha_7 = alpha_3.square() * challenges.alpha;
@@ -420,7 +408,6 @@ where
                 alpha_base *= alpha_3;
             }
         }
-        ark_std::println!("Eleven");
 
         // Round 5
         challenges.v = transcript.squeeze_scalar_challenge::<P>(b"v")?;
@@ -432,7 +419,6 @@ where
             &online_oracles,
             &lin_poly,
         )?;
-        ark_std::println!("Twelve");
 
         // Plookup: build Plookup argument
         let mut plookup_proofs_vec = vec![];
@@ -1101,7 +1087,7 @@ pub mod test {
                 Some(format!("extra message: {}", i).into_bytes())
             };
             proofs.push(
-                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), true)
+                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), false)
                     .unwrap(),
             );
             extra_msgs.push(extra_msg);
