@@ -224,6 +224,7 @@ where
     /// Round 3: Return the splitted quotient polynomials and their commitments.
     /// Note that the first `num_wire_types`-1 splitted quotient polynomials
     /// have degree `domain_size`+1.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_3rd_round<R: CryptoRng + RngCore>(
         &self,
         prng: &mut R,
