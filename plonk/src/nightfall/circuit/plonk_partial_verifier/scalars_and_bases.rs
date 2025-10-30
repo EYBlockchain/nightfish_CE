@@ -739,10 +739,13 @@ mod tests {
             .iter(),
             [true, false].iter(),
         ) {
+            ark_std::println!("blind: {}", blind);
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
+            ark_std::println!("circuit size: {}", circuit.num_gates());
             let srs_size = circuit.srs_size(*blind)?;
+            ark_std::println!("srs size: {}", srs_size);
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the non-base case and our verification key is fixed.

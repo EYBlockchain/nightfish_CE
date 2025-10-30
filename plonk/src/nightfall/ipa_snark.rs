@@ -445,6 +445,9 @@ where
         // Round 1
         let ((wires_poly_comms, wire_polys), pi_poly) =
             prover.run_1st_round(prng, &prove_keys.commit_key, circuits, blind)?;
+        for poly in wire_polys.clone() {
+            ark_std::println!("wire poly degree: {}", poly.degree());
+        }
         online_oracles.wire_polys = wire_polys;
         online_oracles.pub_inp_poly = pi_poly;
 

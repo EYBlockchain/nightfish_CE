@@ -220,6 +220,9 @@ impl<E: Pairing> Prover<E> {
             self.compute_quotient_polynomial(challenges, pks, online_oracles, num_wire_types)?;
         let split_quot_polys =
             self.split_quotient_polynomial(prng, &quot_poly, num_wire_types, blind)?;
+        for split_quot_poly in &split_quot_polys {
+            ark_std::println!("Quotient poly degree: {}", split_quot_poly.degree());
+        }
         let split_quot_poly_comms = UnivariateKzgPCS::batch_commit(ck, &split_quot_polys)?;
 
         Ok((split_quot_poly_comms, split_quot_polys))
