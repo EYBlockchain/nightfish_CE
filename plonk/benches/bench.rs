@@ -267,7 +267,8 @@ fn fftplonk_recursive_prove_ultra_benchmark(c: &mut Criterion) {
     let max_degree = NUM_GATES_LARGE + 2;
     let srs =
         FFTPlonk::<UnivariateKzgPCS<Bn254>>::universal_setup_for_testing(max_degree, rng).unwrap();
-    let (pk, _) = FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true).unwrap();
+    let (pk, _) =
+        FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Kzg FFT recursive ultraplonk prove", |b| {
         b.iter(|| {
@@ -440,9 +441,10 @@ macro_rules! plonk_verify_bench {
 
         let (pk, vk) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
 
-        let proof =
-            PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(rng, &cs, &pk, None, true)
-                .unwrap();
+        let proof = PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
+            rng, &cs, &pk, None, true,
+        )
+        .unwrap();
 
         let start = Instant::now();
 
@@ -472,9 +474,10 @@ macro_rules! plonk_ipa_verify_bench {
 
         let (pk, vk) = PlonkIpaSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
 
-        let proof =
-            PlonkIpaSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(rng, &cs, &pk, None, true)
-                .unwrap();
+        let proof = PlonkIpaSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
+            rng, &cs, &pk, None, true,
+        )
+        .unwrap();
 
         let start = Instant::now();
 
@@ -520,9 +523,10 @@ macro_rules! plonk_batch_verify_bench {
 
         let (pk, vk) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
 
-        let proof =
-            PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(rng, &cs, &pk, None, true)
-                .unwrap();
+        let proof = PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
+            rng, &cs, &pk, None, true,
+        )
+        .unwrap();
 
         let vks = vec![&vk; $num_proofs];
         let pub_input = vec![];

@@ -735,7 +735,8 @@ mod tests {
         let srs = MLEPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
 
         let (pk1, _vk1) =
-            <MLEPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[3], false).unwrap();
+            <MLEPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[3], false)
+                .unwrap();
 
         // 4. Proving
         let mut proofs = vec![];

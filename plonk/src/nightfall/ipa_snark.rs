@@ -1158,8 +1158,12 @@ pub mod test {
                 })
                 .collect::<Result<Vec<_>, PlonkError>>()?;
             // 3. Preprocessing
-            let (pk1, vk1) =
-                <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], blind)?;
+            let (pk1, vk1) = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(
+                &srs,
+                vk_id,
+                &circuits[0],
+                blind,
+            )?;
             let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
             // 4. Proving
             let mut proofs = vec![];
@@ -1182,8 +1186,7 @@ pub mod test {
             let public_inputs: Vec<Vec<E::ScalarField>> = circuits
                 .iter()
                 .map(|cs| cs.public_input())
-                .collect::<Result<Vec<Vec<E::ScalarField>>, _>>(
-            )?;
+                .collect::<Result<Vec<Vec<E::ScalarField>>, _>>()?;
             for (i, proof) in proofs.iter().enumerate() {
                 let vk_ref = if i < 3 { &vk1 } else { &vk2 };
                 assert!(FFTPlonk::<PCS>::verify::<T>(
@@ -1264,8 +1267,12 @@ pub mod test {
                 })
                 .collect::<Result<Vec<_>, PlonkError>>()?;
             // 3. Preprocessing
-            let (pk1, vk1) =
-                <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], blind)?;
+            let (pk1, vk1) = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(
+                &srs,
+                vk_id,
+                &circuits[0],
+                blind,
+            )?;
             let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
             // 4. Proving
             let mut proofs = vec![];
@@ -1415,15 +1422,21 @@ pub mod test {
             let proof2 = FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk2, None, blind)?;
 
             // 5. Verification
-            assert!(
-                FFTPlonk::<PCS>::verify::<T>(&vk2, &[E::ScalarField::from(1u8)], &proof2, None,)
-                    .is_ok()
-            );
+            assert!(FFTPlonk::<PCS>::verify::<T>(
+                &vk2,
+                &[E::ScalarField::from(1u8)],
+                &proof2,
+                None,
+            )
+            .is_ok());
             // wrong verification key
-            assert!(
-                FFTPlonk::<PCS>::verify::<T>(&vk1, &[E::ScalarField::from(1u8)], &proof2, None,)
-                    .is_err()
-            );
+            assert!(FFTPlonk::<PCS>::verify::<T>(
+                &vk1,
+                &[E::ScalarField::from(1u8)],
+                &proof2,
+                None,
+            )
+            .is_err());
             // wrong public input
             assert!(FFTPlonk::<PCS>::verify::<T>(&vk2, &[], &proof2, None).is_err());
         }
@@ -1482,8 +1495,9 @@ pub mod test {
             let rng = &mut test_rng();
             let n = 64;
             let max_degree = n + 2 * blind as usize;
-            let srs =
-                <FFTPlonk<PCS> as UniversalSNARK<PCS>>::universal_setup_for_testing(max_degree, rng)?;
+            let srs = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::universal_setup_for_testing(
+                max_degree, rng,
+            )?;
 
             // 2. Create the circuit
             let circuit = gen_circuit_for_test(10, 3, plonk_type, false)?;

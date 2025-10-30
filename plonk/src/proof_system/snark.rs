@@ -890,7 +890,8 @@ pub mod test {
                 "Verifying keys do not match"
             );
             let (new_pk_fftplonk, new_vk_fftplonk) =
-                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true).unwrap();
+                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true)
+                    .unwrap();
             assert_eq!(
                 test_pk_fftplonk, new_pk_fftplonk,
                 "Proving keys do not match"
@@ -1100,8 +1101,7 @@ pub mod test {
             let public_inputs: Vec<Vec<E::ScalarField>> = circuits
                 .iter()
                 .map(|cs| cs.public_input())
-                .collect::<Result<Vec<Vec<E::ScalarField>>, _>>(
-            )?;
+                .collect::<Result<Vec<Vec<E::ScalarField>>, _>>()?;
             for (i, proof) in proofs.iter().enumerate() {
                 let vk_ref = if i < 3 { &vk1 } else { &vk2 };
                 assert!(PlonkKzgSnark::<E>::verify::<T>(
@@ -1193,10 +1193,13 @@ pub mod test {
             )
             .is_err());
 
-            assert!(
-                PlonkKzgSnark::<E>::batch_verify::<T>(&vks, &public_inputs_ref, &proofs_ref, &[],)
-                    .is_err()
-            );
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref,
+                &proofs_ref,
+                &[],
+            )
+            .is_err());
 
             // Empty params
             assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[],).is_err());

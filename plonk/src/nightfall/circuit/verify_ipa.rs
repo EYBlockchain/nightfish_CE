@@ -216,7 +216,8 @@ mod test {
             <PlonkIpaSnark<Bls12_377> as UniversalSNARK<UnivariateIpaPCS<Bls12_377>>>::universal_setup_for_testing(
                 srs_size, &mut rng,
             )?;
-        let (ipa_pk, ipa_vk) = PlonkIpaSnark::<Bls12_377>::preprocess(&ipa_srs, None, &circuit, true)?;
+        let (ipa_pk, ipa_vk) =
+            PlonkIpaSnark::<Bls12_377>::preprocess(&ipa_srs, None, &circuit, true)?;
 
         let ipa_proof = PlonkIpaSnark::<Bls12_377>::prove::<_, _, RescueTranscript<Fq>>(
             &mut rng, &circuit, &ipa_pk, None, true,

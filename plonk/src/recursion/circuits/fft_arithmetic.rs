@@ -834,8 +834,10 @@ mod tests {
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk_one, vk_one) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one, *blind)?;
-            let (pk_two, vk_two) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two, *blind)?;
+            let (pk_one, vk_one) =
+                FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one, *blind)?;
+            let (pk_two, vk_two) =
+                FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two, *blind)?;
 
             let circuits = [circuit_one, circuit_two];
             let pks = [pk_one.clone(), pk_two.clone()];

@@ -666,7 +666,8 @@ mod test {
         let _max_degree = 80;
         let srs =
             FFTPlonk::<UnivariateKzgPCS<E>>::universal_setup_for_testing(srs_size, rng).unwrap();
-        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit, true).unwrap();
+        let (pk, vk) =
+            FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit, true).unwrap();
         let proof =
             FFTPlonk::<UnivariateKzgPCS<E>>::prove::<_, _, T>(rng, &circuit, &pk, None, true)?;
         let public_inputs = circuit.public_input().unwrap();

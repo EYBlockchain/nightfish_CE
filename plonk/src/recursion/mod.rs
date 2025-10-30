@@ -651,7 +651,8 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
         let base_bn254_circuit = &base_bn254_out[0].0;
-        let (base_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit, false)?;
+        let (base_bn254_pk, _) =
+            FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit, false)?;
         Self::store_base_bn254_pk(base_bn254_pk.clone()).ok_or(PlonkError::InvalidParameters(
             "Could not store base Bn254 proving key".to_string(),
         ))?;
@@ -739,7 +740,8 @@ pub trait RecursiveProver {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let bn254_circuit = &current_bn254_out[0].0;
-            let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit, false)?;
+            let (new_bn254_pk, _) =
+                FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit, false)?;
             merge_bn254_pks.push(new_bn254_pk.clone());
             current_bn254_pk = new_bn254_pk;
         }
@@ -764,7 +766,8 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
         let grumpkin_circuit = &decider_input[0].0;
-        let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit, false)?;
+        let (new_grumpkin_pk, _) =
+            MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit, false)?;
         merge_grumpkin_pks.push(new_grumpkin_pk.clone());
         current_grumpkin_pk = new_grumpkin_pk;
 
@@ -1347,10 +1350,18 @@ mod tests {
         let ipa_srs: UnivariateUniversalIpaParams<Grumpkin> =
             Zmorph::gen_srs_for_testing(rng, 18).unwrap();
 
-        let (pk_one, input_vk_one) =
-            FFTPlonk::<Kzg>::preprocess(&kzg_srs, Some(VerificationKeyId::Client), &circuits[0], true)?;
-        let (pk_two, input_vk_two) =
-            FFTPlonk::<Kzg>::preprocess(&kzg_srs, Some(VerificationKeyId::Deposit), &circuits[43], true)?;
+        let (pk_one, input_vk_one) = FFTPlonk::<Kzg>::preprocess(
+            &kzg_srs,
+            Some(VerificationKeyId::Client),
+            &circuits[0],
+            true,
+        )?;
+        let (pk_two, input_vk_two) = FFTPlonk::<Kzg>::preprocess(
+            &kzg_srs,
+            Some(VerificationKeyId::Deposit),
+            &circuits[43],
+            true,
+        )?;
         ark_std::println!("Made proving key in: {:?}", now.elapsed());
         // Scope the lock
         {

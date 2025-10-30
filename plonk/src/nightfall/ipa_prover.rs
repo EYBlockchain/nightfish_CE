@@ -236,7 +236,8 @@ where
     ) -> Result<CommitmentsAndPolys<PCS>, PlonkError> {
         let quot_poly =
             self.compute_quotient_polynomial(challenges, pks, online_oracles, num_wire_types)?;
-        let split_quot_polys = self.split_quotient_polynomial(prng, &quot_poly, num_wire_types, blind)?;
+        let split_quot_polys =
+            self.split_quotient_polynomial(prng, &quot_poly, num_wire_types, blind)?;
         let split_quot_poly_comms = cfg_iter!(split_quot_polys)
             .map(|split_quot_poly| PCS::commit(ck, split_quot_poly))
             .collect::<Result<Vec<PCS::Commitment>, _>>()?;
@@ -1141,7 +1142,11 @@ where
         blind: bool,
     ) -> Result<Vec<DensePolynomial<P::ScalarField>>, PlonkError> {
         let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types, blind);
-        ark_std::println!("Quotient poly degree: {}, expected degree: {}", quot_poly.degree(), expected_degree);
+        ark_std::println!(
+            "Quotient poly degree: {}, expected degree: {}",
+            quot_poly.degree(),
+            expected_degree
+        );
         if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
         }
