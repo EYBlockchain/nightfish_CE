@@ -456,7 +456,7 @@ mod tests {
         let srs = Zeromorph::<UnivariateIpaPCS<Grumpkin>>::gen_srs_for_testing(&mut rng, srs_size)
             .unwrap();
         let (pk, _vk) =
-            MLEPlonk::<Zeromorph<UnivariateIpaPCS<Grumpkin>>>::preprocess(&srs, None, &circuit)
+            MLEPlonk::<Zeromorph<UnivariateIpaPCS<Grumpkin>>>::preprocess(&srs, None, &circuit, false)
                 .unwrap();
 
         let _proof = MLEPlonk::<Zeromorph<UnivariateIpaPCS<Grumpkin>>>::sa_prove::<

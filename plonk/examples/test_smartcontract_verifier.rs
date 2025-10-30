@@ -31,12 +31,12 @@ fn main() {
     circuit.enforce_false(x_equal_y.into()).unwrap();
     circuit.finalize_for_arithmetization().unwrap();
     let mut rng = jf_utils::test_rng();
-    let srs_size = circuit.srs_size().unwrap();
+    let srs_size = circuit.srs_size(true).unwrap();
 
     let srs = PlonkKzgSnark::<Bn254>::universal_setup_for_testing(srs_size, &mut rng).unwrap();
     let (pk, vk) = PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit).unwrap();
     let proof =
-        PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(&mut rng, &circuit, &pk, None)
+        PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(&mut rng, &circuit, &pk, None, true)
             .unwrap();
     PlonkKzgSnark::<Bn254>::verify::<SolidityTranscript>(&vk, &[y], &proof, None).unwrap();
 

@@ -522,6 +522,7 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
         if vk_id.is_some() {
             return Err(PlonkError::InvalidParameters(
@@ -530,9 +531,9 @@ where
         }
         // Make sure the SRS can support the circuit (with hiding degree of 2 for zk)
         let domain_size = circuit.eval_domain_size()?;
-        let srs_size = circuit.srs_size()?;
+        let srs_size = circuit.srs_size(blind)?;
         let num_inputs = circuit.num_inputs();
-        if srs.max_degree() < circuit.srs_size()? {
+        if srs.max_degree() < circuit.srs_size(blind)? {
             return Err(PlonkError::IndexTooLarge);
         }
         // 1. Compute selector and permutation polynomials.
@@ -822,10 +823,10 @@ pub mod test {
         let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
         let pub_inputs = circuit.public_input().unwrap();
         let (test_pk_plonk_kzg_snark, test_vk_plonk_kzg_snark) =
-            PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit)
+            PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit, true)
                 .expect("Failed to preprocess the test circuit");
         let (test_pk_fftplonk, test_vk_fftplonk) =
-            FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit)
+            FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true)
                 .expect("Failed to preprocess the test circuit");
 
         let proof_plonk_kzg_snark = PlonkKzgSnark::<Bn254>::prove::<_, _, StandardTranscript>(
@@ -876,7 +877,7 @@ pub mod test {
             let circuit = generate_simple_circuit(new_a, new_b, new_c).unwrap();
             // Generate a new proving key and verifying key for the circuit with new inputs
             let (new_pk_plonk_kzg_snark, new_vk_plonk_kzg_snark) =
-                PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit)
+                PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit, true)
                     .expect("Failed to preprocess the circuit with new inputs");
 
             // Compare the new PK and VK with the initial ones
@@ -889,7 +890,7 @@ pub mod test {
                 "Verifying keys do not match"
             );
             let (new_pk_fftplonk, new_vk_fftplonk) =
-                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit).unwrap();
+                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true).unwrap();
             assert_eq!(
                 test_pk_fftplonk, new_pk_fftplonk,
                 "Proving keys do not match"
@@ -930,9 +931,9 @@ pub mod test {
         let selectors = circuit.compute_selector_polynomials()?;
         let sigmas = circuit.compute_extended_permutation_polynomials()?;
 
-        let max_degree = 64 + 2;
+        let max_degree = 64;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
 
         // check proving key
         assert_eq!(pk.selectors, selectors);
@@ -1060,166 +1061,167 @@ pub mod test {
         P: HasTEForm<BaseField = F, ScalarField = E::ScalarField>,
         T: Transcript,
     {
-        // 1. Simulate universal setup
-        let rng = &mut test_rng();
-        let n = 64;
-        let max_degree = n + 2;
-        let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
+        for blind in [true, false] {
+            // 1. Simulate universal setup
+            let rng = &mut test_rng();
+            let n = 64;
+            let max_degree = n + 2 * blind as usize;
+            let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        // 2. Create circuits
-        let circuits = (0..6)
-            .map(|i| {
-                let m = 2 + i / 3;
-                let a0 = 1 + i % 3;
-                gen_circuit_for_test(m, a0, plonk_type)
-            })
-            .collect::<Result<Vec<_>, PlonkError>>()?;
-        // 3. Preprocessing
-        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[0])?;
-        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[3])?;
-        // 4. Proving
-        let mut proofs = vec![];
-        let mut extra_msgs = vec![];
-        for (i, cs) in circuits.iter().enumerate() {
-            let pk_ref = if i < 3 { &pk1 } else { &pk2 };
-            let extra_msg = if i % 2 == 0 {
-                None
-            } else {
-                Some(format!("extra message: {}", i).into_bytes())
-            };
-            proofs.push(
-                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), false)
-                    .unwrap(),
-            );
-            extra_msgs.push(extra_msg);
-        }
+            // 2. Create circuits
+            let circuits = (0..6)
+                .map(|i| {
+                    let m = 2 + i / 3;
+                    let a0 = 1 + i % 3;
+                    gen_circuit_for_test(m, a0, plonk_type)
+                })
+                .collect::<Result<Vec<_>, PlonkError>>()?;
+            // 3. Preprocessing
+            let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[0], blind)?;
+            let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[3], blind)?;
+            // 4. Proving
+            let mut proofs = vec![];
+            let mut extra_msgs = vec![];
+            for (i, cs) in circuits.iter().enumerate() {
+                let pk_ref = if i < 3 { &pk1 } else { &pk2 };
+                let extra_msg = if i % 2 == 0 {
+                    None
+                } else {
+                    Some(format!("extra message: {}", i).into_bytes())
+                };
+                proofs.push(
+                    PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), blind)
+                        .unwrap(),
+                );
+                extra_msgs.push(extra_msg);
+            }
 
-        // 5. Verification
-        let public_inputs: Vec<Vec<E::ScalarField>> = circuits
-            .iter()
-            .map(|cs| cs.public_input())
-            .collect::<Result<Vec<Vec<E::ScalarField>>, _>>(
-        )?;
-        for (i, proof) in proofs.iter().enumerate() {
-            let vk_ref = if i < 3 { &vk1 } else { &vk2 };
-            assert!(PlonkKzgSnark::<E>::verify::<T>(
-                vk_ref,
-                &public_inputs[i],
-                proof,
-                extra_msgs[i].clone(),
+            // 5. Verification
+            let public_inputs: Vec<Vec<E::ScalarField>> = circuits
+                .iter()
+                .map(|cs| cs.public_input())
+                .collect::<Result<Vec<Vec<E::ScalarField>>, _>>(
+            )?;
+            for (i, proof) in proofs.iter().enumerate() {
+                let vk_ref = if i < 3 { &vk1 } else { &vk2 };
+                assert!(PlonkKzgSnark::<E>::verify::<T>(
+                    vk_ref,
+                    &public_inputs[i],
+                    proof,
+                    extra_msgs[i].clone(),
+                )
+                .is_ok());
+                // Inconsistent proof should fail the verification.
+                let mut bad_pub_input = public_inputs[i].clone();
+                bad_pub_input[0] = E::ScalarField::from(0u8);
+                assert!(PlonkKzgSnark::<E>::verify::<T>(
+                    vk_ref,
+                    &bad_pub_input,
+                    proof,
+                    extra_msgs[i].clone(),
+                )
+                .is_err());
+                // Incorrect extra transcript message should fail
+                assert!(PlonkKzgSnark::<E>::verify::<T>(
+                    vk_ref,
+                    &bad_pub_input,
+                    proof,
+                    Some("wrong message".to_string().into_bytes()),
+                )
+                .is_err());
+
+                // Incorrect proof [W_z] = 0, [W_z*g] = 0
+                // attack against some vulnerable implementation described in:
+                // https://cryptosubtlety.medium.com/00-8d4adcf4d255
+                let mut bad_proof = proof.clone();
+                bad_proof.opening_proof = E::G1Affine::default();
+                bad_proof.shifted_opening_proof = E::G1Affine::default();
+                assert!(PlonkKzgSnark::<E>::verify::<T>(
+                    vk_ref,
+                    &public_inputs[i],
+                    &bad_proof,
+                    extra_msgs[i].clone(),
+                )
+                .is_err());
+            }
+
+            // 6. Batch verification
+            let vks = vec![&vk1, &vk1, &vk1, &vk2, &vk2, &vk2];
+            let mut public_inputs_ref: Vec<&[E::ScalarField]> = public_inputs
+                .iter()
+                .map(|pub_input| &pub_input[..])
+                .collect();
+            let mut proofs_ref: Vec<&Proof<E>> = proofs.iter().collect();
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref,
+                &proofs_ref,
+                &extra_msgs,
             )
             .is_ok());
-            // Inconsistent proof should fail the verification.
-            let mut bad_pub_input = public_inputs[i].clone();
-            bad_pub_input[0] = E::ScalarField::from(0u8);
-            assert!(PlonkKzgSnark::<E>::verify::<T>(
-                vk_ref,
-                &bad_pub_input,
-                proof,
-                extra_msgs[i].clone(),
-            )
-            .is_err());
-            // Incorrect extra transcript message should fail
-            assert!(PlonkKzgSnark::<E>::verify::<T>(
-                vk_ref,
-                &bad_pub_input,
-                proof,
-                Some("wrong message".to_string().into_bytes()),
+
+            // Inconsistent params
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks[..5],
+                &public_inputs_ref,
+                &proofs_ref,
+                &extra_msgs,
             )
             .is_err());
 
-            // Incorrect proof [W_z] = 0, [W_z*g] = 0
-            // attack against some vulnerable implementation described in:
-            // https://cryptosubtlety.medium.com/00-8d4adcf4d255
-            let mut bad_proof = proof.clone();
-            bad_proof.opening_proof = E::G1Affine::default();
-            bad_proof.shifted_opening_proof = E::G1Affine::default();
-            assert!(PlonkKzgSnark::<E>::verify::<T>(
-                vk_ref,
-                &public_inputs[i],
-                &bad_proof,
-                extra_msgs[i].clone(),
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref[..5],
+                &proofs_ref,
+                &extra_msgs,
+            )
+            .is_err());
+
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref,
+                &proofs_ref[..5],
+                &extra_msgs,
+            )
+            .is_err());
+
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref,
+                &proofs_ref,
+                &vec![None; vks.len()],
+            )
+            .is_err());
+
+            assert!(
+                PlonkKzgSnark::<E>::batch_verify::<T>(&vks, &public_inputs_ref, &proofs_ref, &[],)
+                    .is_err()
+            );
+
+            // Empty params
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[],).is_err());
+
+            // Error paths
+            let tmp_pi_ref = public_inputs_ref[0];
+            public_inputs_ref[0] = public_inputs_ref[1];
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref,
+                &proofs_ref,
+                &extra_msgs,
+            )
+            .is_err());
+            public_inputs_ref[0] = tmp_pi_ref;
+
+            proofs_ref[0] = proofs_ref[1];
+            assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+                &vks,
+                &public_inputs_ref,
+                &proofs_ref,
+                &extra_msgs,
             )
             .is_err());
         }
-
-        // 6. Batch verification
-        let vks = vec![&vk1, &vk1, &vk1, &vk2, &vk2, &vk2];
-        let mut public_inputs_ref: Vec<&[E::ScalarField]> = public_inputs
-            .iter()
-            .map(|pub_input| &pub_input[..])
-            .collect();
-        let mut proofs_ref: Vec<&Proof<E>> = proofs.iter().collect();
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks,
-            &public_inputs_ref,
-            &proofs_ref,
-            &extra_msgs,
-        )
-        .is_ok());
-
-        // Inconsistent params
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks[..5],
-            &public_inputs_ref,
-            &proofs_ref,
-            &extra_msgs,
-        )
-        .is_err());
-
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks,
-            &public_inputs_ref[..5],
-            &proofs_ref,
-            &extra_msgs,
-        )
-        .is_err());
-
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks,
-            &public_inputs_ref,
-            &proofs_ref[..5],
-            &extra_msgs,
-        )
-        .is_err());
-
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks,
-            &public_inputs_ref,
-            &proofs_ref,
-            &vec![None; vks.len()],
-        )
-        .is_err());
-
-        assert!(
-            PlonkKzgSnark::<E>::batch_verify::<T>(&vks, &public_inputs_ref, &proofs_ref, &[],)
-                .is_err()
-        );
-
-        // Empty params
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[],).is_err());
-
-        // Error paths
-        let tmp_pi_ref = public_inputs_ref[0];
-        public_inputs_ref[0] = public_inputs_ref[1];
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks,
-            &public_inputs_ref,
-            &proofs_ref,
-            &extra_msgs,
-        )
-        .is_err());
-        public_inputs_ref[0] = tmp_pi_ref;
-
-        proofs_ref[0] = proofs_ref[1];
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
-            &vks,
-            &public_inputs_ref,
-            &proofs_ref,
-            &extra_msgs,
-        )
-        .is_err());
-
         Ok(())
     }
 
@@ -1297,12 +1299,12 @@ pub mod test {
         cs2.finalize_for_arithmetization()?;
 
         // 3. Preprocessing
-        let size_one = cs1.srs_size()?;
-        let size_two = cs2.srs_size()?;
+        let size_one = cs1.srs_size(true)?;
+        let size_two = cs2.srs_size(true)?;
         let size = ark_std::cmp::max(size_one, size_two);
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(size, rng)?;
-        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs1)?;
-        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs2)?;
+        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs1, true)?;
+        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs2, true)?;
 
         ark_std::println!("Just before proving");
 
@@ -1388,31 +1390,32 @@ pub mod test {
         T: Transcript,
         E::ScalarField: EmulationConfig<F>,
     {
-        // 1. Simulate universal setup
-        let rng = &mut test_rng();
-        let n = 64;
-        let max_degree = n + 2;
-        let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
+        for blind in [true, false] {
+            // 1. Simulate universal setup
+            let rng = &mut test_rng();
+            let n = 64;
+            let max_degree = n + 2 * blind as usize;
+            let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        // 2. Create the circuit
-        let circuit = gen_circuit_for_test(10, 3, plonk_type)?;
-        assert!(circuit.num_gates() <= n);
+            // 2. Create the circuit
+            let circuit = gen_circuit_for_test(10, 3, plonk_type)?;
+            assert!(circuit.num_gates() <= n);
 
-        // 3. Preprocessing
-        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+            // 3. Preprocessing
+            let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, blind)?;
 
-        // 4. Proving
-        let (_, oracles, challenges, _) = PlonkKzgSnark::<E>::batch_prove_internal::<_, _, T>(
-            rng,
-            &[&circuit],
-            &[&pk],
-            None,
-            true,
-        )?;
+            // 4. Proving
+            let (_, oracles, challenges, _) = PlonkKzgSnark::<E>::batch_prove_internal::<_, _, T>(
+                rng,
+                &[&circuit],
+                &[&pk],
+                None,
+                blind,
+            )?;
 
-        // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
-        check_plonk_prover_polynomials(plonk_type, &oracles[0], &pk, &challenges)?;
-
+            // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
+            check_plonk_prover_polynomials(plonk_type, &oracles[0], &pk, &challenges)?;
+        }
         Ok(())
     }
 
@@ -1669,7 +1672,7 @@ pub mod test {
         let max_degree = 80;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
         let proof =
             PlonkKzgSnark::<E>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None, true)?;
 
@@ -1716,7 +1719,7 @@ pub mod test {
         let max_degree = 80;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
         let proof = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &circuit, &pk, None, true)?;
 
         let mut ser_bytes = Vec::new();

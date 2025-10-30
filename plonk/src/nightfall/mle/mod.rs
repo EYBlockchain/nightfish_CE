@@ -80,7 +80,13 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk preprocessing".to_string(),
+            ));
+        }
         if vk_id.is_some() {
             return Err(PlonkError::InvalidParameters(
                 "MLEPlonk verification keys do not have an ID".to_string(),
@@ -142,7 +148,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
-        _blind: bool,
+        blind: bool,
     ) -> Result<crate::proof_system::RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,
@@ -153,6 +159,11 @@ where
         R: CryptoRng + RngCore,
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLE recursive proving".to_string(),
+            ));
+        }
         let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
         let pi_hash = circuit.public_input()?[0];
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))

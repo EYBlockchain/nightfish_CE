@@ -402,19 +402,19 @@ mod tests {
     #[test]
     fn test_partial_verifier() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for m in 2..8 {
+        for (m, blind) in (2..8).zip([true, false].iter()) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(*blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the non-base case and our verification key is fixed.
             // Our `vk_id` is, therefore, `None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit, *blind)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None, true,
+                rng, &circuit, &pk, None, *blind,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
@@ -460,24 +460,26 @@ mod tests {
     #[test]
     fn test_partial_verifier_base() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for (m, vk_id) in (2..8).zip(
+        for (m, vk_id, blind) in izip!(
+            (2..8),
             [
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
             ]
             .iter(),
+            [true, false].iter(),
         ) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(*blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the base case. Our `vk_id` is, therefore, non-`None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit, *blind)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None, true,
+                rng, &circuit, &pk, None, *blind,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
@@ -531,17 +533,17 @@ mod tests {
     #[test]
     fn test_scalar_combiner() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for m in 2..8 {
+        for (m, blind) in (2..8).zip([true, false].iter()) {
             let circuit_one = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fr254>(m, 4, PlonkType::UltraPlonk, true)?;
             let pi_one = circuit_one.public_input()?[0];
             let pi_two = circuit_two.public_input()?[0];
 
-            let srs_size = circuit_one.srs_size()?;
+            let srs_size = circuit_one.srs_size(*blind)?;
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit_one)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit_one, *blind)?;
 
             let circuits = [circuit_one, circuit_two];
             let pis = [pi_one, pi_two];
@@ -550,7 +552,7 @@ mod tests {
                 .iter()
                 .map(|circuit| {
                     FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                        rng, circuit, &pk, None, true,
+                        rng, circuit, &pk, None, *blind,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -811,7 +813,7 @@ mod tests {
     #[test]
     fn test_scalar_combiner_base() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for (m, vk_id_one, vk_id_two) in izip!(
+        for (m, vk_id_one, vk_id_two, blind) in izip!(
             (2..8),
             [
                 Some(VerificationKeyId::Client),
@@ -821,18 +823,19 @@ mod tests {
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
             ],
+            [true, false].iter(),
         ) {
             let circuit_one = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fr254>(m, 4, PlonkType::UltraPlonk, true)?;
             let pi_one = circuit_one.public_input()?[0];
             let pi_two = circuit_two.public_input()?[0];
 
-            let srs_size = circuit_one.srs_size()?;
+            let srs_size = circuit_one.srs_size(*blind)?;
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk_one, vk_one) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one)?;
-            let (pk_two, vk_two) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two)?;
+            let (pk_one, vk_one) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one, *blind)?;
+            let (pk_two, vk_two) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two, *blind)?;
 
             let circuits = [circuit_one, circuit_two];
             let pks = [pk_one.clone(), pk_two.clone()];
@@ -844,7 +847,7 @@ mod tests {
                 .zip(pks)
                 .map(|(circuit, pk)| {
                     FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                        rng, circuit, &pk, None, true,
+                        rng, circuit, &pk, None, *blind,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;

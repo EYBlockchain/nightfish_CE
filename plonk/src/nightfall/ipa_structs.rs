@@ -662,11 +662,11 @@ mod test {
     {
         let rng = &mut jf_utils::test_rng();
         let circuit = gen_circuit_for_test(3, 4, plonk_type, false)?;
-        let srs_size = circuit.srs_size().unwrap();
+        let srs_size = circuit.srs_size(true).unwrap();
         let _max_degree = 80;
         let srs =
             FFTPlonk::<UnivariateKzgPCS<E>>::universal_setup_for_testing(srs_size, rng).unwrap();
-        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit).unwrap();
+        let (pk, vk) = FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit, true).unwrap();
         let proof =
             FFTPlonk::<UnivariateKzgPCS<E>>::prove::<_, _, T>(rng, &circuit, &pk, None, true)?;
         let public_inputs = circuit.public_input().unwrap();

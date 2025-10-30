@@ -722,32 +722,35 @@ mod tests {
 
     use super::*;
     use ark_bn254::Bn254;
+    use itertools::izip;
     use jf_primitives::pcs::prelude::UnivariateKzgPCS;
     use jf_relation::{Arithmetization, PlonkType};
 
     #[test]
     fn test_prepare_pcs_info_with_bases_var() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for (m, vk_id) in (2..8).zip(
+        for (m, vk_id, blind) in izip!(
+            (2..8),
             [
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
                 None,
             ]
             .iter(),
+            [true, false].iter(),
         ) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(*blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the non-base case and our verification key is fixed.
             // Our `vk_id` is, therefore, `None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit, *blind)?;
 
             let mut output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None, true,
+                rng, &circuit, &pk, None, *blind,
             )?;
 
             let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
