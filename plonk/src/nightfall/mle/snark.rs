@@ -29,7 +29,10 @@ use rayon::prelude::*;
 
 use crate::{
     errors::{PlonkError, SnarkError},
-    nightfall::accumulation::{accumulation_structs::SplitAccumulator, MLAccumulator},
+    nightfall::{
+        accumulation::{accumulation_structs::SplitAccumulator, MLAccumulator},
+        mle::mle_structs::MLEProofShared,
+    },
     proof_system::RecursiveOutput,
     transcript::Transcript,
 };
@@ -177,6 +180,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             pcs_verifier_params: verifier_param,
             gate_info: turbo_gate,
             num_inputs: circuit.num_inputs(),
+            num_vars: circuit.num_gates().ilog2(),
         };
 
         let pk = MLEProvingKey {
@@ -835,8 +839,10 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     {
         let mut transcript = T::new_transcript(b"mle_plonk");
 
-        let num_vars = proof.gkr_proof.challenge_point().len();
+        let num_vars = vk.num_vars as usize;
         let n = 1usize << num_vars;
+        let shared = MLEProofShared::from(proof);
+        check_proof_shape::<F, PCS, P>(&shared, vk, public_input, num_vars)?;
 
         let mut pi_evals = public_input.to_vec();
         pi_evals.resize(n, P::ScalarField::zero());
@@ -1047,8 +1053,11 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     {
         let mut transcript = T::new_transcript(b"mle_plonk");
         let proof = &recursion_output.proof;
-        let num_vars = proof.gkr_proof.challenge_point().len();
+        let num_vars = vk.num_vars as usize;
         let n = 1usize << num_vars;
+
+        let shared = MLEProofShared::from(proof);
+        check_proof_shape(&shared, vk, &[public_input], num_vars)?;
 
         let mut pi_evals = vec![public_input];
         pi_evals.resize(n, P::ScalarField::zero());
@@ -1238,6 +1247,90 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
         Ok(result)
     }
+}
+
+fn check_proof_shape<F, PCS, P>(
+    proof: &MLEProofShared<PCS>,
+    vk: &MLEVerifyingKey<PCS>,
+    public_input: &[P::ScalarField],
+    num_vars: usize,
+) -> Result<(), PlonkError>
+where
+    PCS: PolynomialCommitmentScheme<
+        Evaluation = P::ScalarField,
+        Point = Vec<P::ScalarField>,
+        Polynomial = Arc<DenseMultilinearExtension<P::ScalarField>>,
+        Commitment = Affine<P>,
+    >,
+    P: HasTEForm<BaseField = F>,
+    F: PrimeField + RescueParameter,
+{
+    // Public inputs must match VK
+    if public_input.len() != vk.num_inputs {
+        return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+            "Unexpected number of public inputs: expected {}, got {}",
+            vk.num_inputs,
+            public_input.len()
+        ))));
+    }
+
+    let expected_wires = vk.permutation_commitments.len();
+    if proof.wire_commitments.len() != expected_wires {
+        return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+            "Unexpected number of wire commitments: expected {}, got {}",
+            expected_wires,
+            proof.wire_commitments.len()
+        ))));
+    }
+
+    if proof.evals.wire_evals.len() != expected_wires {
+        return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+            "Unexpected number of wire evals: expected {}, got {}",
+            expected_wires,
+            proof.evals.wire_evals.len()
+        ))));
+    }
+
+    let expected_selectors = vk.selector_commitments.len();
+    if proof.evals.selector_evals.len() != expected_selectors {
+        return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+            "Unexpected number of selector evals: expected {}, got {}",
+            expected_selectors,
+            proof.evals.selector_evals.len()
+        ))));
+    }
+
+    if proof.evals.permutation_evals.len() != vk.permutation_commitments.len() {
+        return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+            "Unexpected number of permutation evals: expected {}, got {}",
+            vk.permutation_commitments.len(),
+            proof.evals.permutation_evals.len()
+        ))));
+    }
+
+    let lookup_expected = vk.lookup_verifying_key.is_some();
+    match (lookup_expected, proof.lookup_proof.as_ref()) {
+        (true, None) => {
+            return Err(PlonkError::SnarkError(SnarkError::ParameterError(
+                "Lookup was enabled in VK but lookup proof is missing".to_string(),
+            )));
+        },
+        (false, Some(_)) => {
+            return Err(PlonkError::SnarkError(SnarkError::ParameterError(
+                "Lookup proof was provided but VK does not enable lookup".to_string(),
+            )));
+        },
+        _ => {},
+    }
+
+    if proof.gkr_proof.challenge_point().len() != num_vars {
+        return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+            "GKR challenge point dimension mismatch: expected {}, got {}",
+            num_vars,
+            proof.gkr_proof.challenge_point().len()
+        ))));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

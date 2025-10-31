@@ -107,6 +107,8 @@ pub struct MLEVerifyingKey<PCS: PolynomialCommitmentScheme> {
     pub gate_info: GateInfo<PCS::Evaluation>,
     /// The number of public inputs to the proof.
     pub num_inputs: usize,
+    /// Number of variables in the multivariate polynomial for the sumcheck protocol
+    pub num_vars: u32,
 }
 
 impl<PCS> VK<PCS> for MLEVerifyingKey<PCS>
@@ -250,6 +252,48 @@ impl<PCS: Accumulation> SAMLEProof<PCS> {
             evals: self.evals,
             opening_proof: proof,
         })
+    }
+}
+
+/// Part of an MLE PLONK proof shared by [MLEProof] and [SAMLEProof], without the opening proof or accumulator
+#[derive(Clone, Debug, Default, CanonicalSerialize, CanonicalDeserialize)]
+pub struct MLEProofShared<PCS: PolynomialCommitmentScheme> {
+    /// Commitments to the witness wires.
+    pub wire_commitments: Vec<PCS::Commitment>,
+    /// GKR Proof.
+    pub gkr_proof: GKRProof<PCS::Evaluation>,
+    /// SumCheck proof.
+    pub sumcheck_proof: SumCheckProof<PCS::Evaluation, PolyOracle<PCS::Evaluation>>,
+    /// Optional lookup proof.
+    pub lookup_proof: Option<MLELookupProof<PCS>>,
+    /// Claimed evaluations of the witness wires, selectors and permutation related polynomials.
+    pub evals: MLEProofEvals<PCS>,
+}
+
+impl<PCS: PolynomialCommitmentScheme> From<&MLEProof<PCS>> for MLEProofShared<PCS> {
+    fn from(p: &MLEProof<PCS>) -> Self {
+        Self {
+            wire_commitments: p.wire_commitments.clone(),
+            gkr_proof: p.gkr_proof.clone(),
+            sumcheck_proof: p.sumcheck_proof.clone(),
+            lookup_proof: p.lookup_proof.clone(),
+            evals: p.evals.clone(),
+        }
+    }
+}
+
+impl<PCS> From<&SAMLEProof<PCS>> for MLEProofShared<PCS>
+where
+    PCS: Accumulation + PolynomialCommitmentScheme,
+{
+    fn from(p: &SAMLEProof<PCS>) -> Self {
+        Self {
+            wire_commitments: p.wire_commitments.clone(),
+            gkr_proof: p.gkr_proof.clone(),
+            sumcheck_proof: p.sumcheck_proof.clone(),
+            lookup_proof: p.lookup_proof.clone(),
+            evals: p.evals.clone(),
+        }
     }
 }
 
