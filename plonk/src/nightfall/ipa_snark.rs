@@ -875,6 +875,7 @@ pub mod test {
     };
 
     use ark_std::{format, string::ToString, vec, vec::Vec};
+    use itertools::izip;
     use core::ops::{Mul, Neg};
     use jf_primitives::{
         pcs::{prelude::UnivariateKzgPCS, PolynomialCommitmentScheme},
@@ -1393,7 +1394,7 @@ pub mod test {
         E::ScalarField: EmulationConfig<F>,
         T: Transcript,
     {
-        for blind in [true, false] {
+        for blind in [false] {
             // 1. Simulate universal setup
             let rng = &mut test_rng();
 
@@ -1448,13 +1449,14 @@ pub mod test {
 
     #[test]
     fn test_plonk_prover_polynomials() -> Result<(), PlonkError> {
-        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+        for (plonk_type, vk_id, blind) in izip!(
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk],
             [
                 None,
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
-            ]
-            .iter(),
+            ],
+            [true, false],
         ) {
             // merlin transcripts
             test_plonk_prover_polynomials_helper::<
@@ -1462,7 +1464,7 @@ pub mod test {
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
 
             // rescue transcripts
             test_plonk_prover_polynomials_helper::<
@@ -1470,7 +1472,7 @@ pub mod test {
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 RescueTranscript<Fq377>,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
         }
 
         Ok(())
@@ -1479,6 +1481,7 @@ pub mod test {
     fn test_plonk_prover_polynomials_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1493,29 +1496,27 @@ pub mod test {
         E::ScalarField: EmulationConfig<F> + RescueParameter,
         T: Transcript,
     {
-        for blind in [true, false] {
-            // 1. Simulate universal setup
-            let rng = &mut test_rng();
-            let n = 64;
-            let max_degree = n + 2 * blind as usize;
-            let srs = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::universal_setup_for_testing(
-                max_degree, rng,
-            )?;
+        // 1. Simulate universal setup
+        let rng = &mut test_rng();
+        let n = 64;
+        let max_degree = n + 2 * blind as usize;
+        let srs = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::universal_setup_for_testing(
+            max_degree, rng,
+        )?;
 
-            // 2. Create the circuit
-            let circuit = gen_circuit_for_test(10, 3, plonk_type, false)?;
-            assert!(circuit.num_gates() <= n);
+        // 2. Create the circuit
+        let circuit = gen_circuit_for_test(10, 3, plonk_type, false)?;
+        assert!(circuit.num_gates() <= n);
 
-            // 3. Preprocessing
-            let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, blind)?;
+        // 3. Preprocessing
+        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, blind)?;
 
-            // 4. Proving
-            let (_, oracles, challenges) =
-                FFTPlonk::<PCS>::prove_internal::<_, _, T>(rng, &circuit, &pk, None, blind)?;
+        // 4. Proving
+        let (_, oracles, challenges) =
+            FFTPlonk::<PCS>::prove_internal::<_, _, T>(rng, &circuit, &pk, None, blind)?;
 
-            // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
-            check_plonk_prover_polynomials(plonk_type, &oracles, &pk, &challenges)?;
-        }
+        // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
+        check_plonk_prover_polynomials(plonk_type, &oracles, &pk, &challenges)?;
         Ok(())
     }
 

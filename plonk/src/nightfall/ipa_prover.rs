@@ -4,8 +4,6 @@
 // You should have received a copy of the MIT License
 // along with the Jellyfish library. If not, see <https://mit-license.org/>.
 
-use core::num;
-
 use crate::{
     constants::domain_size_ratio,
     errors::{PlonkError, SnarkError::*},
@@ -25,6 +23,7 @@ use ark_poly::{
 use ark_std::{
     cfg_iter,
     collections::BTreeMap,
+    iter::repeat,
     ops::Neg,
     rand::{CryptoRng, RngCore},
     string::ToString,
@@ -1160,20 +1159,24 @@ where
         // Each polynomial chunk has degree n+1 (blinding case) or n-1 (non-blinding case).
         // We add 1 to retrieve the number of coefficients.
         let num_coeffs = n + 2 * blind as usize;
+        // We pad the coeffs vec with zeroes to make its length num_wire_types * num_coeffs.
+        let padded_coeffs_iter = quot_poly.coeffs.iter()
+            .cloned() // yield actual coeffs
+            .chain(repeat(P::ScalarField::zero()).take(num_wire_types * num_coeffs - quot_poly.coeffs.len()));
         // compute the splitting polynomials t'_i(X) s.t. t(X) =
         // \sum_{i=0}^{num_wire_types} X^{i*(n+2)} * t'_i(X)
         let mut split_quot_polys: Vec<DensePolynomial<P::ScalarField>> =
             parallelizable_slice_iter(&(0..num_wire_types).collect::<Vec<_>>())
                 .map(|&i| {
-                    let end = if i < num_wire_types - 1 {
-                        (i + 1) * num_coeffs
-                    } else {
-                        quot_poly.degree() + 1
-                    };
+                    let coeff_chunk: Vec<P::ScalarField> = padded_coeffs_iter
+                        .clone() // clone the iterator state, cheap (since it's lazy)
+                        .skip(i * num_coeffs)
+                        .take(num_coeffs)
+                        .collect();
                     // Degree-(n+1) polynomial has n + 2 coefficients (blinding case)
                     // Degree-(n-1) polynomial has n coefficients (non-blinding case)
                     DensePolynomial::<P::ScalarField>::from_coefficients_slice(
-                        &quot_poly.coeffs[i * num_coeffs..end],
+                        &coeff_chunk
                     )
                 })
                 .collect();
