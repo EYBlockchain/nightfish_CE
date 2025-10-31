@@ -534,6 +534,11 @@ where
         let srs_size = circuit.srs_size(blind)?;
         let num_inputs = circuit.num_inputs();
         if srs.max_degree() < circuit.srs_size(blind)? {
+            ark_std::println!(
+                "srs.max_degree(): {}, required min degree: {}",
+                srs.max_degree(),
+                circuit.srs_size(blind)?
+            );
             return Err(PlonkError::IndexTooLarge);
         }
         // 1. Compute selector and permutation polynomials.
@@ -909,16 +914,17 @@ pub mod test {
 
     #[test]
     fn test_preprocessing() -> Result<(), PlonkError> {
-        test_preprocessing_helper::<Bn254, Fq254, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<Bn254, Fq254, _>(PlonkType::UltraPlonk)?;
-        test_preprocessing_helper::<Bls12_377, Fq377, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<Bls12_377, Fq377, _>(PlonkType::UltraPlonk)?;
-        test_preprocessing_helper::<Bls12_381, Fq381, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<Bls12_381, Fq381, _>(PlonkType::UltraPlonk)?;
-        test_preprocessing_helper::<BW6_761, Fq761, _>(PlonkType::TurboPlonk)?;
-        test_preprocessing_helper::<BW6_761, Fq761, _>(PlonkType::UltraPlonk)
+        for (plonk_type, blind) in 
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip([true, false])
+        {
+            test_preprocessing_helper::<Bn254, Fq254, _>(*plonk_type, blind)?;
+            test_preprocessing_helper::<Bls12_377, Fq377, _>(*plonk_type, blind)?;
+            test_preprocessing_helper::<Bls12_381, Fq381, _>(*plonk_type, blind)?;
+            test_preprocessing_helper::<BW6_761, Fq761, _>(*plonk_type, blind)?;
+        }
+        Ok(())
     }
-    fn test_preprocessing_helper<E, F, P>(plonk_type: PlonkType) -> Result<(), PlonkError>
+    fn test_preprocessing_helper<E, F, P>(plonk_type: PlonkType, blind: bool) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
         F: RescueParameter + PrimeField,
@@ -932,9 +938,9 @@ pub mod test {
         let selectors = circuit.compute_selector_polynomials()?;
         let sigmas = circuit.compute_extended_permutation_polynomials()?;
 
-        let max_degree = 64;
+        let max_degree = 64 + 2 * blind as usize;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, blind)?;
 
         // check proving key
         assert_eq!(pk.selectors, selectors);

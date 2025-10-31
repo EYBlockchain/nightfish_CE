@@ -1394,7 +1394,7 @@ pub mod test {
         E::ScalarField: EmulationConfig<F>,
         T: Transcript,
     {
-        for blind in [false] {
+        for blind in [true, false] {
             // 1. Simulate universal setup
             let rng = &mut test_rng();
 
