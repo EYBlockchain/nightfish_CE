@@ -1405,13 +1405,29 @@ pub mod test {
             };
             let var = cs1.create_variable(E::ScalarField::from(1u8))?;
             cs1.enforce_constant(var, E::ScalarField::from(1u8))?;
+            ark_std::println!(
+                "Number of gates in cs1 pre-finalization: {}",
+                cs1.num_gates()
+            );
             cs1.finalize_for_arithmetization()?;
+            ark_std::println!(
+                "Number of gates in cs1 post-finalization: {}",
+                cs1.num_gates()
+            );
             let mut cs2: PlonkCircuit<E::ScalarField> = match plonk_type {
                 PlonkType::TurboPlonk => PlonkCircuit::new_turbo_plonk(),
                 PlonkType::UltraPlonk => PlonkCircuit::new_ultra_plonk(2),
             };
             cs2.create_public_variable(E::ScalarField::from(1u8))?;
+            ark_std::println!(
+                "Number of gates in cs2 pre-finalization: {}",
+                cs2.num_gates()
+            );
             cs2.finalize_for_arithmetization()?;
+            ark_std::println!(
+                "Number of gates in cs2 post-finalization: {}",
+                cs2.num_gates()
+            );
 
             // 3. Preprocessing
             let size_one = cs1.srs_size(blind)?;
