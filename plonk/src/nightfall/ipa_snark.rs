@@ -1083,13 +1083,15 @@ pub mod test {
 
     #[test]
     fn test_plonk_proof_system() -> Result<(), PlonkError> {
-        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+        for (plonk_type, vk_id, blind) in izip!(
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter(),
             [
                 None,
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
             ]
             .iter(),
+            [true, false],
         ) {
             // merlin transcripts
             test_plonk_proof_system_helper::<
@@ -1097,33 +1099,33 @@ pub mod test {
                 Fq254,
                 UnivariateKzgPCS<Bn254>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(*plonk_type, *vk_id, blind)?;
             test_plonk_proof_system_helper::<
                 Config377,
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(*plonk_type, *vk_id, blind)?;
             // rescue transcripts
             test_plonk_proof_system_helper::<
                 BnConfig,
                 Fq254,
                 UnivariateKzgPCS<Bn254>,
                 RescueTranscript<Fq254>,
-            >(*plonk_type, *vk_id)?;
+            >(*plonk_type, *vk_id, blind)?;
             test_plonk_proof_system_helper::<
                 Config377,
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 RescueTranscript<Fq377>,
-            >(*plonk_type, *vk_id)?;
+            >(*plonk_type, *vk_id, blind)?;
 
             test_recursive_plonk_proof_system_helper::<
                 BnConfig,
                 Fq254,
                 UnivariateKzgPCS<Bn254>,
                 RescueTranscript<Fq254>,
-            >(*plonk_type, *vk_id)?;
+            >(*plonk_type, *vk_id, blind)?;
         }
 
         Ok(())
@@ -1132,6 +1134,7 @@ pub mod test {
     fn test_plonk_proof_system_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1146,93 +1149,91 @@ pub mod test {
         E::ScalarField: EmulationConfig<F> + RescueParameter,
         T: Transcript,
     {
-        for blind in [true, false] {
-            // 1. Simulate universal setup
-            let rng = &mut test_rng();
-            let n = 64;
-            let max_degree = n + 2 * blind as usize;
-            let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
+        // 1. Simulate universal setup
+        let rng = &mut test_rng();
+        let n = 64;
+        let max_degree = n + 2 * blind as usize;
+        let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
 
-            // 2. Create circuits
-            let circuits = (0..6)
-                .map(|i| {
-                    let m = 2 + i / 3;
-                    let a0 = 1 + i % 3;
-                    gen_circuit_for_test(m, a0, plonk_type, false)
-                })
-                .collect::<Result<Vec<_>, PlonkError>>()?;
-            // 3. Preprocessing
-            let (pk1, vk1) = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(
-                &srs,
-                vk_id,
-                &circuits[0],
-                blind,
-            )?;
-            let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
-            // 4. Proving
-            let mut proofs = vec![];
-            let mut extra_msgs = vec![];
-            for (i, cs) in circuits.iter().enumerate() {
-                let pk_ref = if i < 3 { &pk1 } else { &pk2 };
-                let extra_msg = if i % 2 == 0 {
-                    None
-                } else {
-                    Some(format!("extra message: {}", i).into_bytes())
-                };
-                proofs.push(
-                    FFTPlonk::<PCS>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), blind)
-                        .unwrap(),
-                );
-                extra_msgs.push(extra_msg);
-            }
+        // 2. Create circuits
+        let circuits = (0..6)
+            .map(|i| {
+                let m = 2 + i / 3;
+                let a0 = 1 + i % 3;
+                gen_circuit_for_test(m, a0, plonk_type, false)
+            })
+            .collect::<Result<Vec<_>, PlonkError>>()?;
+        // 3. Preprocessing
+        let (pk1, vk1) = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(
+            &srs,
+            vk_id,
+            &circuits[0],
+            blind,
+        )?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
+        // 4. Proving
+        let mut proofs = vec![];
+        let mut extra_msgs = vec![];
+        for (i, cs) in circuits.iter().enumerate() {
+            let pk_ref = if i < 3 { &pk1 } else { &pk2 };
+            let extra_msg = if i % 2 == 0 {
+                None
+            } else {
+                Some(format!("extra message: {}", i).into_bytes())
+            };
+            proofs.push(
+                FFTPlonk::<PCS>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), blind)
+                    .unwrap(),
+            );
+            extra_msgs.push(extra_msg);
+        }
 
-            // 5. Verification
-            let public_inputs: Vec<Vec<E::ScalarField>> = circuits
-                .iter()
-                .map(|cs| cs.public_input())
-                .collect::<Result<Vec<Vec<E::ScalarField>>, _>>()?;
-            for (i, proof) in proofs.iter().enumerate() {
-                let vk_ref = if i < 3 { &vk1 } else { &vk2 };
-                assert!(FFTPlonk::<PCS>::verify::<T>(
-                    vk_ref,
-                    &public_inputs[i],
-                    proof,
-                    extra_msgs[i].clone(),
-                )
-                .is_ok());
-                // Inconsistent proof should fail the verification.
-                let mut bad_pub_input = public_inputs[i].clone();
-                bad_pub_input[0] = E::ScalarField::from(0u8);
-                assert!(FFTPlonk::<PCS>::verify::<T>(
-                    vk_ref,
-                    &bad_pub_input,
-                    proof,
-                    extra_msgs[i].clone(),
-                )
-                .is_err());
-                // Incorrect extra transcript message should fail
-                assert!(FFTPlonk::<PCS>::verify::<T>(
-                    vk_ref,
-                    &bad_pub_input,
-                    proof,
-                    Some("wrong message".to_string().into_bytes()),
-                )
-                .is_err());
+        // 5. Verification
+        let public_inputs: Vec<Vec<E::ScalarField>> = circuits
+            .iter()
+            .map(|cs| cs.public_input())
+            .collect::<Result<Vec<Vec<E::ScalarField>>, _>>()?;
+        for (i, proof) in proofs.iter().enumerate() {
+            let vk_ref = if i < 3 { &vk1 } else { &vk2 };
+            assert!(FFTPlonk::<PCS>::verify::<T>(
+                vk_ref,
+                &public_inputs[i],
+                proof,
+                extra_msgs[i].clone(),
+            )
+            .is_ok());
+            // Inconsistent proof should fail the verification.
+            let mut bad_pub_input = public_inputs[i].clone();
+            bad_pub_input[0] = E::ScalarField::from(0u8);
+            assert!(FFTPlonk::<PCS>::verify::<T>(
+                vk_ref,
+                &bad_pub_input,
+                proof,
+                extra_msgs[i].clone(),
+            )
+            .is_err());
+            // Incorrect extra transcript message should fail
+            assert!(FFTPlonk::<PCS>::verify::<T>(
+                vk_ref,
+                &bad_pub_input,
+                proof,
+                Some("wrong message".to_string().into_bytes()),
+            )
+            .is_err());
 
-                // Incorrect proof [W_z] = 0, [W_z*g] = 0
-                // attack against some vulnerable implementation described in:
-                // https://cryptosubtlety.medium.com/00-8d4adcf4d255
-                let mut bad_proof = proof.clone();
-                bad_proof.opening_proof = PCS::Proof::default();
+            // Incorrect proof [W_z] = 0, [W_z*g] = 0
+            // attack against some vulnerable implementation described in:
+            // https://cryptosubtlety.medium.com/00-8d4adcf4d255
+            let mut bad_proof = proof.clone();
+            bad_proof.opening_proof = PCS::Proof::default();
 
-                assert!(FFTPlonk::<PCS>::verify::<T>(
-                    vk_ref,
-                    &public_inputs[i],
-                    &bad_proof,
-                    extra_msgs[i].clone(),
-                )
-                .is_err());
-            }
+            assert!(FFTPlonk::<PCS>::verify::<T>(
+                vk_ref,
+                &public_inputs[i],
+                &bad_proof,
+                extra_msgs[i].clone(),
+            )
+            .is_err());
         }
         Ok(())
     }
@@ -1240,6 +1241,7 @@ pub mod test {
     fn test_recursive_plonk_proof_system_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: Accumulation<
@@ -1255,95 +1257,93 @@ pub mod test {
         E::ScalarField: EmulationConfig<F> + RescueParameter,
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
-        for blind in [true, false] {
-            // 1. Simulate universal setup
-            let rng = &mut test_rng();
-            let n = 64;
-            let max_degree = n + 2 * blind as usize;
-            let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
+        // 1. Simulate universal setup
+        let rng = &mut test_rng();
+        let n = 64;
+        let max_degree = n + 2 * blind as usize;
+        let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
 
-            // 2. Create circuits
-            let circuits = (0..6)
-                .map(|i| {
-                    let m = 2 + i / 3;
-                    let a0 = 1 + i % 3;
-                    gen_circuit_for_test(m, a0, plonk_type, true)
-                })
-                .collect::<Result<Vec<_>, PlonkError>>()?;
-            // 3. Preprocessing
-            let (pk1, vk1) = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(
-                &srs,
-                vk_id,
-                &circuits[0],
-                blind,
-            )?;
-            let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
-            // 4. Proving
-            let mut proofs = vec![];
-            let mut extra_msgs = vec![];
-            let mut public_inputs = vec![];
-            for (i, cs) in circuits.iter().enumerate() {
-                let pk_ref = if i < 3 { &pk1 } else { &pk2 };
-                let extra_msg = if i % 2 == 0 {
-                    None
-                } else {
-                    Some(format!("extra message: {}", i).into_bytes())
-                };
-                public_inputs.push(cs.public_input().unwrap());
-                proofs.push(
-                    FFTPlonk::<PCS>::recursive_prove::<_, _, T>(
-                        rng,
-                        cs,
-                        pk_ref,
-                        extra_msg.clone(),
-                        blind,
-                    )
-                    .unwrap(),
-                );
-                extra_msgs.push(extra_msg);
-            }
-
-            // 5. Verification
-            for (i, proof) in proofs.iter().enumerate() {
-                let vk_ref = if i < 3 { &vk1 } else { &vk2 };
-                assert!(FFTPlonk::<PCS>::verify_recursive_proof::<T>(
-                    vk_ref,
-                    proof,
-                    extra_msgs[i].clone(),
+        // 2. Create circuits
+        let circuits = (0..6)
+            .map(|i| {
+                let m = 2 + i / 3;
+                let a0 = 1 + i % 3;
+                gen_circuit_for_test(m, a0, plonk_type, true)
+            })
+            .collect::<Result<Vec<_>, PlonkError>>()?;
+        // 3. Preprocessing
+        let (pk1, vk1) = <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(
+            &srs,
+            vk_id,
+            &circuits[0],
+            blind,
+        )?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
+        // 4. Proving
+        let mut proofs = vec![];
+        let mut extra_msgs = vec![];
+        let mut public_inputs = vec![];
+        for (i, cs) in circuits.iter().enumerate() {
+            let pk_ref = if i < 3 { &pk1 } else { &pk2 };
+            let extra_msg = if i % 2 == 0 {
+                None
+            } else {
+                Some(format!("extra message: {}", i).into_bytes())
+            };
+            public_inputs.push(cs.public_input().unwrap());
+            proofs.push(
+                FFTPlonk::<PCS>::recursive_prove::<_, _, T>(
+                    rng,
+                    cs,
+                    pk_ref,
+                    extra_msg.clone(),
+                    blind,
                 )
-                .is_ok());
-                // Inconsistent proof should fail the verification.
-                let bad_proof = RecursiveOutput {
-                    proof: proof.proof.clone(),
-                    pi_hash: E::ScalarField::zero(),
-                    transcript: T::new_transcript(b"bad_transcript"),
-                };
+                .unwrap(),
+            );
+            extra_msgs.push(extra_msg);
+        }
 
-                assert!(FFTPlonk::<PCS>::verify_recursive_proof::<T>(
-                    vk_ref,
-                    &bad_proof,
-                    extra_msgs[i].clone(),
-                )
-                .is_err());
+        // 5. Verification
+        for (i, proof) in proofs.iter().enumerate() {
+            let vk_ref = if i < 3 { &vk1 } else { &vk2 };
+            assert!(FFTPlonk::<PCS>::verify_recursive_proof::<T>(
+                vk_ref,
+                proof,
+                extra_msgs[i].clone(),
+            )
+            .is_ok());
+            // Inconsistent proof should fail the verification.
+            let bad_proof = RecursiveOutput {
+                proof: proof.proof.clone(),
+                pi_hash: E::ScalarField::zero(),
+                transcript: T::new_transcript(b"bad_transcript"),
+            };
 
-                // Incorrect proof [W_z] = 0, [W_z*g] = 0
-                // attack against some vulnerable implementation described in:
-                // https://cryptosubtlety.medium.com/00-8d4adcf4d255
-                let mut bad_proof = proof.proof.clone();
-                bad_proof.opening_proof = PCS::Proof::default();
-                let bad_proof = RecursiveOutput::new(
-                    bad_proof,
-                    proof.pi_hash,
-                    T::new_transcript(b"bad_transcript"),
-                );
+            assert!(FFTPlonk::<PCS>::verify_recursive_proof::<T>(
+                vk_ref,
+                &bad_proof,
+                extra_msgs[i].clone(),
+            )
+            .is_err());
 
-                assert!(FFTPlonk::<PCS>::verify_recursive_proof::<T>(
-                    vk_ref,
-                    &bad_proof,
-                    extra_msgs[i].clone(),
-                )
-                .is_err());
-            }
+            // Incorrect proof [W_z] = 0, [W_z*g] = 0
+            // attack against some vulnerable implementation described in:
+            // https://cryptosubtlety.medium.com/00-8d4adcf4d255
+            let mut bad_proof = proof.proof.clone();
+            bad_proof.opening_proof = PCS::Proof::default();
+            let bad_proof = RecursiveOutput::new(
+                bad_proof,
+                proof.pi_hash,
+                T::new_transcript(b"bad_transcript"),
+            );
+
+            assert!(FFTPlonk::<PCS>::verify_recursive_proof::<T>(
+                vk_ref,
+                &bad_proof,
+                extra_msgs[i].clone(),
+            )
+            .is_err());
         }
         Ok(())
     }

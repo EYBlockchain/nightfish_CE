@@ -534,11 +534,6 @@ where
         let srs_size = circuit.srs_size(blind)?;
         let num_inputs = circuit.num_inputs();
         if srs.max_degree() < circuit.srs_size(blind)? {
-            ark_std::println!(
-                "srs.max_degree(): {}, required min degree: {}",
-                srs.max_degree(),
-                circuit.srs_size(blind)?
-            );
             return Err(PlonkError::IndexTooLarge);
         }
         // 1. Compute selector and permutation polynomials.
