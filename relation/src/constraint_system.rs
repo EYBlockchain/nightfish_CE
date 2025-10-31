@@ -1508,13 +1508,23 @@ impl<F: PrimeField> PlonkCircuit<F> {
             .ok_or(CircuitError::DomainCreationError)?;
         let n = self.eval_domain.size();
 
+        ark_std::println!("pre-padding num_gates: {}", self.num_gates());
+
         self.pad(n)?;
+
+        ark_std::println!("post-padding num_gates: {}", self.num_gates());
 
         self.rearrange_gates(n)?;
 
+        ark_std::println!("post rearranging num_gates: {}", self.num_gates());
+
         self.compute_wire_permutation(n);
 
+        ark_std::println!("post-wire permutation: {}", self.num_gates());
+
         self.compute_extended_id_permutation();
+
+        ark_std::println!("post-extended permutation: {}", self.num_gates());
 
         Ok(())
     }

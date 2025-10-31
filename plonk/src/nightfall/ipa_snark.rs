@@ -1414,6 +1414,7 @@ pub mod test {
                 "Number of gates in cs1 post-finalization: {}",
                 cs1.num_gates()
             );
+            ark_std::println!("cs1 eval_domain_size: {}", cs1.eval_domain_size()?);
             let mut cs2: PlonkCircuit<E::ScalarField> = match plonk_type {
                 PlonkType::TurboPlonk => PlonkCircuit::new_turbo_plonk(),
                 PlonkType::UltraPlonk => PlonkCircuit::new_ultra_plonk(2),
@@ -1428,6 +1429,7 @@ pub mod test {
                 "Number of gates in cs2 post-finalization: {}",
                 cs2.num_gates()
             );
+            ark_std::println!("cs2 eval_domain_size: {}", cs2.eval_domain_size()?);
 
             // 3. Preprocessing
             let size_one = cs1.srs_size(blind)?;
