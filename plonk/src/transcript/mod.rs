@@ -34,6 +34,14 @@ pub trait Transcript {
     /// Create a new plonk transcript.
     fn new_transcript(label: &'static [u8]) -> Self;
 
+    /// Create a new plonk transcript with an initial message.
+    fn new_with_initial_message<S, E>(msg: &S) -> Result<Self, PlonkError>
+    where
+        Self: Sized,
+        S: CanonicalSerialize + ?Sized + 'static,
+        E: HasTEForm,
+        E::BaseField: PrimeField;
+
     /// Append a serializable message to the transcript.
     /// The message is serialized using `CanonicalSerialize`.
     fn push_message<S: CanonicalSerialize + ?Sized + 'static>(
@@ -114,6 +122,29 @@ pub trait Transcript {
 pub trait CircuitTranscript<F: PrimeField> {
     /// Create a new circuit transcript.
     fn new_transcript(circuit: &mut PlonkCircuit<F>) -> Self;
+
+    /// Create a new plonk transcript with an initial message.
+    fn new_with_initial_message<S, E>(
+        msg: &S,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<Self, PlonkError>
+    where
+        Self: Sized,
+        S: CanonicalSerialize + ?Sized + 'static,
+        E: HasTEForm,
+        E::BaseField: PrimeField;
+
+    /// Append a serializable message to the transcript.
+    /// The message is serialized using `CanonicalSerialize`.
+    fn push_message<S: CanonicalSerialize + ?Sized + 'static, E>(
+        &mut self,
+        label: &'static [u8],
+        msg: &S,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<(), PlonkError>
+    where
+        E: HasTEForm,
+        E::BaseField: PrimeField;
 
     /// Append a variable to the transcript
     fn push_variable(&mut self, var: &Variable) -> Result<(), CircuitError>;
