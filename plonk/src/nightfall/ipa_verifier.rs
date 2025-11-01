@@ -167,6 +167,7 @@ where
         public_inputs: &[E::ScalarField],
         proof: &Proof<PCS>,
         extra_transcript_init_msg: &Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<PcsInfo<PCS>, PlonkError>
     where
         T: Transcript,
@@ -248,6 +249,7 @@ where
             &lagrange_n_eval,
             proof,
             &alpha_powers,
+            blind,
         )?;
 
         let z_1_poly_eval = z_1_poly.evaluate(&challenges.u);
@@ -563,6 +565,7 @@ where
         lagrange_n_eval: &E::ScalarField,
         proof: &Proof<PCS>,
         alpha_powers: &[E::ScalarField],
+        blind: bool,
     ) -> Result<ScalarsAndBases<PCS>, PlonkError> {
         // compute constants that are being reused
         let beta_plus_one = E::ScalarField::one() + challenges.beta;
@@ -641,8 +644,8 @@ where
         }
 
         // Add splitted quotient commitments
-        let zeta_to_n_plus_2 =
-            (E::ScalarField::one() + vanish_eval) * challenges.zeta * challenges.zeta;
+        let zeta_to_n = E::ScalarField::one() + vanish_eval;
+        let zeta_to_n_plus_2 = zeta_to_n * challenges.zeta * challenges.zeta;
         let mut coeff = vanish_eval.neg();
         scalars_and_bases.push(
             coeff,
@@ -652,7 +655,7 @@ where
                 .ok_or(PlonkError::IndexError)?,
         )?;
         for poly in proof.split_quot_poly_comms.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= if blind { zeta_to_n_plus_2 } else { zeta_to_n };
             scalars_and_bases.push(coeff, *poly)?;
         }
 

@@ -1641,7 +1641,8 @@ mod tests {
             &TestProver::get_decider_pk().vk,
             &[pi_hash],
             &proof.proof,
-            None
+            None,
+            true,
         )
         .is_ok());
         Ok(())

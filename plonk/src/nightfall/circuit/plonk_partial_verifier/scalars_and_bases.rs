@@ -3,6 +3,7 @@ use ark_ff::Field;
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial};
 use ark_std::{collections::BTreeMap, One, Zero};
 use ark_std::{format, string::ToString, vec, vec::Vec};
+use espresso_systems_common::cap::tag::BLIND;
 use core::ops::Neg;
 use jf_primitives::pcs::PolynomialCommitmentScheme;
 use jf_relation::{constants::GATE_WIDTH, gadgets::ecc::PointVariable, Circuit, PlonkCircuit};
@@ -104,6 +105,7 @@ impl FFTVerifier<Kzg> {
         output: &Bn254Output,
         extra_transcript_init_msg: &Option<Vec<u8>>,
         circuit: &mut PlonkCircuit<Fq254>,
+        blind: bool,
     ) -> Result<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>), PlonkError>
     where
         T: Transcript,
@@ -192,6 +194,7 @@ impl FFTVerifier<Kzg> {
             &lagrange_n_eval,
             &output_var,
             &alpha_powers,
+            blind,
         )?;
 
         let z_1_poly_eval = z_1_poly.evaluate(&challenges.u);
@@ -478,6 +481,7 @@ impl FFTVerifier<Kzg> {
         lagrange_n_eval: &Fr254,
         output_var: &Bn254OutputScalarsAndBasesVar,
         alpha_powers: &[Fr254],
+        blind: bool,
     ) -> Result<ScalarsAndBasesVar<Kzg>, PlonkError> {
         // compute constants that are being reused
         let beta_plus_one = Fr254::one() + challenges.beta;
@@ -556,7 +560,8 @@ impl FFTVerifier<Kzg> {
         }
 
         // Add splitted quotient commitments
-        let zeta_to_n_plus_2 = (Fr254::one() + vanish_eval) * challenges.zeta * challenges.zeta;
+        let zeta_to_n = Fr254::one() + vanish_eval;
+        let zeta_to_n_plus_2 = zeta_to_n * challenges.zeta * challenges.zeta;
         let mut coeff = vanish_eval.neg();
         scalars_and_bases_var.push(
             coeff,
@@ -567,7 +572,7 @@ impl FFTVerifier<Kzg> {
                 .ok_or(PlonkError::IndexError)?,
         );
         for poly in output_var.proof.split_quot_poly_comms.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= if blind { zeta_to_n_plus_2 } else { zeta_to_n };
             scalars_and_bases_var.push(coeff, *poly);
         }
 
@@ -763,6 +768,7 @@ mod tests {
                 &[pi],
                 &output.proof,
                 &None,
+                *blind,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
@@ -775,6 +781,7 @@ mod tests {
                     &output,
                     &None,
                     &mut verifier_circuit,
+                    *blind,
                 )?;
 
             assert!(verifier_circuit.check_circuit_satisfiability(&[]).is_ok());

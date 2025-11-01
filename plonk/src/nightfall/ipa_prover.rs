@@ -390,13 +390,15 @@ where
         domain_size: usize,
         zeta: P::ScalarField,
         quot_polys: &[DensePolynomial<P::ScalarField>],
+        blind: bool,
     ) -> Result<DensePolynomial<P::ScalarField>, PlonkError> {
-        let vanish_eval = zeta.pow([domain_size as u64]) - P::ScalarField::one();
-        let zeta_to_n_plus_2 = (vanish_eval + P::ScalarField::one()) * zeta * zeta;
+        let zeta_to_n = zeta.pow([domain_size as u64]);
+        let zeta_to_n_plus_2 = zeta_to_n * zeta * zeta;
+        let vanish_eval = zeta_to_n - P::ScalarField::one();
         let mut r_quot = quot_polys.first().ok_or(PlonkError::IndexError)?.clone();
         let mut coeff = P::ScalarField::one();
         for poly in quot_polys.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= if blind { zeta_to_n_plus_2 } else { zeta_to_n };
             r_quot = r_quot + Self::mul_poly(poly, &coeff);
         }
         r_quot = Self::mul_poly(&r_quot, &vanish_eval.neg());

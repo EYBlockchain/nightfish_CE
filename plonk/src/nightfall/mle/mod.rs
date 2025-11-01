@@ -117,7 +117,13 @@ where
         public_input: &[<<PCS as PolynomialCommitmentScheme>::Commitment as AffineRepr>::ScalarField],
         proof: &Self::Proof,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error> {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk verification".to_string(),
+            ));
+        }
         let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
             PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
         })?;

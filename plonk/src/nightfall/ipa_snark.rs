@@ -123,6 +123,7 @@ where
         public_inputs: &[P::ScalarField],
         proof: &Proof<PCS>,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         T: Transcript,
@@ -133,6 +134,7 @@ where
             public_inputs,
             proof,
             &extra_transcript_init_msg,
+            blind,
         )?;
         if !FFTVerifier::verify_opening_proofs(
             &verify_key.open_key, // all open_key are the same
@@ -148,6 +150,7 @@ where
         verify_key: &VerifyingKey<PCS>,
         proof: &RecursiveOutput<PCS, Self, T>,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: Accumulation<Proof: TranscriptVisitor>,
@@ -159,6 +162,7 @@ where
             &[proof.pi_hash],
             &proof.proof,
             &extra_transcript_init_msg,
+            blind,
         )?;
         if !FFTVerifier::verify_opening_proofs(
             &verify_key.open_key, // all open_key are the same
@@ -321,6 +325,7 @@ where
             n,
             challenges.zeta,
             &split_quot_polys,
+            blind,
         )?;
 
         lin_poly = lin_poly
@@ -549,6 +554,7 @@ where
             n,
             challenges.zeta,
             &split_quot_polys,
+            blind,
         )?;
 
         lin_poly = lin_poly
@@ -790,11 +796,12 @@ where
         public_input: &[P::ScalarField],
         proof: &Self::Proof,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error>
     where
         T: Transcript,
     {
-        Self::verify_proof::<T>(verify_key, public_input, proof, extra_transcript_init_msg)
+        Self::verify_proof::<T>(verify_key, public_input, proof, extra_transcript_init_msg, blind)
     }
 }
 
@@ -1200,6 +1207,7 @@ pub mod test {
                 &public_inputs[i],
                 proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_ok());
             // Inconsistent proof should fail the verification.
@@ -1210,6 +1218,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_err());
             // Incorrect extra transcript message should fail
@@ -1218,6 +1227,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 Some("wrong message".to_string().into_bytes()),
+                blind,
             )
             .is_err());
 
@@ -1232,6 +1242,7 @@ pub mod test {
                 &public_inputs[i],
                 &bad_proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_err());
         }
@@ -1311,6 +1322,7 @@ pub mod test {
                 vk_ref,
                 proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_ok());
             // Inconsistent proof should fail the verification.
@@ -1324,6 +1336,7 @@ pub mod test {
                 vk_ref,
                 &bad_proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_err());
 
@@ -1342,6 +1355,7 @@ pub mod test {
                 vk_ref,
                 &bad_proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_err());
         }
@@ -1449,6 +1463,7 @@ pub mod test {
                 &[E::ScalarField::from(1u8)],
                 &proof2,
                 None,
+                blind,
             )
             .is_ok());
             // wrong verification key
@@ -1457,10 +1472,11 @@ pub mod test {
                 &[E::ScalarField::from(1u8)],
                 &proof2,
                 None,
+                blind,
             )
             .is_err());
             // wrong public input
-            assert!(FFTPlonk::<PCS>::verify::<T>(&vk2, &[], &proof2, None).is_err());
+            assert!(FFTPlonk::<PCS>::verify::<T>(&vk2, &[], &proof2, None, blind).is_err());
         }
         Ok(())
     }
