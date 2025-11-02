@@ -3,7 +3,6 @@ use ark_ff::Field;
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial};
 use ark_std::{collections::BTreeMap, One, Zero};
 use ark_std::{format, string::ToString, vec, vec::Vec};
-use espresso_systems_common::cap::tag::BLIND;
 use core::ops::Neg;
 use jf_primitives::pcs::PolynomialCommitmentScheme;
 use jf_relation::{constants::GATE_WIDTH, gadgets::ecc::PointVariable, Circuit, PlonkCircuit};
