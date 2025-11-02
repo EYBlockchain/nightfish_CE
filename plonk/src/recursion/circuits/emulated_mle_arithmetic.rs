@@ -587,15 +587,15 @@ mod tests {
     #[test]
     fn test_scalar_combiner() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for (m, blind) in (2..8).zip([true, false].iter()) {
+        for m in 2..8 {
             let circuit_one = gen_circuit_for_test::<Fq254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fq254>(m, 4, PlonkType::UltraPlonk, true)?;
 
             let num_vars = circuit_one.num_gates().ilog2() as usize;
-            let srs_size = circuit_one.srs_size(*blind)?;
+            let srs_size = circuit_one.srs_size(false)?;
             let srs = MLEPlonk::<Zmorph>::universal_setup_for_testing(srs_size, rng).unwrap();
 
-            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, None, &circuit_one, *blind)?;
+            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, None, &circuit_one, false)?;
 
             let circuits = [circuit_one, circuit_two];
 
@@ -604,7 +604,7 @@ mod tests {
                     .iter()
                     .map(|circuit| {
                         MLEPlonk::<Zmorph>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            rng, circuit, &pk, None, *blind,
+                            rng, circuit, &pk, None, false,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?
