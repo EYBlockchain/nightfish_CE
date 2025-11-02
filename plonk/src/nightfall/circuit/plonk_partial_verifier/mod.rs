@@ -874,21 +874,22 @@ mod test {
 
     #[test]
     fn test_compute_scalars_native() -> Result<(), CircuitError> {
-        for vk_id in [
+        for (vk_id, blind) in [
             None,
             Some(VerificationKeyId::Client),
             Some(VerificationKeyId::Deposit),
         ]
-        .iter()
+        .iter().zip([true, false])
         {
             compute_scalars_native_helper::<UnivariateKzgPCS<Bn254>, Fq254, BnConfig, SWGrumpkin>(
-                *vk_id,
+                *vk_id, blind,
             )?;
         }
         Ok(())
     }
     fn compute_scalars_native_helper<PCS, F, P, E>(
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), CircuitError>
     where
         PCS: Accumulation<
@@ -907,7 +908,7 @@ mod test {
     {
         let rng = &mut test_rng();
 
-        for (blind, _) in [true, false].iter().zip(0..4) {
+        for _ in 0..4 {
             // =======================================
             // setup
             // =======================================
@@ -935,13 +936,13 @@ mod test {
                 .finalize_for_recursive_arithmetization::<RescueCRHF<P::ScalarField>>()
                 .unwrap();
             let pi = circuit.public_input().unwrap()[0];
-            let max_degree = circuit.srs_size(*blind)?;
+            let max_degree = circuit.srs_size(blind)?;
             let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng).unwrap();
 
             // 3. Create proof
-            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, *blind).unwrap();
+            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, blind).unwrap();
             let proof = FFTPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
-                rng, &circuit, &pk, None, *blind,
+                rng, &circuit, &pk, None, blind,
             )
             .unwrap();
 
@@ -950,7 +951,7 @@ mod test {
             let verifier = FFTVerifier::<PCS>::new(vk.domain_size).unwrap();
 
             let pcs_info = verifier
-                .prepare_pcs_info::<RescueTranscript<P::BaseField>>(&vk, &[pi], &proof.proof, &None, *blind)
+                .prepare_pcs_info::<RescueTranscript<P::BaseField>>(&vk, &[pi], &proof.proof, &None, blind)
                 .unwrap();
 
             // Compute commitment to g(x).
@@ -1001,6 +1002,7 @@ mod test {
                 &Some(lookup_evals),
                 &vk.k,
                 verifier.domain.size as usize,
+                blind,
             )?;
 
             let real_scalars = pcs_info.comm_scalars_and_bases.scalars.clone();
@@ -1030,60 +1032,63 @@ mod test {
 
     #[test]
     fn test_compute_scalars_zero() {
-        let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
+        for blind in [true, false] {
+            let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
 
-        let rng = &mut test_rng();
-        //
-        let zeta = circuit.create_variable(Fr254::rand(rng)).unwrap();
+            let rng = &mut test_rng();
+            //
+            let zeta = circuit.create_variable(Fr254::rand(rng)).unwrap();
 
-        let challenges_var = ChallengesVar {
-            tau: circuit.zero(),
-            alphas: [circuit.zero(), circuit.zero(), circuit.zero()],
-            beta: circuit.zero(),
-            gamma: circuit.zero(),
-            zeta,
-            v: circuit.zero(),
-            u: circuit.zero(),
-        };
+            let challenges_var = ChallengesVar {
+                tau: circuit.zero(),
+                alphas: [circuit.zero(), circuit.zero(), circuit.zero()],
+                beta: circuit.zero(),
+                gamma: circuit.zero(),
+                zeta,
+                v: circuit.zero(),
+                u: circuit.zero(),
+            };
 
-        let proof_evals = ProofEvalsVarNative {
-            wires_evals: vec![circuit.zero(); 6],
-            wire_sigma_evals: vec![circuit.zero(); 5],
-            perm_next_eval: circuit.zero(),
-        };
+            let proof_evals = ProofEvalsVarNative {
+                wires_evals: vec![circuit.zero(); 6],
+                wire_sigma_evals: vec![circuit.zero(); 5],
+                perm_next_eval: circuit.zero(),
+            };
 
-        let lookup_evals = PlookupEvalsVarNative {
-            range_table_eval: circuit.zero(),
-            key_table_eval: circuit.zero(),
-            table_dom_sep_eval: circuit.zero(),
-            q_dom_sep_eval: circuit.zero(),
-            h_1_eval: circuit.zero(),
-            h_2_next_eval: circuit.zero(),
-            prod_next_eval: circuit.zero(),
-            q_lookup_eval: circuit.zero(),
-            range_table_next_eval: circuit.zero(),
-            key_table_next_eval: circuit.zero(),
-            q_lookup_next_eval: circuit.zero(),
-            h_1_next_eval: circuit.zero(),
-            w_3_next_eval: circuit.zero(),
-            w_4_next_eval: circuit.zero(),
-            table_dom_sep_next_eval: circuit.zero(),
-        };
+            let lookup_evals = PlookupEvalsVarNative {
+                range_table_eval: circuit.zero(),
+                key_table_eval: circuit.zero(),
+                table_dom_sep_eval: circuit.zero(),
+                q_dom_sep_eval: circuit.zero(),
+                h_1_eval: circuit.zero(),
+                h_2_next_eval: circuit.zero(),
+                prod_next_eval: circuit.zero(),
+                q_lookup_eval: circuit.zero(),
+                range_table_next_eval: circuit.zero(),
+                key_table_next_eval: circuit.zero(),
+                q_lookup_next_eval: circuit.zero(),
+                h_1_next_eval: circuit.zero(),
+                w_3_next_eval: circuit.zero(),
+                w_4_next_eval: circuit.zero(),
+                table_dom_sep_next_eval: circuit.zero(),
+            };
 
-        let vk_k = vec![Fr254::zero(); 6];
-        let scalars = compute_scalars_for_native_field::<Fr254>(
-            &mut circuit,
-            &0,
-            &challenges_var,
-            &proof_evals,
-            &Some(lookup_evals),
-            &vk_k,
-            1 << 15,
-        )
-        .unwrap();
+            let vk_k = vec![Fr254::zero(); 6];
+            let scalars = compute_scalars_for_native_field::<Fr254>(
+                &mut circuit,
+                &0,
+                &challenges_var,
+                &proof_evals,
+                &Some(lookup_evals),
+                &vk_k,
+                1 << 15,
+                blind,
+            )
+            .unwrap();
 
-        for var in scalars.iter() {
-            ark_std::println!("scalar value: {}", circuit.witness(*var).unwrap());
+            for var in scalars.iter() {
+                ark_std::println!("scalar value: {}", circuit.witness(*var).unwrap());
+            }
         }
     }
 }

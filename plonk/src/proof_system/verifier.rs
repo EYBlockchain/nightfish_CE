@@ -21,7 +21,6 @@ use ark_ec::{
 use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 use ark_poly::{EvaluationDomain, Radix2EvaluationDomain};
 use ark_std::{format, vec, vec::Vec};
-use espresso_systems_common::cap::tag::BLIND;
 use core::ops::Neg;
 use jf_primitives::{pcs::prelude::Commitment, rescue::RescueParameter};
 use jf_relation::{

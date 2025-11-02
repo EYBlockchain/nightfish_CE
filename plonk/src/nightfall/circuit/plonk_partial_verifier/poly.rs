@@ -764,6 +764,7 @@ pub fn linearization_scalars_circuit_native<F>(
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
     gen_inv: &F,
+    blind: bool,
 ) -> Result<Vec<Variable>, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -1048,14 +1049,19 @@ where
     };
 
     // Now calculate the coefficients of the quotient commitments
-    let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
+    // We first compute the combining_scalar, zeta^{n+2} or zeta^n, depending on whether we are in the blinding case or not.
+    let combining_scalar = if blind {
+        let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
+        circuit.mul(zeta_square, evals[0])?
+    } else {
+        evals[0]
+    };
     let vanish_eval = evals[1];
-    let zeta_n_plus_two = circuit.mul(zeta_square, evals[0])?;
     let mut quotient_coeffs = Vec::with_capacity(5);
     let mut combiner = circuit.sub(circuit.zero(), vanish_eval)?;
     quotient_coeffs.push(combiner);
     for _ in 0..(num_wire_types - 1) {
-        combiner = circuit.mul(combiner, zeta_n_plus_two)?;
+        combiner = circuit.mul(combiner, combining_scalar)?;
         quotient_coeffs.push(combiner);
     }
 
@@ -1080,6 +1086,7 @@ pub fn linearization_scalars_circuit_native_base<F>(
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
     gen_inv_var: &Variable,
+    blind: bool,
 ) -> Result<Vec<Variable>, CircuitError>
 where
     F: PrimeField + RescueParameter,
@@ -1357,14 +1364,19 @@ where
     };
 
     // Now calculate the coefficients of the quotient commitments
-    let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
+    // We first compute the combining_scalar, zeta^{n+2} or zeta^n, depending on whether we are in the blinding case or not.
+    let combining_scalar = if blind {
+        let zeta_square = circuit.mul(challenges.zeta, challenges.zeta)?;
+        circuit.mul(zeta_square, evals[0])?
+    } else {
+        evals[0]
+    };
     let vanish_eval = evals[1];
-    let zeta_n_plus_two = circuit.mul(zeta_square, evals[0])?;
     let mut quotient_coeffs = Vec::with_capacity(5);
     let mut combiner = circuit.sub(circuit.zero(), vanish_eval)?;
     quotient_coeffs.push(combiner);
     for _ in 0..(num_wire_types - 1) {
-        combiner = circuit.mul(combiner, zeta_n_plus_two)?;
+        combiner = circuit.mul(combiner, combining_scalar)?;
         quotient_coeffs.push(combiner);
     }
 
