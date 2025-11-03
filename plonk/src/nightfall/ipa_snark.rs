@@ -886,6 +886,7 @@ pub mod test {
 
     use ark_std::{format, string::ToString, vec, vec::Vec};
     use core::ops::{Mul, Neg};
+    use itertools::izip;
     use jf_primitives::{
         pcs::{prelude::UnivariateKzgPCS, PolynomialCommitmentScheme},
         rescue::{sponge::RescueCRHF, RescueParameter},
@@ -1092,13 +1093,14 @@ pub mod test {
 
     #[test]
     fn test_plonk_proof_system() -> Result<(), PlonkError> {
-        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+        for (plonk_type, vk_id, blind) in izip!(
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk],
             [
                 None,
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
-            ]
-            .iter(),
+            ],
+            [true, false],
         ) {
             // merlin transcripts
             test_plonk_proof_system_helper::<
@@ -1106,33 +1108,33 @@ pub mod test {
                 Fq254,
                 UnivariateKzgPCS<Bn254>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
             test_plonk_proof_system_helper::<
                 Config377,
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
             // rescue transcripts
             test_plonk_proof_system_helper::<
                 BnConfig,
                 Fq254,
                 UnivariateKzgPCS<Bn254>,
                 RescueTranscript<Fq254>,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
             test_plonk_proof_system_helper::<
                 Config377,
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 RescueTranscript<Fq377>,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
 
             test_recursive_plonk_proof_system_helper::<
                 BnConfig,
                 Fq254,
                 UnivariateKzgPCS<Bn254>,
                 RescueTranscript<Fq254>,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
         }
 
         Ok(())
@@ -1141,6 +1143,7 @@ pub mod test {
     fn test_plonk_proof_system_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1171,8 +1174,8 @@ pub mod test {
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
         let (pk1, vk1) =
-            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], true)?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], true)?;
+            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], blind)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1184,7 +1187,7 @@ pub mod test {
                 Some(format!("extra message: {}", i).into_bytes())
             };
             proofs.push(
-                FFTPlonk::<PCS>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), true)
+                FFTPlonk::<PCS>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), blind)
                     .unwrap(),
             );
             extra_msgs.push(extra_msg);
@@ -1203,7 +1206,7 @@ pub mod test {
                 &public_inputs[i],
                 proof,
                 extra_msgs[i].clone(),
-                true,
+                blind,
             )
             .is_ok());
             // Inconsistent proof should fail the verification.
@@ -1214,7 +1217,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 extra_msgs[i].clone(),
-                true,
+                blind,
             )
             .is_err());
             // Incorrect extra transcript message should fail
@@ -1223,7 +1226,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 Some("wrong message".to_string().into_bytes()),
-                true,
+                blind,
             )
             .is_err());
 
@@ -1238,7 +1241,7 @@ pub mod test {
                 &public_inputs[i],
                 &bad_proof,
                 extra_msgs[i].clone(),
-                true,
+                blind,
             )
             .is_err());
         }
@@ -1249,6 +1252,7 @@ pub mod test {
     fn test_recursive_plonk_proof_system_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: Accumulation<
@@ -1280,8 +1284,8 @@ pub mod test {
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
         let (pk1, vk1) =
-            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], true)?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], true)?;
+            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], blind)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], blind)?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1300,7 +1304,7 @@ pub mod test {
                     cs,
                     pk_ref,
                     extra_msg.clone(),
-                    true,
+                    blind,
                 )
                 .unwrap(),
             );
@@ -1314,7 +1318,7 @@ pub mod test {
                 vk_ref,
                 proof,
                 extra_msgs[i].clone(),
-                true,
+                blind,
             )
             .is_ok());
             // Inconsistent proof should fail the verification.
@@ -1328,7 +1332,7 @@ pub mod test {
                 vk_ref,
                 &bad_proof,
                 extra_msgs[i].clone(),
-                true,
+                blind,
             )
             .is_err());
 
@@ -1347,7 +1351,7 @@ pub mod test {
                 vk_ref,
                 &bad_proof,
                 extra_msgs[i].clone(),
-                true,
+                blind,
             )
             .is_err());
         }
@@ -1357,13 +1361,14 @@ pub mod test {
 
     #[test]
     fn test_inconsistent_pub_input_len() -> Result<(), PlonkError> {
-        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+        for (plonk_type, vk_id, blind) in izip!(
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk],
             [
                 None,
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
-            ]
-            .iter(),
+            ],
+            [true, false],
         ) {
             // merlin transcripts
             test_inconsistent_pub_input_len_helper::<
@@ -1371,14 +1376,14 @@ pub mod test {
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
             // rescue transcripts
             test_inconsistent_pub_input_len_helper::<
                 Config377,
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 RescueTranscript<Fq377>,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
         }
 
         Ok(())
@@ -1387,6 +1392,7 @@ pub mod test {
     fn test_inconsistent_pub_input_len_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1420,16 +1426,16 @@ pub mod test {
         cs2.finalize_for_arithmetization()?;
 
         // 3. Preprocessing
-        let size_one = cs1.srs_size(true)?;
-        let size_two = cs2.srs_size(true)?;
+        let size_one = cs1.srs_size(blind)?;
+        let size_two = cs2.srs_size(blind)?;
         let size = ark_std::cmp::max(size_one, size_two);
         let srs = FFTPlonk::<PCS>::universal_setup_for_testing(size, rng)?;
-        let (pk1, vk1) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs1, true)?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs2, true)?;
+        let (pk1, vk1) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs1, blind)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs2, blind)?;
 
         // 4. Proving
         assert!(FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk1, None, true).is_err());
-        let proof2 = FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk2, None, true)?;
+        let proof2 = FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk2, None, blind)?;
 
         // 5. Verification
         assert!(FFTPlonk::<PCS>::verify::<T>(
@@ -1437,7 +1443,7 @@ pub mod test {
             &[E::ScalarField::from(1u8)],
             &proof2,
             None,
-            true
+            blind,
         )
         .is_ok());
         // wrong verification key
@@ -1446,24 +1452,25 @@ pub mod test {
             &[E::ScalarField::from(1u8)],
             &proof2,
             None,
-            true
+            blind,
         )
         .is_err());
         // wrong public input
-        assert!(FFTPlonk::<PCS>::verify::<T>(&vk2, &[], &proof2, None, true).is_err());
+        assert!(FFTPlonk::<PCS>::verify::<T>(&vk2, &[], &proof2, None, blind).is_err());
 
         Ok(())
     }
 
     #[test]
     fn test_plonk_prover_polynomials() -> Result<(), PlonkError> {
-        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip(
+        for (plonk_type, vk_id, blind) in izip!(
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk],
             [
                 None,
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
-            ]
-            .iter(),
+            ],
+            [true, false],
         ) {
             // merlin transcripts
             test_plonk_prover_polynomials_helper::<
@@ -1471,7 +1478,7 @@ pub mod test {
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 StandardTranscript,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
 
             // rescue transcripts
             test_plonk_prover_polynomials_helper::<
@@ -1479,7 +1486,7 @@ pub mod test {
                 Fq377,
                 UnivariateIpaPCS<Bls12_377>,
                 RescueTranscript<Fq377>,
-            >(*plonk_type, *vk_id)?;
+            >(plonk_type, vk_id, blind)?;
         }
 
         Ok(())
@@ -1488,6 +1495,7 @@ pub mod test {
     fn test_plonk_prover_polynomials_helper<E, F, PCS, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         PCS: PolynomialCommitmentScheme<
@@ -1514,11 +1522,11 @@ pub mod test {
         assert!(circuit.num_gates() <= n);
 
         // 3. Preprocessing
-        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, true)?;
+        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, blind)?;
 
         // 4. Proving
         let (_, oracles, challenges) =
-            FFTPlonk::<PCS>::prove_internal::<_, _, T>(rng, &circuit, &pk, None, true)?;
+            FFTPlonk::<PCS>::prove_internal::<_, _, T>(rng, &circuit, &pk, None, blind)?;
 
         // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
         check_plonk_prover_polynomials(plonk_type, &oracles, &pk, &challenges)?;

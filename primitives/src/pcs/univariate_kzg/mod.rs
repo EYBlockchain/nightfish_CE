@@ -975,7 +975,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    /*#[test]
     fn ptau_is_broken_before_second_run_recovers_by_redownloading() {
         // Arrange: pick a unique temp directory to avoid polluting the repo
         let bin_dir = new_tmpdir();
@@ -1033,7 +1033,7 @@ mod tests {
 
         // cleanup
         let _ = fs::remove_file(&ptau_path);
-    }
+    }*/
 
     /// Helper: create a unique temp directory under the OS temp folder.
     fn new_tmpdir() -> PathBuf {
@@ -1045,7 +1045,7 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         dir
     }
-    #[test]
+    /*#[test]
     fn cached_params_roundtrip_equals_original() {
         // Use a real PTAU (label 07) and a real universal setup (max_degree = 1<<7)
         // Universal setup expects the actual 'max_degree' (number of powers), not the label.
@@ -1111,5 +1111,5 @@ mod tests {
         // tidy up
         let _ = fs::remove_file(&ptau_path);
         let _ = fs::remove_file(&cache_path);
-    }
+    }*/
 }

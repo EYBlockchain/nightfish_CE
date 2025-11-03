@@ -615,6 +615,7 @@ mod test {
     use ark_bw6_761::{Fq as Fq761, BW6_761};
     use ark_ec::pairing::Pairing;
     use ark_ec::short_weierstrass::Projective;
+    use itertools::izip;
     use jf_primitives::pcs::prelude::UnivariateKzgPCS;
     use jf_primitives::rescue::RescueParameter;
     use jf_relation::gadgets::EmulationConfig;
@@ -629,20 +630,26 @@ mod test {
     }
     #[test]
     fn test_serde_kzg() -> Result<(), PlonkError> {
-        for (plonk_type, vk_id) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk].iter().zip([
-            None,
-            Some(VerificationKeyId::Client),
-            Some(VerificationKeyId::Deposit),
-        ]) {
+        for (plonk_type, vk_id, blind) in izip!(
+            [PlonkType::TurboPlonk, PlonkType::UltraPlonk],
+            [
+                None,
+                Some(VerificationKeyId::Client),
+                Some(VerificationKeyId::Deposit),
+            ],
+            [true, false],
+        ) {
             // merlin transcripts
-            test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(*plonk_type, vk_id)?;
-            test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(*plonk_type, vk_id)?;
-            test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(*plonk_type, vk_id)?;
-            test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bn254, Fq254, _, StandardTranscript>(plonk_type, vk_id, blind)?;
+            test_serde_helper::<Bls12_377, Fq377, _, StandardTranscript>(plonk_type, vk_id, blind)?;
+            test_serde_helper::<Bls12_381, Fq381, _, StandardTranscript>(plonk_type, vk_id, blind)?;
+            test_serde_helper::<BW6_761, Fq761, _, StandardTranscript>(plonk_type, vk_id, blind)?;
             // rescue transcripts
-            test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
+                plonk_type, vk_id, blind,
+            )?;
             // Solidity-friendly keccak256 transcript
-            test_serde_helper::<Bls12_381, Fq381, _, SolidityTranscript>(*plonk_type, vk_id)?;
+            test_serde_helper::<Bls12_381, Fq381, _, SolidityTranscript>(plonk_type, vk_id, blind)?;
         }
 
         Ok(())
@@ -651,6 +658,7 @@ mod test {
     fn test_serde_helper<E, F, P, T>(
         plonk_type: PlonkType,
         vk_id: Option<VerificationKeyId>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
@@ -662,18 +670,18 @@ mod test {
     {
         let rng = &mut jf_utils::test_rng();
         let circuit = gen_circuit_for_test(3, 4, plonk_type, false)?;
-        let srs_size = circuit.srs_size(true).unwrap();
+        let srs_size = circuit.srs_size(blind).unwrap();
         let _max_degree = 80;
         let srs =
             FFTPlonk::<UnivariateKzgPCS<E>>::universal_setup_for_testing(srs_size, rng).unwrap();
         let (pk, vk) =
-            FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit, true).unwrap();
+            FFTPlonk::<UnivariateKzgPCS<E>>::preprocess(&srs, vk_id, &circuit, blind).unwrap();
         let proof =
-            FFTPlonk::<UnivariateKzgPCS<E>>::prove::<_, _, T>(rng, &circuit, &pk, None, true)?;
+            FFTPlonk::<UnivariateKzgPCS<E>>::prove::<_, _, T>(rng, &circuit, &pk, None, blind)?;
         let public_inputs = circuit.public_input().unwrap();
         let public_inputs1 = public_inputs.as_slice();
 
-        FFTPlonk::<UnivariateKzgPCS<E>>::verify::<T>(&vk, public_inputs1, &proof, None, true)?;
+        FFTPlonk::<UnivariateKzgPCS<E>>::verify::<T>(&vk, public_inputs1, &proof, None, blind)?;
 
         let mut ser_bytes = Vec::new();
         srs.serialize_compressed(&mut ser_bytes)?;

@@ -211,7 +211,7 @@ mod test {
         circuit.check_circuit_satisfiability(&[X_jf.get_x(), X_jf.get_y()])?;
         circuit.finalize_for_arithmetization()?;
 
-        let srs_size = circuit.srs_size(false)?;
+        let srs_size = circuit.srs_size(true)?;
         let ipa_srs =
             <PlonkIpaSnark<Bls12_377> as UniversalSNARK<UnivariateIpaPCS<Bls12_377>>>::universal_setup_for_testing(
                 srs_size, &mut rng,
