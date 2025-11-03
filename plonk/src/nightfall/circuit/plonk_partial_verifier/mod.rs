@@ -950,7 +950,13 @@ mod test {
             let verifier = FFTVerifier::<PCS>::new(vk.domain_size).unwrap();
 
             let pcs_info = verifier
-                .prepare_pcs_info::<RescueTranscript<P::BaseField>>(&vk, &[pi], &proof.proof, &None)
+                .prepare_pcs_info::<RescueTranscript<P::BaseField>>(
+                    &vk,
+                    &[pi],
+                    &proof.proof,
+                    &None,
+                    true,
+                )
                 .unwrap();
 
             // Compute commitment to g(x).

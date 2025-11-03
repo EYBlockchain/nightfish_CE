@@ -432,6 +432,7 @@ mod tests {
                 &[pi],
                 &output.proof,
                 &None,
+                true,
             )?;
 
             let g_comm = pcs_info
@@ -503,6 +504,7 @@ mod tests {
                 &[pi],
                 &output.proof,
                 &None,
+                true,
             )?;
 
             let g_comm = pcs_info
@@ -605,6 +607,7 @@ mod tests {
                         output,
                         &None,
                         &mut bases_verifier_circuit,
+                        true,
                     )
                 })
                 .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
@@ -737,6 +740,7 @@ mod tests {
                         &[pi],
                         &output.proof,
                         &None,
+                        true,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;
@@ -899,6 +903,7 @@ mod tests {
                         output,
                         &None,
                         &mut bases_verifier_circuit,
+                        true,
                     )
                 })
                 .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
@@ -1031,6 +1036,7 @@ mod tests {
                         &[pi],
                         &output.proof,
                         &None,
+                        true,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()?;

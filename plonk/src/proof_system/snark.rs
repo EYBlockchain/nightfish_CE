@@ -83,6 +83,7 @@ where
         verify_keys: &[&VerifyingKey<E>],
         public_inputs: &[&[E::ScalarField]],
         batch_proof: &BatchProof<E>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         T: Transcript,
@@ -91,8 +92,13 @@ where
             return Err(ParameterError("empty verification keys".to_string()).into());
         }
         let verifier = Verifier::new(verify_keys[0].domain_size)?;
-        let pcs_info =
-            verifier.prepare_pcs_info::<T>(verify_keys, public_inputs, batch_proof, &None)?;
+        let pcs_info = verifier.prepare_pcs_info::<T>(
+            verify_keys,
+            public_inputs,
+            batch_proof,
+            &None,
+            blind,
+        )?;
         if !Verifier::batch_verify_opening_proofs::<T>(
             &verify_keys[0].open_key, // all open_key are the same
             &[pcs_info],
@@ -108,6 +114,7 @@ where
         public_inputs: &[&[E::ScalarField]],
         proofs: &[&Proof<E>],
         extra_transcript_init_msgs: &[Option<Vec<u8>>],
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         T: Transcript,
@@ -143,6 +150,7 @@ where
                     &[pub_input],
                     &(*proof).clone().into(),
                     extra_msg,
+                    blind,
                 )
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
@@ -387,6 +395,7 @@ where
             n,
             challenges.zeta,
             &split_quot_polys,
+            blind,
         )?;
         let mut alpha_base = E::ScalarField::one();
         let alpha_3 = challenges.alpha.square() * challenges.alpha;
@@ -655,6 +664,7 @@ where
         public_input: &[E::ScalarField],
         proof: &Self::Proof,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error>
     where
         T: Transcript,
@@ -664,6 +674,7 @@ where
             &[public_input],
             &[proof],
             &[extra_transcript_init_msg],
+            blind,
         )
     }
 }
@@ -851,7 +862,8 @@ pub mod test {
                 &test_vk_plonk_kzg_snark,
                 &pub_inputs,
                 &proof_plonk_kzg_snark,
-                None
+                None,
+                true,
             )
             .is_ok(),
             "Proof_PlonkKzgSnark verification failed"
@@ -861,7 +873,8 @@ pub mod test {
                 &test_vk_fftplonk,
                 &pub_inputs,
                 &proof_fftplonk,
-                None
+                None,
+                true,
             )
             .is_ok(),
             "Proof_FFTPlonk verification failed"
@@ -1109,6 +1122,7 @@ pub mod test {
                 &public_inputs[i],
                 proof,
                 extra_msgs[i].clone(),
+                true,
             )
             .is_ok());
             // Inconsistent proof should fail the verification.
@@ -1119,6 +1133,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 extra_msgs[i].clone(),
+                true,
             )
             .is_err());
             // Incorrect extra transcript message should fail
@@ -1127,6 +1142,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 Some("wrong message".to_string().into_bytes()),
+                true,
             )
             .is_err());
 
@@ -1141,6 +1157,7 @@ pub mod test {
                 &public_inputs[i],
                 &bad_proof,
                 extra_msgs[i].clone(),
+                true,
             )
             .is_err());
         }
@@ -1157,6 +1174,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            true,
         )
         .is_ok());
 
@@ -1166,6 +1184,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            true,
         )
         .is_err());
 
@@ -1174,6 +1193,7 @@ pub mod test {
             &public_inputs_ref[..5],
             &proofs_ref,
             &extra_msgs,
+            true,
         )
         .is_err());
 
@@ -1182,6 +1202,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref[..5],
             &extra_msgs,
+            true,
         )
         .is_err());
 
@@ -1190,16 +1211,21 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &vec![None; vks.len()],
+            true,
         )
         .is_err());
 
-        assert!(
-            PlonkKzgSnark::<E>::batch_verify::<T>(&vks, &public_inputs_ref, &proofs_ref, &[],)
-                .is_err()
-        );
+        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+            &vks,
+            &public_inputs_ref,
+            &proofs_ref,
+            &[],
+            true
+        )
+        .is_err());
 
         // Empty params
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[],).is_err());
+        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[], true).is_err());
 
         // Error paths
         let tmp_pi_ref = public_inputs_ref[0];
@@ -1209,6 +1235,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            true,
         )
         .is_err());
         public_inputs_ref[0] = tmp_pi_ref;
@@ -1219,6 +1246,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            true,
         )
         .is_err());
 
@@ -1311,17 +1339,25 @@ pub mod test {
         let proof2 = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk2, None, true)?;
 
         // 5. Verification
-        assert!(
-            PlonkKzgSnark::<E>::verify::<T>(&vk2, &[E::ScalarField::from(1u8)], &proof2, None,)
-                .is_ok()
-        );
+        assert!(PlonkKzgSnark::<E>::verify::<T>(
+            &vk2,
+            &[E::ScalarField::from(1u8)],
+            &proof2,
+            None,
+            true
+        )
+        .is_ok());
         // wrong verification key
-        assert!(
-            PlonkKzgSnark::<E>::verify::<T>(&vk1, &[E::ScalarField::from(1u8)], &proof2, None,)
-                .is_err()
-        );
+        assert!(PlonkKzgSnark::<E>::verify::<T>(
+            &vk1,
+            &[E::ScalarField::from(1u8)],
+            &proof2,
+            None,
+            true
+        )
+        .is_err());
         // wrong public input
-        assert!(PlonkKzgSnark::<E>::verify::<T>(&vk2, &[], &proof2, None).is_err());
+        assert!(PlonkKzgSnark::<E>::verify::<T>(&vk2, &[], &proof2, None, true).is_err());
 
         Ok(())
     }

@@ -110,6 +110,7 @@ where
         public_input: &[<PCS::Commitment as AffineRepr>::ScalarField],
         proof: &Self::Proof,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error>;
 }
 

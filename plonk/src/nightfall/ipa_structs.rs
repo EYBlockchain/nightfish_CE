@@ -673,7 +673,7 @@ mod test {
         let public_inputs = circuit.public_input().unwrap();
         let public_inputs1 = public_inputs.as_slice();
 
-        FFTPlonk::<UnivariateKzgPCS<E>>::verify::<T>(&vk, public_inputs1, &proof, None)?;
+        FFTPlonk::<UnivariateKzgPCS<E>>::verify::<T>(&vk, public_inputs1, &proof, None, true)?;
 
         let mut ser_bytes = Vec::new();
         srs.serialize_compressed(&mut ser_bytes)?;

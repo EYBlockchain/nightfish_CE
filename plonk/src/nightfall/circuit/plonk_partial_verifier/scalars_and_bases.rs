@@ -104,6 +104,7 @@ impl FFTVerifier<Kzg> {
         output: &Bn254Output,
         extra_transcript_init_msg: &Option<Vec<u8>>,
         circuit: &mut PlonkCircuit<Fq254>,
+        blind: bool,
     ) -> Result<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>), PlonkError>
     where
         T: Transcript,
@@ -192,6 +193,7 @@ impl FFTVerifier<Kzg> {
             &lagrange_n_eval,
             &output_var,
             &alpha_powers,
+            blind,
         )?;
 
         let z_1_poly_eval = z_1_poly.evaluate(&challenges.u);
@@ -478,6 +480,7 @@ impl FFTVerifier<Kzg> {
         lagrange_n_eval: &Fr254,
         output_var: &Bn254OutputScalarsAndBasesVar,
         alpha_powers: &[Fr254],
+        blind: bool,
     ) -> Result<ScalarsAndBasesVar<Kzg>, PlonkError> {
         // compute constants that are being reused
         let beta_plus_one = Fr254::one() + challenges.beta;
@@ -556,7 +559,12 @@ impl FFTVerifier<Kzg> {
         }
 
         // Add splitted quotient commitments
-        let zeta_to_n_plus_2 = (Fr254::one() + vanish_eval) * challenges.zeta * challenges.zeta;
+        let zeta_to_n = Fr254::one() + vanish_eval;
+        let scalar = if blind {
+            zeta_to_n * challenges.zeta * challenges.zeta
+        } else {
+            zeta_to_n
+        };
         let mut coeff = vanish_eval.neg();
         scalars_and_bases_var.push(
             coeff,
@@ -567,7 +575,7 @@ impl FFTVerifier<Kzg> {
                 .ok_or(PlonkError::IndexError)?,
         );
         for poly in output_var.proof.split_quot_poly_comms.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= scalar;
             scalars_and_bases_var.push(coeff, *poly);
         }
 
@@ -757,6 +765,7 @@ mod tests {
                 &[pi],
                 &output.proof,
                 &None,
+                true,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
@@ -769,6 +778,7 @@ mod tests {
                     &output,
                     &None,
                     &mut verifier_circuit,
+                    true,
                 )?;
 
             assert!(verifier_circuit.check_circuit_satisfiability(&[]).is_ok());

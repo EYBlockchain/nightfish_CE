@@ -230,6 +230,7 @@ mod test {
             &public_inputs,
             &ipa_proof,
             None,
+            true,
         )
         .is_ok());
 
@@ -239,6 +240,7 @@ mod test {
             &public_inputs[..],
             &ipa_proof,
             &None,
+            true,
         )?;
 
         let g_comm = pcs_info
@@ -315,6 +317,7 @@ mod test {
             &[g_comm_te.get_x(), g_comm_te.get_y()],
             &proof,
             None,
+            true,
         )
         .unwrap();
         ark_std::println!("KZG Proof Verified");

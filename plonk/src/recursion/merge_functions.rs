@@ -444,6 +444,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 output,
                 &None,
                 circuit,
+                true,
             )
         })
         .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
