@@ -739,12 +739,12 @@ mod tests {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(true)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the non-base case and our verification key is fixed.
             // Our `vk_id` is, therefore, `None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit, true)?;
 
             let mut output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
                 rng, &circuit, &pk, None, true,

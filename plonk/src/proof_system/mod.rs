@@ -77,6 +77,7 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error>;
 
     /// Compute a SNARK proof of a circuit `circuit`, using the corresponding

@@ -935,11 +935,11 @@ mod test {
                 .finalize_for_recursive_arithmetization::<RescueCRHF<P::ScalarField>>()
                 .unwrap();
             let pi = circuit.public_input().unwrap()[0];
-            let max_degree = circuit.srs_size()?;
+            let max_degree = circuit.srs_size(true)?;
             let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng).unwrap();
 
             // 3. Create proof
-            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit).unwrap();
+            let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, true).unwrap();
             let proof = FFTPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
                 rng, &circuit, &pk, None, true,
             )

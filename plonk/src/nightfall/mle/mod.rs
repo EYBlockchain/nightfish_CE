@@ -80,7 +80,13 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         if vk_id.is_some() {
             return Err(PlonkError::InvalidParameters(
                 "MLEPlonk verification keys do not have an ID".to_string(),

@@ -455,9 +455,10 @@ mod tests {
         let srs_size = circuit.num_gates().ilog2() as usize;
         let srs = Zeromorph::<UnivariateIpaPCS<Grumpkin>>::gen_srs_for_testing(&mut rng, srs_size)
             .unwrap();
-        let (pk, _vk) =
-            MLEPlonk::<Zeromorph<UnivariateIpaPCS<Grumpkin>>>::preprocess(&srs, None, &circuit)
-                .unwrap();
+        let (pk, _vk) = MLEPlonk::<Zeromorph<UnivariateIpaPCS<Grumpkin>>>::preprocess(
+            &srs, None, &circuit, false,
+        )
+        .unwrap();
 
         let _proof = MLEPlonk::<Zeromorph<UnivariateIpaPCS<Grumpkin>>>::sa_prove::<
             _,

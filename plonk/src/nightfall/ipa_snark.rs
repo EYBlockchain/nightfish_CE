@@ -662,10 +662,11 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
         // Make sure the SRS can support the circuit (with hiding degree of 2 for zk)
         let domain_size = circuit.eval_domain_size()?;
-        let srs_size = circuit.srs_size()?;
+        let srs_size = circuit.srs_size(blind)?;
         let num_inputs = circuit.num_inputs();
 
         // 1. Compute selector and permutation polynomials.
@@ -1001,7 +1002,7 @@ pub mod test {
 
         let max_degree = 64 + 2;
         let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
-        let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit)?;
+        let (pk, vk) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, true)?;
 
         // check proving key
         assert_eq!(pk.selectors, selectors);
@@ -1157,8 +1158,8 @@ pub mod test {
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
         let (pk1, vk1) =
-            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0])?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3])?;
+            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], true)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], true)?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1262,8 +1263,8 @@ pub mod test {
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
         let (pk1, vk1) =
-            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0])?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3])?;
+            <FFTPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, vk_id, &circuits[0], true)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuits[3], true)?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1399,12 +1400,12 @@ pub mod test {
         cs2.finalize_for_arithmetization()?;
 
         // 3. Preprocessing
-        let size_one = cs1.srs_size()?;
-        let size_two = cs2.srs_size()?;
+        let size_one = cs1.srs_size(true)?;
+        let size_two = cs2.srs_size(true)?;
         let size = ark_std::cmp::max(size_one, size_two);
         let srs = FFTPlonk::<PCS>::universal_setup_for_testing(size, rng)?;
-        let (pk1, vk1) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs1)?;
-        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs2)?;
+        let (pk1, vk1) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs1, true)?;
+        let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs2, true)?;
 
         // 4. Proving
         assert!(FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk1, None, true).is_err());
@@ -1485,7 +1486,7 @@ pub mod test {
         assert!(circuit.num_gates() <= n);
 
         // 3. Preprocessing
-        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit)?;
+        let (pk, _) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &circuit, true)?;
 
         // 4. Proving
         let (_, oracles, challenges) =

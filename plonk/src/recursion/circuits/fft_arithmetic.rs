@@ -406,12 +406,12 @@ mod tests {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(true)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the non-base case and our verification key is fixed.
             // Our `vk_id` is, therefore, `None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit, true)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
                 rng, &circuit, &pk, None, true,
@@ -470,11 +470,11 @@ mod tests {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(true)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the base case. Our `vk_id` is, therefore, non-`None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit, true)?;
 
             let output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
                 rng, &circuit, &pk, None, true,
@@ -537,11 +537,11 @@ mod tests {
             let pi_one = circuit_one.public_input()?[0];
             let pi_two = circuit_two.public_input()?[0];
 
-            let srs_size = circuit_one.srs_size()?;
+            let srs_size = circuit_one.srs_size(true)?;
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit_one)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, None, &circuit_one, true)?;
 
             let circuits = [circuit_one, circuit_two];
             let pis = [pi_one, pi_two];
@@ -827,12 +827,14 @@ mod tests {
             let pi_one = circuit_one.public_input()?[0];
             let pi_two = circuit_two.public_input()?[0];
 
-            let srs_size = circuit_one.srs_size()?;
+            let srs_size = circuit_one.srs_size(true)?;
 
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
-            let (pk_one, vk_one) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one)?;
-            let (pk_two, vk_two) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two)?;
+            let (pk_one, vk_one) =
+                FFTPlonk::<Kzg>::preprocess(&srs, vk_id_one, &circuit_one, true)?;
+            let (pk_two, vk_two) =
+                FFTPlonk::<Kzg>::preprocess(&srs, vk_id_two, &circuit_two, true)?;
 
             let circuits = [circuit_one, circuit_two];
             let pks = [pk_one.clone(), pk_two.clone()];

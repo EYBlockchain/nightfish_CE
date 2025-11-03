@@ -209,7 +209,7 @@ pub(crate) type SortedLookupVecAndPolys<F> = (Vec<F>, DensePolynomial<F>, DenseP
 /// Plonk-based SNARKs.
 pub trait Arithmetization<F: PrimeField>: Circuit<F> {
     /// The required SRS size for the circuit.
-    fn srs_size(&self) -> Result<usize, CircuitError>;
+    fn srs_size(&self, blind: bool) -> Result<usize, CircuitError>;
 
     /// Get the size of the evaluation domain for arithmetization (after circuit
     /// has been finalized).
@@ -1778,9 +1778,9 @@ impl<F> Arithmetization<F> for PlonkCircuit<F>
 where
     F: PrimeField,
 {
-    fn srs_size(&self) -> Result<usize, CircuitError> {
+    fn srs_size(&self, blind: bool) -> Result<usize, CircuitError> {
         // extra 2 degree for masking polynomial to make snark zero-knowledge
-        Ok(self.num_gates() + 2)
+        Ok(self.num_gates() + 2 * blind as usize)
     }
 
     fn eval_domain_size(&self) -> Result<usize, CircuitError> {
