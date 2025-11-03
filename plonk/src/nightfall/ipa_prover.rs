@@ -212,6 +212,7 @@ where
     /// Round 3: Return the splitted quotient polynomials and their commitments.
     /// Note that the first `num_wire_types`-1 splitted quotient polynomials
     /// have degree `domain_size`+1.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_3rd_round<R: CryptoRng + RngCore>(
         &self,
         prng: &mut R,
@@ -220,10 +221,12 @@ where
         challenges: &Challenges<P::ScalarField>,
         online_oracles: &Oracles<P::ScalarField>,
         num_wire_types: usize,
+        blind: bool,
     ) -> Result<CommitmentsAndPolys<PCS>, PlonkError> {
         let quot_poly =
             self.compute_quotient_polynomial(challenges, pks, online_oracles, num_wire_types)?;
-        let split_quot_polys = self.split_quotient_polynomial(prng, &quot_poly, num_wire_types)?;
+        let split_quot_polys =
+            self.split_quotient_polynomial(prng, &quot_poly, num_wire_types, blind)?;
         let split_quot_poly_comms = cfg_iter!(split_quot_polys)
             .map(|split_quot_poly| PCS::commit(ck, split_quot_poly))
             .collect::<Result<Vec<PCS::Commitment>, _>>()?;
@@ -1125,8 +1128,9 @@ where
         prng: &mut R,
         quot_poly: &DensePolynomial<P::ScalarField>,
         num_wire_types: usize,
+        blind: bool,
     ) -> Result<Vec<DensePolynomial<P::ScalarField>>, PlonkError> {
-        let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
+        let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types, blind);
         if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
         }
@@ -1358,8 +1362,12 @@ where
 }
 
 #[inline]
-fn quotient_polynomial_degree(domain_size: usize, num_wire_types: usize) -> usize {
-    num_wire_types * (domain_size + 1) + 2
+fn quotient_polynomial_degree(domain_size: usize, num_wire_types: usize, blind: bool) -> usize {
+    if blind {
+        num_wire_types * (domain_size + 1) + 2
+    } else {
+        num_wire_types * (domain_size - 1) - 1
+    }
 }
 
 #[cfg(test)]
@@ -1393,7 +1401,7 @@ mod test {
         let bad_quot_poly =
             <DensePolynomial<E::ScalarField> as DenseUVPolynomial<E::ScalarField>>::rand(25, rng);
         assert!(prover
-            .split_quotient_polynomial(rng, &bad_quot_poly, GATE_WIDTH + 1)
+            .split_quotient_polynomial(rng, &bad_quot_poly, GATE_WIDTH + 1, true)
             .is_err());
         Ok(())
     }

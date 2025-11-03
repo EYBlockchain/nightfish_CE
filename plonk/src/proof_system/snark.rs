@@ -344,6 +344,7 @@ where
             &challenges,
             &online_oracles,
             num_wire_types,
+            blind,
         )?;
 
         for split_quot_poly_comm in split_quot_poly_comms.iter() {
