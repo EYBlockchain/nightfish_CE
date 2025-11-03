@@ -1225,6 +1225,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     .expect("base_vars_pair length verified by chunks_exact"),
                 &bn254_vks[0],
                 circuit,
+                true,
             )
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
@@ -1247,6 +1248,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     .expect("vk_vars_pair length verified by chunks_exact"),
                 max_domain_size,
                 circuit,
+                true,
             )
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
@@ -1694,6 +1696,7 @@ pub fn decider_circuit(
                 .expect("base_vars_pair length verified by chunks_exact"),
             vk_bn254,
             circuit,
+            true,
         )
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;

@@ -1007,6 +1007,7 @@ mod test {
                 &Some(lookup_evals),
                 &vk.k,
                 verifier.domain.size as usize,
+                true,
             )?;
 
             let real_scalars = pcs_info.comm_scalars_and_bases.scalars.clone();
@@ -1085,6 +1086,7 @@ mod test {
             &Some(lookup_evals),
             &vk_k,
             1 << 15,
+            true,
         )
         .unwrap();
 

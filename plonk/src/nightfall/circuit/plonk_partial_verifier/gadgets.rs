@@ -30,6 +30,7 @@ use super::{
 };
 
 /// Function to compute the scalars used in partial verification over the native field
+#[allow(clippy::too_many_arguments)]
 pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
     pi: &Variable,
@@ -38,6 +39,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     lookup_evals: &Option<PlookupEvalsVarNative>,
     vk_k: &[F],
     domain_size: usize,
+    blind: bool,
 ) -> Result<Vec<Variable>, CircuitError> {
     // In lookup scalars are combined in the order
     // zeta: w[0], w[1], w[2], w[5], sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], q_dom_sep, pi_eval
@@ -79,6 +81,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
         proof_evals,
         lookup_evals,
         &domain.group_gen_inv,
+        blind,
     )?;
 
     if lookup_evals.is_none() {
@@ -269,6 +272,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
 }
 
 /// Function to compute the scalars used in partial verification over the native field
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
     pi: &Variable,
@@ -277,6 +281,7 @@ pub(crate) fn compute_scalars_for_native_field_base<F: PrimeField + RescueParame
     lookup_evals: &Option<PlookupEvalsVarNative>,
     vk_var: &VerifyingKeyNativeScalarsVar,
     max_domain_size: usize,
+    blind: bool,
 ) -> Result<Vec<Variable>, CircuitError> {
     // In lookup scalars are combined in the order
     // zeta: w[0], w[1], w[2], w[5], sigma[0], sigma[1], sigma[2], sigma[3], sigma[4], q_dom_sep, pi_eval
@@ -325,6 +330,7 @@ pub(crate) fn compute_scalars_for_native_field_base<F: PrimeField + RescueParame
         proof_evals,
         lookup_evals,
         &gen_inv_var,
+        blind,
     )?;
 
     if lookup_evals.is_none() {
