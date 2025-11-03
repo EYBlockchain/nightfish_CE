@@ -23,6 +23,7 @@ use ark_poly::{
 use ark_std::{
     cfg_iter,
     collections::BTreeMap,
+    iter::repeat,
     ops::Neg,
     rand::{CryptoRng, RngCore},
     string::ToString,
@@ -1135,43 +1136,50 @@ where
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
         }
         let n = self.domain.size();
+        // Each polynomial chunk has degree n+1 (blinding case) or n-1 (non-blinding case).
+        // We add 1 to retrieve the number of coefficients.
+        let num_coeffs = n + 2 * blind as usize;
+        // We pad the coeffs vec with zeroes to make its length num_wire_types * num_coeffs.
+        let padded_coeffs_iter = quot_poly.coeffs.iter()
+            .cloned() // yield actual coeffs
+            .chain(repeat(P::ScalarField::zero()).take(num_wire_types * num_coeffs - quot_poly.coeffs.len()));
         // compute the splitting polynomials t'_i(X) s.t. t(X) =
         // \sum_{i=0}^{num_wire_types} X^{i*(n+2)} * t'_i(X)
         let mut split_quot_polys: Vec<DensePolynomial<P::ScalarField>> =
             parallelizable_slice_iter(&(0..num_wire_types).collect::<Vec<_>>())
                 .map(|&i| {
-                    let end = if i < num_wire_types - 1 {
-                        (i + 1) * (n + 2)
-                    } else {
-                        quot_poly.degree() + 1
-                    };
-                    // Degree-(n+1) polynomial has n + 2 coefficients.
-                    DensePolynomial::<P::ScalarField>::from_coefficients_slice(
-                        &quot_poly.coeffs[i * (n + 2)..end],
-                    )
+                    let coeff_chunk: Vec<P::ScalarField> = padded_coeffs_iter
+                        .clone() // clone the iterator state, cheap (since it's lazy)
+                        .skip(i * num_coeffs)
+                        .take(num_coeffs)
+                        .collect();
+                    // Degree-(n+1) polynomial has n + 2 coefficients (blinding case)
+                    // Degree-(n-1) polynomial has n coefficients (non-blinding case)
+                    DensePolynomial::<P::ScalarField>::from_coefficients_slice(&coeff_chunk)
                 })
                 .collect();
+        // Apply blinding to the splitting polynomials if required.
+        if blind {
+            // mask splitting polynomials t_i(X), for i in {0..num_wire_types}.
+            // t_i(X) = t'_i(X) - b_last_i + b_now_i * X^(n+2)
+            // with t_lowest_i(X) = t_lowest_i(X) - 0 + b_now_i * X^(n+2)
+            // and t_highest_i(X) = t_highest_i(X) - b_last_i
+            let mut last_randomizer = P::ScalarField::zero();
+            split_quot_polys
+                .iter_mut()
+                .take(num_wire_types - 1)
+                .for_each(|poly| {
+                    let now_randomizer = P::ScalarField::rand(prng);
 
-        // mask splitting polynomials t_i(X), for i in {0..num_wire_types}.
-        // t_i(X) = t'_i(X) - b_last_i + b_now_i * X^(n+2)
-        // with t_lowest_i(X) = t_lowest_i(X) - 0 + b_now_i * X^(n+2)
-        // and t_highest_i(X) = t_highest_i(X) - b_last_i
-        let mut last_randomizer = P::ScalarField::zero();
-        split_quot_polys
-            .iter_mut()
-            .take(num_wire_types - 1)
-            .for_each(|poly| {
-                let now_randomizer = P::ScalarField::rand(prng);
+                    poly.coeffs[0] -= last_randomizer;
+                    assert_eq!(poly.degree(), n + 1);
+                    poly.coeffs.push(now_randomizer);
 
-                poly.coeffs[0] -= last_randomizer;
-                assert_eq!(poly.degree(), n + 1);
-                poly.coeffs.push(now_randomizer);
-
-                last_randomizer = now_randomizer;
-            });
-        // mask the highest splitting poly
-        split_quot_polys[num_wire_types - 1].coeffs[0] -= last_randomizer;
-
+                    last_randomizer = now_randomizer;
+                });
+            // mask the highest splitting poly
+            split_quot_polys[num_wire_types - 1].coeffs[0] -= last_randomizer;
+        }
         Ok(split_quot_polys)
     }
 
