@@ -604,7 +604,7 @@ mod tests {
                     .iter()
                     .map(|circuit| {
                         MLEPlonk::<Zmorph>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            rng, circuit, &pk, None,
+                            rng, circuit, &pk, None, false,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?

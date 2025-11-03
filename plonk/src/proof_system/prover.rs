@@ -77,11 +77,18 @@ impl<E: Pairing> Prover<E> {
         prng: &mut R,
         ck: &CommitKey<E>,
         cs: &C,
+        blind: bool,
     ) -> Result<(CommitmentsAndPolys<E>, DensePolynomial<E::ScalarField>), PlonkError> {
         let wire_polys: Vec<DensePolynomial<E::ScalarField>> = cs
             .compute_wire_polynomials()?
             .into_iter()
-            .map(|poly| self.mask_polynomial(prng, poly, 1))
+            .map(|poly| {
+                if blind {
+                    self.mask_polynomial(prng, poly, 1)
+                } else {
+                    poly
+                }
+            })
             .collect();
         let wires_poly_comms = UnivariateKzgPCS::batch_commit(ck, &wire_polys)?;
         let pub_input_poly = cs.compute_pub_input_polynomial()?;
@@ -103,6 +110,7 @@ impl<E: Pairing> Prover<E> {
         ck: &CommitKey<E>,
         cs: &C,
         tau: E::ScalarField,
+        blind: bool,
     ) -> Result<
         (
             CommitmentsAndPolys<E>,
@@ -112,10 +120,12 @@ impl<E: Pairing> Prover<E> {
         PlonkError,
     > {
         let merged_lookup_table = cs.compute_merged_lookup_table(tau)?;
-        let (sorted_vec, h_1_poly, h_2_poly) =
+        let (sorted_vec, mut h_1_poly, mut h_2_poly) =
             cs.compute_lookup_sorted_vec_polynomials(tau, &merged_lookup_table)?;
-        let h_1_poly = self.mask_polynomial(prng, h_1_poly, 2);
-        let h_2_poly = self.mask_polynomial(prng, h_2_poly, 2);
+        if blind {
+            h_1_poly = self.mask_polynomial(prng, h_1_poly, 2);
+            h_2_poly = self.mask_polynomial(prng, h_2_poly, 2);
+        }
         let h_polys = vec![h_1_poly, h_2_poly];
         let h_poly_comms = UnivariateKzgPCS::batch_commit(ck, &h_polys)?;
         Ok(((h_poly_comms, h_polys), sorted_vec, merged_lookup_table))
@@ -129,12 +139,13 @@ impl<E: Pairing> Prover<E> {
         ck: &CommitKey<E>,
         cs: &C,
         challenges: &Challenges<E::ScalarField>,
+        blind: bool,
     ) -> Result<(Commitment<E>, DensePolynomial<E::ScalarField>), PlonkError> {
-        let prod_perm_poly = self.mask_polynomial(
-            prng,
-            cs.compute_prod_permutation_polynomial(&challenges.beta, &challenges.gamma)?,
-            2,
-        );
+        let mut prod_perm_poly =
+            cs.compute_prod_permutation_polynomial(&challenges.beta, &challenges.gamma)?;
+        if blind {
+            prod_perm_poly = self.mask_polynomial(prng, prod_perm_poly, 2);
+        }
         let prod_perm_comm = UnivariateKzgPCS::commit(ck, &prod_perm_poly)?;
         Ok((prod_perm_comm, prod_perm_poly))
     }
@@ -142,6 +153,7 @@ impl<E: Pairing> Prover<E> {
     /// Round 2.5 (Plookup): Compute and commit the Plookup grand product
     /// polynomial. Return the grand product polynomial and its commitment.
     /// `cs` is guaranteed to support lookup
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_plookup_2nd_round<
         C: Arithmetization<E::ScalarField>,
         R: CryptoRng + RngCore,
@@ -153,6 +165,7 @@ impl<E: Pairing> Prover<E> {
         challenges: &Challenges<E::ScalarField>,
         merged_lookup_table: Option<&Vec<E::ScalarField>>,
         sorted_vec: Option<&Vec<E::ScalarField>>,
+        blind: bool,
     ) -> Result<(Commitment<E>, DensePolynomial<E::ScalarField>), PlonkError> {
         if sorted_vec.is_none() {
             return Err(
@@ -160,17 +173,16 @@ impl<E: Pairing> Prover<E> {
             );
         }
 
-        let prod_lookup_poly = self.mask_polynomial(
-            prng,
-            cs.compute_lookup_prod_polynomial(
-                &challenges.tau,
-                &challenges.beta,
-                &challenges.gamma,
-                merged_lookup_table.unwrap(),
-                sorted_vec.unwrap(),
-            )?,
-            2,
-        );
+        let mut prod_lookup_poly = cs.compute_lookup_prod_polynomial(
+            &challenges.tau,
+            &challenges.beta,
+            &challenges.gamma,
+            merged_lookup_table.unwrap(),
+            sorted_vec.unwrap(),
+        )?;
+        if blind {
+            prod_lookup_poly = self.mask_polynomial(prng, prod_lookup_poly, 2);
+        }
         let prod_lookup_comm = UnivariateKzgPCS::commit(ck, &prod_lookup_poly)?;
         Ok((prod_lookup_comm, prod_lookup_poly))
     }

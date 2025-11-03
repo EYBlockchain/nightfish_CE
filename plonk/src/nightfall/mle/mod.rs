@@ -94,6 +94,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         C: Arithmetization<
@@ -102,6 +103,11 @@ where
         R: ark_std::rand::prelude::CryptoRng + ark_std::rand::prelude::RngCore,
         T: Transcript,
     {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         Self::prove::<_, _, _, T>(circuit, prove_key)
     }
 
@@ -141,6 +147,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<crate::proof_system::RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,
@@ -151,6 +158,11 @@ where
         R: CryptoRng + RngCore,
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
         let pi_hash = circuit.public_input()?[0];
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))

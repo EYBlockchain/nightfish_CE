@@ -100,14 +100,20 @@ where
         circuits: &C,
         prove_keys: &ProvingKey<PCS>,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Proof<PCS>, PlonkError>
     where
         C: Arithmetization<P::ScalarField>,
         R: CryptoRng + RngCore,
         T: Transcript,
     {
-        let (proof, ..) =
-            Self::prove_internal::<_, _, T>(prng, circuits, prove_keys, extra_transcript_init_msg)?;
+        let (proof, ..) = Self::prove_internal::<_, _, T>(
+            prng,
+            circuits,
+            prove_keys,
+            extra_transcript_init_msg,
+            blind,
+        )?;
         Ok(proof)
     }
 
@@ -174,6 +180,7 @@ where
         circuits: &C,
         prove_keys: &ProvingKey<PCS>,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<
         (
             Proof<PCS>,
@@ -213,7 +220,7 @@ where
         // Round 1
 
         let ((wires_poly_comms, wire_polys), pi_poly) =
-            prover.run_1st_round(prng, &prove_keys.commit_key, circuits)?;
+            prover.run_1st_round(prng, &prove_keys.commit_key, circuits, blind)?;
         online_oracles.wire_polys = wire_polys;
         online_oracles.pub_inp_poly = pi_poly;
 
@@ -226,7 +233,13 @@ where
 
         let (sorted_vec, h_poly_comms, merged_table) = if circuits.support_lookup() {
             let ((h_poly_comms, h_polys), sorted_vec, merged_table) = prover
-                .run_plookup_1st_round(prng, &prove_keys.commit_key, circuits, challenges.tau)?;
+                .run_plookup_1st_round(
+                    prng,
+                    &prove_keys.commit_key,
+                    circuits,
+                    challenges.tau,
+                    blind,
+                )?;
             online_oracles.plookup_oracles.h_polys = h_polys;
 
             transcript.append_curve_points(b"h_poly_comms", &h_poly_comms)?;
@@ -247,7 +260,7 @@ where
         challenges.beta = beta;
         challenges.gamma = gamma;
         let (prod_perm_poly_comm, prod_perm_poly) =
-            prover.run_2nd_round(prng, &prove_keys.commit_key, circuits, &challenges)?;
+            prover.run_2nd_round(prng, &prove_keys.commit_key, circuits, &challenges, blind)?;
         online_oracles.prod_perm_poly = prod_perm_poly;
         transcript.append_curve_point(b"perm_poly_comms", &prod_perm_poly_comm)?;
 
@@ -262,6 +275,7 @@ where
                 &challenges,
                 merged_table.as_ref(),
                 sorted_vec.as_ref(),
+                blind,
             )?;
             online_oracles.plookup_oracles.prod_lookup_poly = prod_lookup_poly;
             transcript.append_curve_point(b"plookup_poly_comms", &prod_lookup_poly_comm)?;
@@ -392,6 +406,7 @@ where
         circuits: &C,
         prove_keys: &ProvingKey<PCS>,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<InternalRecursionOutput<PCS, T>, PlonkError>
     where
         PCS: PolynomialCommitmentScheme<Proof: TranscriptVisitor>,
@@ -428,7 +443,7 @@ where
 
         // Round 1
         let ((wires_poly_comms, wire_polys), pi_poly) =
-            prover.run_1st_round(prng, &prove_keys.commit_key, circuits)?;
+            prover.run_1st_round(prng, &prove_keys.commit_key, circuits, blind)?;
         online_oracles.wire_polys = wire_polys;
         online_oracles.pub_inp_poly = pi_poly;
 
@@ -442,7 +457,13 @@ where
 
         let (sorted_vec, h_poly_comms, merged_table) = if circuits.support_lookup() {
             let ((h_poly_comms, h_polys), sorted_vec, merged_table) = prover
-                .run_plookup_1st_round(prng, &prove_keys.commit_key, circuits, challenges.tau)?;
+                .run_plookup_1st_round(
+                    prng,
+                    &prove_keys.commit_key,
+                    circuits,
+                    challenges.tau,
+                    blind,
+                )?;
             online_oracles.plookup_oracles.h_polys = h_polys;
 
             transcript.append_curve_points(b"h_poly_comms", &h_poly_comms)?;
@@ -463,7 +484,7 @@ where
         challenges.beta = beta;
         challenges.gamma = gamma;
         let (prod_perm_poly_comm, prod_perm_poly) =
-            prover.run_2nd_round(prng, &prove_keys.commit_key, circuits, &challenges)?;
+            prover.run_2nd_round(prng, &prove_keys.commit_key, circuits, &challenges, blind)?;
         online_oracles.prod_perm_poly = prod_perm_poly;
         transcript.append_curve_point(b"perm_poly_comms", &prod_perm_poly_comm)?;
 
@@ -478,6 +499,7 @@ where
                 &challenges,
                 merged_table.as_ref(),
                 sorted_vec.as_ref(),
+                blind,
             )?;
             online_oracles.plookup_oracles.prod_lookup_poly = prod_lookup_poly;
             transcript.append_curve_point(b"plookup_poly_comms", &prod_lookup_poly_comm)?;
@@ -732,14 +754,20 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         C: Arithmetization<P::ScalarField>,
         R: CryptoRng + RngCore,
         T: Transcript,
     {
-        let (proof, _, _) =
-            Self::prove_internal::<_, _, T>(rng, circuit, prove_key, extra_transcript_init_msg)?;
+        let (proof, _, _) = Self::prove_internal::<_, _, T>(
+            rng,
+            circuit,
+            prove_key,
+            extra_transcript_init_msg,
+            blind,
+        )?;
         Ok(Proof {
             wires_poly_comms: proof.wires_poly_comms.clone(),
             prod_perm_poly_comm: proof.prod_perm_poly_comm,
@@ -785,6 +813,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,
@@ -800,6 +829,7 @@ where
             circuit,
             prove_key,
             extra_transcript_init_msg,
+            blind,
         )?;
 
         let pi_hash = circuit.public_input()?[0];
@@ -1138,7 +1168,8 @@ pub mod test {
                 Some(format!("extra message: {}", i).into_bytes())
             };
             proofs.push(
-                FFTPlonk::<PCS>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone()).unwrap(),
+                FFTPlonk::<PCS>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), true)
+                    .unwrap(),
             );
             extra_msgs.push(extra_msg);
         }
@@ -1244,8 +1275,14 @@ pub mod test {
             };
             public_inputs.push(cs.public_input().unwrap());
             proofs.push(
-                FFTPlonk::<PCS>::recursive_prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone())
-                    .unwrap(),
+                FFTPlonk::<PCS>::recursive_prove::<_, _, T>(
+                    rng,
+                    cs,
+                    pk_ref,
+                    extra_msg.clone(),
+                    true,
+                )
+                .unwrap(),
             );
             extra_msgs.push(extra_msg);
         }
@@ -1368,8 +1405,8 @@ pub mod test {
         let (pk2, vk2) = FFTPlonk::<PCS>::preprocess(&srs, vk_id, &cs2)?;
 
         // 4. Proving
-        assert!(FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk1, None).is_err());
-        let proof2 = FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk2, None)?;
+        assert!(FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk1, None, true).is_err());
+        let proof2 = FFTPlonk::<PCS>::prove::<_, _, T>(rng, &cs2, &pk2, None, true)?;
 
         // 5. Verification
         assert!(
@@ -1450,7 +1487,7 @@ pub mod test {
 
         // 4. Proving
         let (_, oracles, challenges) =
-            FFTPlonk::<PCS>::prove_internal::<_, _, T>(rng, &circuit, &pk, None)?;
+            FFTPlonk::<PCS>::prove_internal::<_, _, T>(rng, &circuit, &pk, None, true)?;
 
         // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
         check_plonk_prover_polynomials(plonk_type, &oracles, &pk, &challenges)?;

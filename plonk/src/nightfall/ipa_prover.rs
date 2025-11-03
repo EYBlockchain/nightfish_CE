@@ -94,11 +94,18 @@ where
         prng: &mut R,
         ck: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         cs: &C,
+        blind: bool,
     ) -> Result<(CommitmentsAndPolys<PCS>, DensePolynomial<P::ScalarField>), PlonkError> {
         let wire_polys: Vec<DensePolynomial<P::ScalarField>> = cs
             .compute_wire_polynomials()?
             .into_iter()
-            .map(|poly| self.mask_polynomial(prng, poly, 1))
+            .map(|poly| {
+                if blind {
+                    self.mask_polynomial(prng, poly, 1)
+                } else {
+                    poly
+                }
+            })
             .collect();
         let wires_poly_comms = cfg_iter!(wire_polys)
             .map(|wire_poly| PCS::commit(ck, wire_poly))
@@ -122,6 +129,7 @@ where
         ck: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         cs: &C,
         tau: P::ScalarField,
+        blind: bool,
     ) -> Result<
         (
             CommitmentsAndPolys<PCS>,
@@ -131,10 +139,12 @@ where
         PlonkError,
     > {
         let merged_lookup_table = cs.compute_merged_lookup_table(tau)?;
-        let (sorted_vec, h_1_poly, h_2_poly) =
+        let (sorted_vec, mut h_1_poly, mut h_2_poly) =
             cs.compute_lookup_sorted_vec_polynomials(tau, &merged_lookup_table)?;
-        let h_1_poly = self.mask_polynomial(prng, h_1_poly, 2);
-        let h_2_poly = self.mask_polynomial(prng, h_2_poly, 2);
+        if blind {
+            h_1_poly = self.mask_polynomial(prng, h_1_poly, 2);
+            h_2_poly = self.mask_polynomial(prng, h_2_poly, 2);
+        }
         let h_polys = vec![h_1_poly, h_2_poly];
         let h_poly_comms = h_polys
             .iter()
@@ -151,12 +161,13 @@ where
         ck: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         cs: &C,
         challenges: &Challenges<P::ScalarField>,
+        blind: bool,
     ) -> Result<(PCS::Commitment, DensePolynomial<P::ScalarField>), PlonkError> {
-        let prod_perm_poly = self.mask_polynomial(
-            prng,
-            cs.compute_prod_permutation_polynomial(&challenges.beta, &challenges.gamma)?,
-            2,
-        );
+        let mut prod_perm_poly =
+            cs.compute_prod_permutation_polynomial(&challenges.beta, &challenges.gamma)?;
+        if blind {
+            prod_perm_poly = self.mask_polynomial(prng, prod_perm_poly, 2);
+        };
         let prod_perm_comm = PCS::commit(ck, &prod_perm_poly)?;
         Ok((prod_perm_comm, prod_perm_poly))
     }
@@ -164,6 +175,7 @@ where
     /// Round 2.5 (Plookup): Compute and commit the Plookup grand product
     /// polynomial. Return the grand product polynomial and its commitment.
     /// `cs` is guaranteed to support lookup
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_plookup_2nd_round<
         C: Arithmetization<P::ScalarField>,
         R: CryptoRng + RngCore,
@@ -175,6 +187,7 @@ where
         challenges: &Challenges<P::ScalarField>,
         merged_lookup_table: Option<&Vec<P::ScalarField>>,
         sorted_vec: Option<&Vec<P::ScalarField>>,
+        blind: bool,
     ) -> Result<(PCS::Commitment, DensePolynomial<P::ScalarField>), PlonkError> {
         if sorted_vec.is_none() {
             return Err(
@@ -182,17 +195,16 @@ where
             );
         }
 
-        let prod_lookup_poly = self.mask_polynomial(
-            prng,
-            cs.compute_lookup_prod_polynomial(
-                &challenges.tau,
-                &challenges.beta,
-                &challenges.gamma,
-                merged_lookup_table.unwrap(),
-                sorted_vec.unwrap(),
-            )?,
-            2,
-        );
+        let mut prod_lookup_poly = cs.compute_lookup_prod_polynomial(
+            &challenges.tau,
+            &challenges.beta,
+            &challenges.gamma,
+            merged_lookup_table.unwrap(),
+            sorted_vec.unwrap(),
+        )?;
+        if blind {
+            prod_lookup_poly = self.mask_polynomial(prng, prod_lookup_poly, 2);
+        };
         let prod_lookup_comm = PCS::commit(ck, &prod_lookup_poly)?;
         Ok((prod_lookup_comm, prod_lookup_poly))
     }

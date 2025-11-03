@@ -745,7 +745,7 @@ mod tests {
 
             proofs.push(
                 MLEPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
-                    rng, cs, pk_ref, None,
+                    rng, cs, pk_ref, None, false,
                 )
                 .unwrap(),
             );
@@ -898,7 +898,7 @@ mod tests {
                     .iter()
                     .map(|circuit| {
                         MLEPlonk::<Zmorph>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            rng, circuit, &pk, None,
+                            rng, circuit, &pk, None, false,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?
