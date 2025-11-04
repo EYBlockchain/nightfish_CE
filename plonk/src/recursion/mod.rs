@@ -213,7 +213,7 @@ pub trait RecursiveProver {
                     &circuit,
                     base_grumpkin_pk,
                     None,
-                    true,
+                    false,
                 )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
@@ -345,7 +345,7 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None, true)
+                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None, false)
             })
             .collect::<Result<Vec<Bn254Output>, PlonkError>>()?
             .try_into()
@@ -417,7 +417,7 @@ pub trait RecursiveProver {
                     &circuit,
                     merge_grumpkin_pk,
                     None,
-                    true,
+                    false,
                 )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
@@ -489,7 +489,7 @@ pub trait RecursiveProver {
                     &circuit,
                     merge_grumpkin_pk,
                     None,
-                    true,
+                    false,
                 )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
@@ -653,7 +653,7 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
         let base_bn254_circuit = &base_bn254_out[0].0;
         let (base_bn254_pk, _) =
-            FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit, true)?;
+            FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit, false)?;
         Self::store_base_bn254_pk(base_bn254_pk.clone()).ok_or(PlonkError::InvalidParameters(
             "Could not store base Bn254 proving key".to_string(),
         ))?;
@@ -742,7 +742,7 @@ pub trait RecursiveProver {
 
             let bn254_circuit = &current_bn254_out[0].0;
             let (new_bn254_pk, _) =
-                FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit, true)?;
+                FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit, false)?;
             merge_bn254_pks.push(new_bn254_pk.clone());
             current_bn254_pk = new_bn254_pk;
         }
@@ -790,7 +790,7 @@ pub trait RecursiveProver {
         )?;
 
         let (decider_pk, decider_vk) =
-            PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit, true)?;
+            PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit, false)?;
 
         Self::store_merge_grumpkin_pks(merge_grumpkin_pks).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Grumpkin proving key".to_string(),
@@ -813,7 +813,6 @@ pub trait RecursiveProver {
         specific_pi: &[Vec<Fr254>],
         extra_decider_info: &[Fr254],
         extra_base_info: &[Vec<Fr254>],
-        blind: bool,
     ) -> Result<RecursiveProof, PlonkError> {
         // First check that we have the same number of outputs and pi's and that they are also non-zero in length
         if outputs_and_circuit_type.len() != specific_pi.len() {
@@ -1029,7 +1028,7 @@ pub trait RecursiveProver {
             &circuit,
             &decider_pk,
             None,
-            blind,
+            false,
         )?;
 
         Ok(RecursiveProof {
@@ -1352,6 +1351,7 @@ mod tests {
         let ipa_srs: UnivariateUniversalIpaParams<Grumpkin> =
             Zmorph::gen_srs_for_testing(rng, 18).unwrap();
 
+        // The client proofs always include blinding.
         let (pk_one, input_vk_one) = FFTPlonk::<Kzg>::preprocess(
             &kzg_srs,
             Some(VerificationKeyId::Client),
@@ -1624,7 +1624,6 @@ mod tests {
                 prove_inputs.len() / 4
             ]
             .as_slice(),
-            true,
         )?;
         ark_std::println!(
             "Time taken to generate 64 recursive proofs: {:?}",
@@ -1645,7 +1644,7 @@ mod tests {
             &[pi_hash],
             &proof.proof,
             None,
-            true,
+            false,
         )
         .is_ok());
         Ok(())

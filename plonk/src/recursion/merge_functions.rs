@@ -434,6 +434,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     // In particular, the bases are stored as `Variable`s in the circuit, as we
     // need to reuse them later in the circuit and in the next circuit.
     // We also prepare the relevant info from each of the proofs.
+    // If this is the first round, the incoming proof will include blinding.
     let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = bn254info.bn254_outputs.iter()
         .zip(vk_bases_var.iter())
         .map(|(output, vk)| {
@@ -444,7 +445,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 output,
                 &None,
                 circuit,
-                true,
+                IS_FIRST_ROUND,
             )
         })
         .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
@@ -1202,6 +1203,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
     };
 
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
+    // If this is the first round, the incoming proof will include blinding.
     let recursion_scalars = if !IS_BASE {
         if bn254_vks[0] != bn254_vks[1]
             || bn254_vks[0] != bn254_vks[2]
@@ -1225,7 +1227,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     .expect("base_vars_pair length verified by chunks_exact"),
                 &bn254_vks[0],
                 circuit,
-                true,
+                false,
             )
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
@@ -1682,6 +1684,7 @@ pub fn decider_circuit(
         })?;
 
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
+    // As we're in the decider circuit, the incoming proof will not include blinding.
     let recursion_scalars = izip!(
         output_scalar_vars.chunks_exact(2),
         output_base_vars.chunks_exact(2),
@@ -1696,7 +1699,7 @@ pub fn decider_circuit(
                 .expect("base_vars_pair length verified by chunks_exact"),
             vk_bn254,
             circuit,
-            true,
+            false,
         )
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
