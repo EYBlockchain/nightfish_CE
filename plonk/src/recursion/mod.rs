@@ -447,6 +447,14 @@ pub trait RecursiveProver {
             &mut circuit,
         )?;
 
+        #[cfg(test)]
+        {
+            ark_std::println!(
+                "merge bn254 circuit size pre-finalize: {}",
+                circuit.num_gates()
+            );
+        }
+
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
         // Run the following code only when testing
@@ -1315,7 +1323,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Only run this test on powerful machines"]
+    //#[ignore = "Only run this test on powerful machines"]
     #[allow(clippy::type_complexity)]
     fn test_preprocess_and_prove() -> Result<(), PlonkError> {
         let now = ark_std::time::Instant::now();
