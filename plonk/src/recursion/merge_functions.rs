@@ -307,7 +307,7 @@ impl GrumpkinRecursiveInfo {
                     proof_num_vars,
                     evals,
                 ));
-                acc.point.push(Fq254::zero());
+                acc.point.resize(proof_num_vars, Fq254::zero());
             });
         }
         let transcript_accumulators = [ta0, ta1, ta2, ta3, ta4, ta5, ta6, ta7];
