@@ -133,13 +133,13 @@ macro_rules! plonk_prove_bench {
         let srs =
             PlonkKzgSnark::<$bench_curve>::universal_setup_for_testing(max_degree, rng).unwrap();
 
-        let (pk, _) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
+        let (pk, _) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs, true).unwrap();
 
         let start = Instant::now();
 
         for _ in 0..NUM_REPETITIONS {
             let _ = PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
-                rng, &cs, &pk, None,
+                rng, &cs, &pk, None, true,
             )
             .unwrap();
         }
@@ -159,11 +159,13 @@ fn ipa_prove_turbo_benchmark(c: &mut Criterion) {
 
     let max_degree = NUM_GATES_LARGE + 2;
     let srs = PlonkIpaSnark::<Bls12_377>::universal_setup_for_testing(max_degree, rng).unwrap();
-    let (pk, _) = PlonkIpaSnark::<Bls12_377>::preprocess(&srs, None, &circuit).unwrap();
+    let (pk, _) = PlonkIpaSnark::<Bls12_377>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Ipa plonk prove", |b| {
         b.iter(|| {
-            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None);
+            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(
+                rng, &circuit, &pk, None, true,
+            );
         })
     });
 }
@@ -174,11 +176,13 @@ fn ipa_prove_ultra_benchmark(c: &mut Criterion) {
 
     let max_degree = NUM_GATES_LARGE + 2;
     let srs = PlonkIpaSnark::<Bls12_377>::universal_setup_for_testing(max_degree, rng).unwrap();
-    let (pk, _) = PlonkIpaSnark::<Bls12_377>::preprocess(&srs, None, &circuit).unwrap();
+    let (pk, _) = PlonkIpaSnark::<Bls12_377>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Ipa ultraplonk prove", |b| {
         b.iter(|| {
-            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None);
+            PlonkIpaSnark::<Bls12_377>::prove::<_, _, StandardTranscript>(
+                rng, &circuit, &pk, None, true,
+            );
         })
     });
 }
@@ -189,12 +193,12 @@ fn kzg_prove_turbo_benchmark(c: &mut Criterion) {
 
     let max_degree = NUM_GATES_LARGE + 2;
     let srs = PlonkKzgSnark::<Bls12_377>::universal_setup_for_testing(max_degree, rng).unwrap();
-    let (pk, _) = PlonkKzgSnark::<Bls12_377>::preprocess(&srs, None, &circuit).unwrap();
+    let (pk, _) = PlonkKzgSnark::<Bls12_377>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Kzg plonk prove", |b| {
         b.iter(|| {
             PlonkKzgSnark::<Bls12_377>::prove::<_, _, RescueTranscript<Fq377>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });
@@ -206,12 +210,12 @@ fn kzg_prove_ultra_benchmark(c: &mut Criterion) {
 
     let max_degree = NUM_GATES_LARGE + 2;
     let srs = PlonkKzgSnark::<Bls12_377>::universal_setup_for_testing(max_degree, rng).unwrap();
-    let (pk, _) = PlonkKzgSnark::<Bls12_377>::preprocess(&srs, None, &circuit).unwrap();
+    let (pk, _) = PlonkKzgSnark::<Bls12_377>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Kzg ultraplonk prove", |b| {
         b.iter(|| {
             PlonkKzgSnark::<Bls12_377>::prove::<_, _, RescueTranscript<Fq377>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });
@@ -225,12 +229,12 @@ fn fftplonk_prove_turbo_benchmark(c: &mut Criterion) {
     let srs = FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::universal_setup_for_testing(max_degree, rng)
         .unwrap();
     let (pk, _) =
-        FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::preprocess(&srs, None, &circuit).unwrap();
+        FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Kzg FFT plonk prove", |b| {
         b.iter(|| {
             FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::prove::<_, _, RescueTranscript<Fq377>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });
@@ -244,12 +248,12 @@ fn fftplonk_prove_ultra_benchmark(c: &mut Criterion) {
     let srs = FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::universal_setup_for_testing(max_degree, rng)
         .unwrap();
     let (pk, _) =
-        FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::preprocess(&srs, None, &circuit).unwrap();
+        FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Kzg FFT ultraplonk prove", |b| {
         b.iter(|| {
             FFTPlonk::<UnivariateKzgPCS<Bls12_377>>::prove::<_, _, RescueTranscript<Fq377>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });
@@ -263,12 +267,13 @@ fn fftplonk_recursive_prove_ultra_benchmark(c: &mut Criterion) {
     let max_degree = NUM_GATES_LARGE + 2;
     let srs =
         FFTPlonk::<UnivariateKzgPCS<Bn254>>::universal_setup_for_testing(max_degree, rng).unwrap();
-    let (pk, _) = FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit).unwrap();
+    let (pk, _) =
+        FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true).unwrap();
 
     c.bench_function("Kzg FFT recursive ultraplonk prove", |b| {
         b.iter(|| {
             FFTPlonk::<UnivariateKzgPCS<Bn254>>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, true,
             );
         })
     });
@@ -390,12 +395,12 @@ macro_rules! plonk_ipa_prove_bench {
         let srs =
             PlonkIpaSnark::<$bench_curve>::universal_setup_for_testing(max_degree, rng).unwrap();
 
-        let (pk, _) = PlonkIpaSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
+        let (pk, _) = PlonkIpaSnark::<$bench_curve>::preprocess(&srs, None, &cs, true).unwrap();
         let start = Instant::now();
 
         for _ in 0..NUM_REPETITIONS {
             let _ = PlonkIpaSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
-                rng, &cs, &pk, None,
+                rng, &cs, &pk, None, true,
             )
             .unwrap();
         }
@@ -434,18 +439,24 @@ macro_rules! plonk_verify_bench {
         let srs =
             PlonkKzgSnark::<$bench_curve>::universal_setup_for_testing(max_degree, rng).unwrap();
 
-        let (pk, vk) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
+        let (pk, vk) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs, true).unwrap();
 
-        let proof =
-            PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(rng, &cs, &pk, None)
-                .unwrap();
+        let proof = PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
+            rng, &cs, &pk, None, true,
+        )
+        .unwrap();
 
         let start = Instant::now();
 
         for _ in 0..NUM_REPETITIONS {
-            let _ =
-                PlonkKzgSnark::<$bench_curve>::verify::<StandardTranscript>(&vk, &[], &proof, None)
-                    .unwrap();
+            let _ = PlonkKzgSnark::<$bench_curve>::verify::<StandardTranscript>(
+                &vk,
+                &[],
+                &proof,
+                None,
+                true,
+            )
+            .unwrap();
         }
 
         println!(
@@ -466,18 +477,24 @@ macro_rules! plonk_ipa_verify_bench {
         let srs =
             PlonkIpaSnark::<$bench_curve>::universal_setup_for_testing(max_degree, rng).unwrap();
 
-        let (pk, vk) = PlonkIpaSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
+        let (pk, vk) = PlonkIpaSnark::<$bench_curve>::preprocess(&srs, None, &cs, true).unwrap();
 
-        let proof =
-            PlonkIpaSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(rng, &cs, &pk, None)
-                .unwrap();
+        let proof = PlonkIpaSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
+            rng, &cs, &pk, None, true,
+        )
+        .unwrap();
 
         let start = Instant::now();
 
         for _ in 0..NUM_REPETITIONS {
-            let _ =
-                PlonkIpaSnark::<$bench_curve>::verify::<StandardTranscript>(&vk, &[], &proof, None)
-                    .unwrap();
+            let _ = PlonkIpaSnark::<$bench_curve>::verify::<StandardTranscript>(
+                &vk,
+                &[],
+                &proof,
+                None,
+                true,
+            )
+            .unwrap();
         }
 
         println!(
@@ -514,11 +531,12 @@ macro_rules! plonk_batch_verify_bench {
         let srs =
             PlonkKzgSnark::<$bench_curve>::universal_setup_for_testing(max_degree, rng).unwrap();
 
-        let (pk, vk) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs).unwrap();
+        let (pk, vk) = PlonkKzgSnark::<$bench_curve>::preprocess(&srs, None, &cs, true).unwrap();
 
-        let proof =
-            PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(rng, &cs, &pk, None)
-                .unwrap();
+        let proof = PlonkKzgSnark::<$bench_curve>::prove::<_, _, StandardTranscript>(
+            rng, &cs, &pk, None, true,
+        )
+        .unwrap();
 
         let vks = vec![&vk; $num_proofs];
         let pub_input = vec![];
@@ -533,6 +551,7 @@ macro_rules! plonk_batch_verify_bench {
                 &public_inputs_ref[..],
                 &proofs_ref,
                 &vec![None; vks.len()],
+                true,
             )
             .unwrap();
         }

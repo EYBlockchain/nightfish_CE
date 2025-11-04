@@ -813,7 +813,7 @@ pub mod test {
         circuit.finalize_for_arithmetization()?;
         Ok(circuit)
     }
-    /*#[test]
+    #[test]
     fn test_ptau_srs() {
         let srs_size = 6;
         let ptau_file_url = "https://pse-trusted-setup-ppot.s3.eu-central-1.amazonaws.com/pot28_0080/ppot_0080_10.ptau";
@@ -918,7 +918,7 @@ pub mod test {
         if Path::new(ptau_file_path).exists() {
             remove_file(ptau_file_path).expect("Failed to delete PTAU file");
         }
-    }*/
+    }
 
     #[test]
     fn test_preprocessing() -> Result<(), PlonkError> {
