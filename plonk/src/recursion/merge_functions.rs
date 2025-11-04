@@ -399,6 +399,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
+    let mut num_gates = circuit.num_gates();
     // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
     let vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
         // If this is the first round, we constrain the `VerifyingKeyBasesVar`s
@@ -432,6 +433,9 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok([vk_var.clone(), vk_var])
     }?;
 
+    ark_std::println!("num gates after vk bases var: {}", circuit.num_gates() - num_gates);
+    num_gates = circuit.num_gates();
+
     // We store the scalars and bases from the proofs into the relevant struct.
     // In particular, the bases are stored as `Variable`s in the circuit, as we
     // need to reuse them later in the circuit and in the next circuit.
@@ -451,6 +455,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
         .try_into()
         .map_err(|_| PlonkError::InvalidParameters("bn254_outputs must have length 2".to_string()))?;
+
+    ark_std::println!("num gates after prepare pcs info: {}", circuit.num_gates() - num_gates);
 
     let output_vars = output_pcs_info_var_pair
         .iter()
@@ -476,11 +482,15 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .take(6)
         .collect::<Vec<Fr254>>();
 
+    num_gates = circuit.num_gates();
+
     let (scalars, mut instance_base_vars) = if !IS_FIRST_ROUND {
         combine_fft_proof_scalars(&pcs_info_vars, &r_powers)
     } else {
         combine_fft_proof_scalars_round_one(&pcs_info_vars, &r_powers)
     };
+
+    ark_std::println!("num gates after combine fft proof scalars: {}", circuit.num_gates() - num_gates);
 
     // Construct variables representing the old accumulators.
     // In the case of the first round, these will be constrined to be constant.
@@ -535,11 +545,15 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
     let instance_scalar_vars = [scalar_vars.as_slice(), &proof_scalar_vars[2..]].concat();
 
+    num_gates = circuit.num_gates();
+
     let acc_instance = MultiScalarMultiplicationCircuit::<Fq254, BnConfig>::msm(
         circuit,
         &instance_base_vars,
         &instance_scalar_vars,
     )?;
+
+    ark_std::println!("num gates after msm for instance: {}", circuit.num_gates() - num_gates);
 
     // If this is the first round the first term in the MSM is potentially neutral.
     // We, therefore, add it manually after the MSM.
@@ -573,6 +587,8 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .map(|chals| MLEProofChallengesVar::from_struct(circuit, chals))
             .collect::<Result<Vec<MLEProofChallengesVar>, CircuitError>>()?;
 
+        num_gates = circuit.num_gates();
+
         let scalars_and_acc_evals: Vec<(Vec<Variable>, Vec<Variable>)> = izip!(
             bn254info.grumpkin_outputs.chunks_exact(2),
             old_pi_hashes.chunks_exact(2),
@@ -589,6 +605,9 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     vk_grumpkin,
                     circuit,
                 )?;
+
+                ark_std::println!("num gates after combine mle proof scalars: {}", circuit.num_gates() - num_gates);
+                num_gates = circuit.num_gates();
 
                 // Find the byte length of the scalar field (minus one).
                 let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
@@ -612,10 +631,15 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                     &[low_var, high_var, circuit.zero(), circuit.zero(), eval],
                     &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
                 )?;
+
+                ark_std::println!("num gates after enforce split acc eval: {}", circuit.num_gates() - num_gates);
+
                 Ok((scalars, vec![low_var, high_var]))
             },
         )
         .collect::<Result<Vec<(Vec<Variable>, Vec<Variable>)>, CircuitError>>()?;
+
+        num_gates = circuit.num_gates();
 
         let impl_pi_vars: Vec<Vec<Variable>> = bn254info
             .specific_pi
@@ -726,6 +750,9 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             },
         )
         .collect::<Result<Vec<Variable>, CircuitError>>()?;
+
+        ark_std::println!("num gates after pi hash calculations: {}", circuit.num_gates() - num_gates);
+
         // For checking correctness during testing
         #[cfg(test)]
         {
@@ -738,8 +765,12 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             }
         }
 
+        num_gates = circuit.num_gates();
+
         // Now do the specific pi checks.
         let specific_pi_vars: Vec<Variable> = specific_pi_fn(&impl_pi_vars, circuit)?;
+
+        ark_std::println!("num gates after specific pi fn: {}", circuit.num_gates() - num_gates);
 
         specific_pi_vars
             .iter()
