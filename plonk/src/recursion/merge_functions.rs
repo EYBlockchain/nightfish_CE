@@ -2201,13 +2201,13 @@ impl MLEProofChallengesVar {
         out.extend(plonk_challenges);
         out.extend_from_slice(&self.gkr_r_challenges);
         out.extend_from_slice(&self.gkr_lambda_challenges);
-        /*out.extend(
+        out.extend(
             self.gkr_sumcheck_challenges
                 .clone()
                 .into_iter()
                 .flatten()
                 .collect::<Vec<Variable>>(),
-        );*/
+        );
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<[Variable; 2]> = out
             .iter()
@@ -2229,13 +2229,13 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
         out.extend(plonk_challenges);
         out.extend_from_slice(&self.gkr_r_challenges);
         out.extend_from_slice(&self.gkr_lambda_challenges);
-        /*out.extend(
+        out.extend(
             self.gkr_sumcheck_challenges
                 .clone()
                 .into_iter()
                 .flatten()
                 .collect::<Vec<EmulatedVariable<Fq254>>>(),
-        );*/
+        );
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<_> = out
             .iter()
