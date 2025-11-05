@@ -104,6 +104,7 @@ impl FFTVerifier<Kzg> {
         output: &Bn254Output,
         extra_transcript_init_msg: &Option<Vec<u8>>,
         circuit: &mut PlonkCircuit<Fq254>,
+        blind: bool,
     ) -> Result<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>), PlonkError>
     where
         T: Transcript,
@@ -192,6 +193,7 @@ impl FFTVerifier<Kzg> {
             &lagrange_n_eval,
             &output_var,
             &alpha_powers,
+            blind,
         )?;
 
         let z_1_poly_eval = z_1_poly.evaluate(&challenges.u);
@@ -478,6 +480,7 @@ impl FFTVerifier<Kzg> {
         lagrange_n_eval: &Fr254,
         output_var: &Bn254OutputScalarsAndBasesVar,
         alpha_powers: &[Fr254],
+        blind: bool,
     ) -> Result<ScalarsAndBasesVar<Kzg>, PlonkError> {
         // compute constants that are being reused
         let beta_plus_one = Fr254::one() + challenges.beta;
@@ -556,7 +559,12 @@ impl FFTVerifier<Kzg> {
         }
 
         // Add splitted quotient commitments
-        let zeta_to_n_plus_2 = (Fr254::one() + vanish_eval) * challenges.zeta * challenges.zeta;
+        let zeta_to_n = Fr254::one() + vanish_eval;
+        let scalar = if blind {
+            zeta_to_n * challenges.zeta * challenges.zeta
+        } else {
+            zeta_to_n
+        };
         let mut coeff = vanish_eval.neg();
         scalars_and_bases_var.push(
             coeff,
@@ -567,7 +575,7 @@ impl FFTVerifier<Kzg> {
                 .ok_or(PlonkError::IndexError)?,
         );
         for poly in output_var.proof.split_quot_poly_comms.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= scalar;
             scalars_and_bases_var.push(coeff, *poly);
         }
 
@@ -722,32 +730,34 @@ mod tests {
 
     use super::*;
     use ark_bn254::Bn254;
+    use itertools::izip;
     use jf_primitives::pcs::prelude::UnivariateKzgPCS;
     use jf_relation::{Arithmetization, PlonkType};
 
     #[test]
     fn test_prepare_pcs_info_with_bases_var() -> Result<(), PlonkError> {
         let rng = &mut jf_utils::test_rng();
-        for (m, vk_id) in (2..8).zip(
+        for (m, vk_id, blind) in izip!(
+            (2..8),
             [
                 Some(VerificationKeyId::Client),
                 Some(VerificationKeyId::Deposit),
                 None,
-            ]
-            .iter(),
+            ],
+            [true, false],
         ) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let pi = circuit.public_input()?[0];
 
-            let srs_size = circuit.srs_size()?;
+            let srs_size = circuit.srs_size(blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
 
             // Here we are assuming we are in the non-base case and our verification key is fixed.
             // Our `vk_id` is, therefore, `None`.
-            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, *vk_id, &circuit)?;
+            let (pk, vk) = FFTPlonk::<Kzg>::preprocess(&srs, vk_id, &circuit, blind)?;
 
             let mut output = FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                rng, &circuit, &pk, None,
+                rng, &circuit, &pk, None, blind,
             )?;
 
             let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
@@ -757,6 +767,7 @@ mod tests {
                 &[pi],
                 &output.proof,
                 &None,
+                blind,
             )?;
 
             let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
@@ -769,6 +780,7 @@ mod tests {
                     &output,
                     &None,
                     &mut verifier_circuit,
+                    blind,
                 )?;
 
             assert!(verifier_circuit.check_circuit_satisfiability(&[]).is_ok());

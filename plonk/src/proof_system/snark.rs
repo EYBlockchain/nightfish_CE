@@ -66,6 +66,7 @@ where
         prng: &mut R,
         circuits: &[&C],
         prove_keys: &[&ProvingKey<E>],
+        blind: bool,
     ) -> Result<BatchProof<E>, PlonkError>
     where
         C: Arithmetization<E::ScalarField>,
@@ -73,7 +74,7 @@ where
         T: Transcript,
     {
         let (batch_proof, ..) =
-            Self::batch_prove_internal::<_, _, T>(prng, circuits, prove_keys, None)?;
+            Self::batch_prove_internal::<_, _, T>(prng, circuits, prove_keys, None, blind)?;
         Ok(batch_proof)
     }
 
@@ -82,6 +83,7 @@ where
         verify_keys: &[&VerifyingKey<E>],
         public_inputs: &[&[E::ScalarField]],
         batch_proof: &BatchProof<E>,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         T: Transcript,
@@ -90,8 +92,13 @@ where
             return Err(ParameterError("empty verification keys".to_string()).into());
         }
         let verifier = Verifier::new(verify_keys[0].domain_size)?;
-        let pcs_info =
-            verifier.prepare_pcs_info::<T>(verify_keys, public_inputs, batch_proof, &None)?;
+        let pcs_info = verifier.prepare_pcs_info::<T>(
+            verify_keys,
+            public_inputs,
+            batch_proof,
+            &None,
+            blind,
+        )?;
         if !Verifier::batch_verify_opening_proofs::<T>(
             &verify_keys[0].open_key, // all open_key are the same
             &[pcs_info],
@@ -107,6 +114,7 @@ where
         public_inputs: &[&[E::ScalarField]],
         proofs: &[&Proof<E>],
         extra_transcript_init_msgs: &[Option<Vec<u8>>],
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         T: Transcript,
@@ -142,6 +150,7 @@ where
                     &[pub_input],
                     &(*proof).clone().into(),
                     extra_msg,
+                    blind,
                 )
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
@@ -170,6 +179,7 @@ where
         circuits: &[&C],
         prove_keys: &[&ProvingKey<E>],
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<
         (
             BatchProof<E>,
@@ -253,7 +263,7 @@ where
         let mut wires_poly_comms_vec = vec![];
         for i in 0..circuits.len() {
             let ((wires_poly_comms, wire_polys), pi_poly) =
-                prover.run_1st_round(prng, &prove_keys[i].commit_key, circuits[i])?;
+                prover.run_1st_round(prng, &prove_keys[i].commit_key, circuits[i], blind)?;
             online_oracles[i].wire_polys = wire_polys;
             online_oracles[i].pub_inp_poly = pi_poly;
             for wire_poly_comm in wires_poly_comms.iter() {
@@ -277,6 +287,7 @@ where
                         &prove_keys[i].commit_key,
                         circuits[i],
                         challenges.tau,
+                        blind,
                     )?;
                 online_oracles[i].plookup_oracles.h_polys = h_polys;
                 for h_poly_comm in h_poly_comms.iter() {
@@ -297,8 +308,13 @@ where
         challenges.gamma = transcript.squeeze_scalar_challenge::<P>(b"gamma")?;
         let mut prod_perm_poly_comms_vec = vec![];
         for i in 0..circuits.len() {
-            let (prod_perm_poly_comm, prod_perm_poly) =
-                prover.run_2nd_round(prng, &prove_keys[i].commit_key, circuits[i], &challenges)?;
+            let (prod_perm_poly_comm, prod_perm_poly) = prover.run_2nd_round(
+                prng,
+                &prove_keys[i].commit_key,
+                circuits[i],
+                &challenges,
+                blind,
+            )?;
             online_oracles[i].prod_perm_poly = prod_perm_poly;
             transcript.append_curve_point(b"perm_poly_comms", &prod_perm_poly_comm)?;
             prod_perm_poly_comms_vec.push(prod_perm_poly_comm);
@@ -316,6 +332,7 @@ where
                     &challenges,
                     merged_table_list[i].as_ref(),
                     sorted_vec_list[i].as_ref(),
+                    blind,
                 )?;
                 online_oracles[i].plookup_oracles.prod_lookup_poly = prod_lookup_poly;
                 transcript.append_curve_point(b"plookup_poly_comms", &prod_lookup_poly_comm)?;
@@ -335,6 +352,7 @@ where
             &challenges,
             &online_oracles,
             num_wire_types,
+            blind,
         )?;
 
         for split_quot_poly_comm in split_quot_poly_comms.iter() {
@@ -377,6 +395,7 @@ where
             n,
             challenges.zeta,
             &split_quot_polys,
+            blind,
         )?;
         let mut alpha_base = E::ScalarField::one();
         let alpha_3 = challenges.alpha.square() * challenges.alpha;
@@ -512,6 +531,7 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
         if vk_id.is_some() {
             return Err(PlonkError::InvalidParameters(
@@ -520,9 +540,9 @@ where
         }
         // Make sure the SRS can support the circuit (with hiding degree of 2 for zk)
         let domain_size = circuit.eval_domain_size()?;
-        let srs_size = circuit.srs_size()?;
+        let srs_size = circuit.srs_size(blind)?;
         let num_inputs = circuit.num_inputs();
-        if srs.max_degree() < circuit.srs_size()? {
+        if srs.max_degree() < srs_size {
             return Err(PlonkError::IndexTooLarge);
         }
         // 1. Compute selector and permutation polynomials.
@@ -614,6 +634,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         Self: Sized,
@@ -625,6 +646,7 @@ where
             &[circuit],
             &[prove_key],
             extra_transcript_init_msg,
+            blind,
         )?;
         Ok(Proof {
             wires_poly_comms: batch_proof.wires_poly_comms_vec[0].clone(),
@@ -642,6 +664,7 @@ where
         public_input: &[E::ScalarField],
         proof: &Self::Proof,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error>
     where
         T: Transcript,
@@ -651,6 +674,7 @@ where
             &[public_input],
             &[proof],
             &[extra_transcript_init_msg],
+            blind,
         )
     }
 }
@@ -810,10 +834,10 @@ pub mod test {
         let mut rng = ChaCha20Rng::from_seed([0u8; 32]);
         let pub_inputs = circuit.public_input().unwrap();
         let (test_pk_plonk_kzg_snark, test_vk_plonk_kzg_snark) =
-            PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit)
+            PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit, true)
                 .expect("Failed to preprocess the test circuit");
         let (test_pk_fftplonk, test_vk_fftplonk) =
-            FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit)
+            FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true)
                 .expect("Failed to preprocess the test circuit");
 
         let proof_plonk_kzg_snark = PlonkKzgSnark::<Bn254>::prove::<_, _, StandardTranscript>(
@@ -821,6 +845,7 @@ pub mod test {
             &circuit,
             &test_pk_plonk_kzg_snark,
             None,
+            true,
         )
         .unwrap();
         let proof_fftplonk =
@@ -829,6 +854,7 @@ pub mod test {
                 &circuit,
                 &test_pk_fftplonk,
                 None,
+                true,
             )
             .unwrap();
         assert!(
@@ -836,7 +862,8 @@ pub mod test {
                 &test_vk_plonk_kzg_snark,
                 &pub_inputs,
                 &proof_plonk_kzg_snark,
-                None
+                None,
+                true,
             )
             .is_ok(),
             "Proof_PlonkKzgSnark verification failed"
@@ -846,7 +873,8 @@ pub mod test {
                 &test_vk_fftplonk,
                 &pub_inputs,
                 &proof_fftplonk,
-                None
+                None,
+                true,
             )
             .is_ok(),
             "Proof_FFTPlonk verification failed"
@@ -862,7 +890,7 @@ pub mod test {
             let circuit = generate_simple_circuit(new_a, new_b, new_c).unwrap();
             // Generate a new proving key and verifying key for the circuit with new inputs
             let (new_pk_plonk_kzg_snark, new_vk_plonk_kzg_snark) =
-                PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit)
+                PlonkKzgSnark::<Bn254>::preprocess(&srs, None, &circuit, true)
                     .expect("Failed to preprocess the circuit with new inputs");
 
             // Compare the new PK and VK with the initial ones
@@ -875,7 +903,8 @@ pub mod test {
                 "Verifying keys do not match"
             );
             let (new_pk_fftplonk, new_vk_fftplonk) =
-                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit).unwrap();
+                FFTPlonk::<UnivariateKzgPCS<Bn254>>::preprocess(&srs, None, &circuit, true)
+                    .unwrap();
             assert_eq!(
                 test_pk_fftplonk, new_pk_fftplonk,
                 "Proving keys do not match"
@@ -918,7 +947,7 @@ pub mod test {
 
         let max_degree = 64 + 2;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
 
         // check proving key
         assert_eq!(pk.selectors, selectors);
@@ -995,50 +1024,49 @@ pub mod test {
 
     #[test]
     fn test_plonk_proof_system() -> Result<(), PlonkError> {
-        // merlin transcripts
-        test_plonk_proof_system_helper::<Bn254, Fq254, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bn254, Fq254, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bls12_377, Fq377, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bls12_377, Fq377, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_proof_system_helper::<BW6_761, Fq761, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_proof_system_helper::<BW6_761, Fq761, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
+        for (plonk_type, blind) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk]
+            .iter()
+            .zip([true, false])
+        {
+            // merlin transcripts
+            test_plonk_proof_system_helper::<Bn254, Fq254, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_plonk_proof_system_helper::<Bls12_377, Fq377, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_plonk_proof_system_helper::<Bls12_381, Fq381, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_plonk_proof_system_helper::<BW6_761, Fq761, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
 
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_plonk_proof_system_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_proof_system_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
-            PlonkType::UltraPlonk,
-        )?;
+            // rescue transcripts
+            // currently only available for bls12-377
+            test_plonk_proof_system_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
+                *plonk_type,
+                blind,
+            )?;
 
-        // solidity-friendly keccak256 transcripts
-        // currently only needed for CAPE using bls12-381
-        test_plonk_proof_system_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
+            // solidity-friendly keccak256 transcripts
+            // currently only needed for CAPE using bls12-381
+            test_plonk_proof_system_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+        }
         Ok(())
     }
 
-    fn test_plonk_proof_system_helper<E, F, P, T>(plonk_type: PlonkType) -> Result<(), PlonkError>
+    fn test_plonk_proof_system_helper<E, F, P, T>(
+        plonk_type: PlonkType,
+        blind: bool,
+    ) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
         E::ScalarField: EmulationConfig<F>,
@@ -1061,8 +1089,8 @@ pub mod test {
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
-        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[0])?;
-        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[3])?;
+        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[0], blind)?;
+        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuits[3], blind)?;
         // 4. Proving
         let mut proofs = vec![];
         let mut extra_msgs = vec![];
@@ -1074,7 +1102,8 @@ pub mod test {
                 Some(format!("extra message: {}", i).into_bytes())
             };
             proofs.push(
-                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone()).unwrap(),
+                PlonkKzgSnark::<E>::prove::<_, _, T>(rng, cs, pk_ref, extra_msg.clone(), blind)
+                    .unwrap(),
             );
             extra_msgs.push(extra_msg);
         }
@@ -1092,6 +1121,7 @@ pub mod test {
                 &public_inputs[i],
                 proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_ok());
             // Inconsistent proof should fail the verification.
@@ -1102,6 +1132,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_err());
             // Incorrect extra transcript message should fail
@@ -1110,6 +1141,7 @@ pub mod test {
                 &bad_pub_input,
                 proof,
                 Some("wrong message".to_string().into_bytes()),
+                blind,
             )
             .is_err());
 
@@ -1124,6 +1156,7 @@ pub mod test {
                 &public_inputs[i],
                 &bad_proof,
                 extra_msgs[i].clone(),
+                blind,
             )
             .is_err());
         }
@@ -1140,6 +1173,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            blind,
         )
         .is_ok());
 
@@ -1149,6 +1183,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            blind,
         )
         .is_err());
 
@@ -1157,6 +1192,7 @@ pub mod test {
             &public_inputs_ref[..5],
             &proofs_ref,
             &extra_msgs,
+            blind,
         )
         .is_err());
 
@@ -1165,6 +1201,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref[..5],
             &extra_msgs,
+            blind,
         )
         .is_err());
 
@@ -1173,16 +1210,21 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &vec![None; vks.len()],
+            blind,
         )
         .is_err());
 
-        assert!(
-            PlonkKzgSnark::<E>::batch_verify::<T>(&vks, &public_inputs_ref, &proofs_ref, &[],)
-                .is_err()
-        );
+        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(
+            &vks,
+            &public_inputs_ref,
+            &proofs_ref,
+            &[],
+            blind,
+        )
+        .is_err());
 
         // Empty params
-        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[],).is_err());
+        assert!(PlonkKzgSnark::<E>::batch_verify::<T>(&[], &[], &[], &[], true).is_err());
 
         // Error paths
         let tmp_pi_ref = public_inputs_ref[0];
@@ -1192,6 +1234,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            blind,
         )
         .is_err());
         public_inputs_ref[0] = tmp_pi_ref;
@@ -1202,6 +1245,7 @@ pub mod test {
             &public_inputs_ref,
             &proofs_ref,
             &extra_msgs,
+            blind,
         )
         .is_err());
 
@@ -1210,51 +1254,47 @@ pub mod test {
 
     #[test]
     fn test_inconsistent_pub_input_len() -> Result<(), PlonkError> {
-        // merlin transcripts
-        test_inconsistent_pub_input_len_helper::<Bn254, Fq254, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<Bn254, Fq254, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<Bls12_377, Fq377, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<Bls12_377, Fq377, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<BW6_761, Fq761, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<BW6_761, Fq761, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
+        for (plonk_type, blind) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk]
+            .iter()
+            .zip([true, false])
+        {
+            // merlin transcripts
+            test_inconsistent_pub_input_len_helper::<Bn254, Fq254, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_inconsistent_pub_input_len_helper::<Bls12_377, Fq377, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_inconsistent_pub_input_len_helper::<BW6_761, Fq761, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
 
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_inconsistent_pub_input_len_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_inconsistent_pub_input_len_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
-            PlonkType::UltraPlonk,
-        )?;
+            // rescue transcripts
+            // currently only available for bls12-377
+            test_inconsistent_pub_input_len_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
+                *plonk_type,
+                blind,
+            )?;
 
-        // Solidity-friendly keccak256 transcript
-        test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-
+            // Solidity-friendly keccak256 transcript
+            test_inconsistent_pub_input_len_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+        }
         Ok(())
     }
 
     fn test_inconsistent_pub_input_len_helper<E, F, P, T>(
         plonk_type: PlonkType,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
@@ -1282,80 +1322,84 @@ pub mod test {
         cs2.finalize_for_arithmetization()?;
 
         // 3. Preprocessing
-        let size_one = cs1.srs_size()?;
-        let size_two = cs2.srs_size()?;
+        let size_one = cs1.srs_size(blind)?;
+        let size_two = cs2.srs_size(blind)?;
         let size = ark_std::cmp::max(size_one, size_two);
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(size, rng)?;
-        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs1)?;
-        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs2)?;
+        let (pk1, vk1) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs1, blind)?;
+        let (pk2, vk2) = PlonkKzgSnark::<E>::preprocess(&srs, None, &cs2, blind)?;
 
         // 4. Proving
-        assert!(PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk1, None).is_err());
-        let proof2 = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk2, None)?;
+        assert!(PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk1, None, blind).is_err());
+        let proof2 = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &cs2, &pk2, None, blind)?;
 
         // 5. Verification
-        assert!(
-            PlonkKzgSnark::<E>::verify::<T>(&vk2, &[E::ScalarField::from(1u8)], &proof2, None,)
-                .is_ok()
-        );
+        assert!(PlonkKzgSnark::<E>::verify::<T>(
+            &vk2,
+            &[E::ScalarField::from(1u8)],
+            &proof2,
+            None,
+            blind,
+        )
+        .is_ok());
         // wrong verification key
-        assert!(
-            PlonkKzgSnark::<E>::verify::<T>(&vk1, &[E::ScalarField::from(1u8)], &proof2, None,)
-                .is_err()
-        );
+        assert!(PlonkKzgSnark::<E>::verify::<T>(
+            &vk1,
+            &[E::ScalarField::from(1u8)],
+            &proof2,
+            None,
+            blind,
+        )
+        .is_err());
         // wrong public input
-        assert!(PlonkKzgSnark::<E>::verify::<T>(&vk2, &[], &proof2, None).is_err());
+        assert!(PlonkKzgSnark::<E>::verify::<T>(&vk2, &[], &proof2, None, blind).is_err());
 
         Ok(())
     }
 
     #[test]
     fn test_plonk_prover_polynomials() -> Result<(), PlonkError> {
-        // merlin transcripts
-        test_plonk_prover_polynomials_helper::<Bn254, Fq254, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<Bls12_377, Fq377, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<BW6_761, Fq761, _, StandardTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<Bn254, Fq254, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<Bls12_377, Fq377, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<BW6_761, Fq761, _, StandardTranscript>(
-            PlonkType::UltraPlonk,
-        )?;
+        for (plonk_type, blind) in [PlonkType::TurboPlonk, PlonkType::UltraPlonk]
+            .iter()
+            .zip([true, false])
+        {
+            // merlin transcripts
+            test_plonk_prover_polynomials_helper::<Bn254, Fq254, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_plonk_prover_polynomials_helper::<Bls12_377, Fq377, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+            test_plonk_prover_polynomials_helper::<BW6_761, Fq761, _, StandardTranscript>(
+                *plonk_type,
+                blind,
+            )?;
 
-        // rescue transcripts
-        // currently only available for bls12-377
-        test_plonk_prover_polynomials_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
-            PlonkType::TurboPlonk,
-        )?;
-        test_plonk_prover_polynomials_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
-            PlonkType::UltraPlonk,
-        )?;
+            // rescue transcripts
+            // currently only available for bls12-377
+            test_plonk_prover_polynomials_helper::<Bls12_377, Fq377, _, RescueTranscript<Fq377>>(
+                *plonk_type,
+                blind,
+            )?;
 
-        // Solidity-friendly keccak256 transcript
-        test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
-            PlonkType::TurboPlonk,
-        )?;
-
+            // Solidity-friendly keccak256 transcript
+            test_plonk_prover_polynomials_helper::<Bls12_381, Fq381, _, SolidityTranscript>(
+                *plonk_type,
+                blind,
+            )?;
+        }
         Ok(())
     }
 
     fn test_plonk_prover_polynomials_helper<E, F, P, T>(
         plonk_type: PlonkType,
+        blind: bool,
     ) -> Result<(), PlonkError>
     where
         E: Pairing<BaseField = F, G1Affine = Affine<P>, G1 = Projective<P>>,
@@ -1375,11 +1419,16 @@ pub mod test {
         assert!(circuit.num_gates() <= n);
 
         // 3. Preprocessing
-        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, blind)?;
 
         // 4. Proving
-        let (_, oracles, challenges, _) =
-            PlonkKzgSnark::<E>::batch_prove_internal::<_, _, T>(rng, &[&circuit], &[&pk], None)?;
+        let (_, oracles, challenges, _) = PlonkKzgSnark::<E>::batch_prove_internal::<_, _, T>(
+            rng,
+            &[&circuit],
+            &[&pk],
+            None,
+            blind,
+        )?;
 
         // 5. Check that the targeted polynomials evaluate to zero on the vanishing set.
         check_plonk_prover_polynomials(plonk_type, &oracles[0], &pk, &challenges)?;
@@ -1640,9 +1689,9 @@ pub mod test {
         let max_degree = 80;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
+        let (pk, _) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
         let proof =
-            PlonkKzgSnark::<E>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None)?;
+            PlonkKzgSnark::<E>::prove::<_, _, StandardTranscript>(rng, &circuit, &pk, None, true)?;
 
         let base_fields: Vec<E::BaseField> = proof.clone().into();
         let res: Proof<E> = base_fields.try_into()?;
@@ -1687,8 +1736,8 @@ pub mod test {
         let max_degree = 80;
         let srs = PlonkKzgSnark::<E>::universal_setup_for_testing(max_degree, rng)?;
 
-        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit)?;
-        let proof = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &circuit, &pk, None)?;
+        let (pk, vk) = PlonkKzgSnark::<E>::preprocess(&srs, None, &circuit, true)?;
+        let proof = PlonkKzgSnark::<E>::prove::<_, _, T>(rng, &circuit, &pk, None, true)?;
 
         let mut ser_bytes = Vec::new();
         srs.serialize_compressed(&mut ser_bytes)?;

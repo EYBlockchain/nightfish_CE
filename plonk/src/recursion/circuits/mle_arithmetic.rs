@@ -730,12 +730,13 @@ mod tests {
             })
             .collect::<Result<Vec<_>, PlonkError>>()?;
         // 3. Preprocessing
-        let n = circuits[3].srs_size()?;
+        let n = circuits[3].srs_size(false)?;
         let max_degree = n + 2;
         let srs = MLEPlonk::<PCS>::universal_setup_for_testing(max_degree, rng)?;
 
         let (pk1, _vk1) =
-            <MLEPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[3]).unwrap();
+            <MLEPlonk<PCS> as UniversalSNARK<PCS>>::preprocess(&srs, None, &circuits[3], false)
+                .unwrap();
 
         // 4. Proving
         let mut proofs = vec![];
@@ -745,7 +746,7 @@ mod tests {
 
             proofs.push(
                 MLEPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<P::BaseField>>(
-                    rng, cs, pk_ref, None,
+                    rng, cs, pk_ref, None, false,
                 )
                 .unwrap(),
             );
@@ -886,10 +887,10 @@ mod tests {
             let circuit_two = gen_circuit_for_test::<Fq254>(m, 4, PlonkType::UltraPlonk, true)?;
 
             let num_vars = circuit_one.num_gates().ilog2() as usize;
-            let srs_size = circuit_one.srs_size()?;
+            let srs_size = circuit_one.srs_size(false)?;
             let srs = MLEPlonk::<Zmorph>::universal_setup_for_testing(srs_size, rng).unwrap();
 
-            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, None, &circuit_one)?;
+            let (pk, vk) = MLEPlonk::<Zmorph>::preprocess(&srs, None, &circuit_one, false)?;
 
             let circuits = [circuit_one, circuit_two];
 
@@ -898,7 +899,7 @@ mod tests {
                     .iter()
                     .map(|circuit| {
                         MLEPlonk::<Zmorph>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            rng, circuit, &pk, None,
+                            rng, circuit, &pk, None, false,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?

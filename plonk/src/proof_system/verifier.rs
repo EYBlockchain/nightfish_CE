@@ -76,6 +76,7 @@ where
         public_inputs: &[&[E::ScalarField]],
         batch_proof: &BatchProof<E>,
         extra_transcript_init_msg: &Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<PcsInfo<E>, PlonkError>
     where
         T: Transcript,
@@ -173,6 +174,7 @@ where
             batch_proof,
             &alpha_powers,
             &alpha_bases,
+            blind,
         )?;
         let eval: <E as Pairing>::ScalarField = Self::aggregate_evaluations(
             &lin_poly_constant,
@@ -484,6 +486,7 @@ where
         batch_proof: &BatchProof<E>,
         alpha_powers: &[E::ScalarField],
         alpha_bases: &[E::ScalarField],
+        blind: bool,
     ) -> Result<(ScalarsAndBases<E>, Vec<E::ScalarField>), PlonkError> {
         if vks.len() != batch_proof.len() {
             return Err(ParameterError(format!(
@@ -504,6 +507,7 @@ where
             batch_proof,
             alpha_powers,
             alpha_bases,
+            blind,
         )?;
 
         // the random combiner term for the polynomials evaluated at point `zeta`
@@ -576,6 +580,7 @@ where
         batch_proof: &BatchProof<E>,
         alpha_powers: &[E::ScalarField],
         alpha_bases: &[E::ScalarField],
+        blind: bool,
     ) -> Result<ScalarsAndBases<E>, PlonkError> {
         if vks.len() != batch_proof.len() || alpha_bases.len() != vks.len() {
             return Err(ParameterError(format!(
@@ -734,8 +739,12 @@ where
         }
 
         // Add splitted quotient commitments
-        let zeta_to_n_plus_2 =
-            (E::ScalarField::one() + vanish_eval) * challenges.zeta * challenges.zeta;
+        let zeta_to_n = E::ScalarField::one() + vanish_eval;
+        let scalar = if blind {
+            zeta_to_n * challenges.zeta * challenges.zeta
+        } else {
+            zeta_to_n
+        };
         let mut coeff = vanish_eval.neg();
         scalars_and_bases.push(
             coeff,
@@ -745,7 +754,7 @@ where
                 .ok_or(PlonkError::IndexError)?,
         );
         for poly in batch_proof.split_quot_poly_comms.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= scalar;
             scalars_and_bases.push(coeff, *poly);
         }
 

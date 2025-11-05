@@ -23,6 +23,7 @@ use ark_poly::{
 use ark_std::{
     cfg_iter,
     collections::BTreeMap,
+    iter::repeat,
     ops::Neg,
     rand::{CryptoRng, RngCore},
     string::ToString,
@@ -94,11 +95,18 @@ where
         prng: &mut R,
         ck: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         cs: &C,
+        blind: bool,
     ) -> Result<(CommitmentsAndPolys<PCS>, DensePolynomial<P::ScalarField>), PlonkError> {
         let wire_polys: Vec<DensePolynomial<P::ScalarField>> = cs
             .compute_wire_polynomials()?
             .into_iter()
-            .map(|poly| self.mask_polynomial(prng, poly, 1))
+            .map(|poly| {
+                if blind {
+                    self.mask_polynomial(prng, poly, 1)
+                } else {
+                    poly
+                }
+            })
             .collect();
         let wires_poly_comms = cfg_iter!(wire_polys)
             .map(|wire_poly| PCS::commit(ck, wire_poly))
@@ -122,6 +130,7 @@ where
         ck: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         cs: &C,
         tau: P::ScalarField,
+        blind: bool,
     ) -> Result<
         (
             CommitmentsAndPolys<PCS>,
@@ -131,10 +140,12 @@ where
         PlonkError,
     > {
         let merged_lookup_table = cs.compute_merged_lookup_table(tau)?;
-        let (sorted_vec, h_1_poly, h_2_poly) =
+        let (sorted_vec, mut h_1_poly, mut h_2_poly) =
             cs.compute_lookup_sorted_vec_polynomials(tau, &merged_lookup_table)?;
-        let h_1_poly = self.mask_polynomial(prng, h_1_poly, 2);
-        let h_2_poly = self.mask_polynomial(prng, h_2_poly, 2);
+        if blind {
+            h_1_poly = self.mask_polynomial(prng, h_1_poly, 2);
+            h_2_poly = self.mask_polynomial(prng, h_2_poly, 2);
+        }
         let h_polys = vec![h_1_poly, h_2_poly];
         let h_poly_comms = h_polys
             .iter()
@@ -151,12 +162,13 @@ where
         ck: &<PCS::SRS as StructuredReferenceString>::ProverParam,
         cs: &C,
         challenges: &Challenges<P::ScalarField>,
+        blind: bool,
     ) -> Result<(PCS::Commitment, DensePolynomial<P::ScalarField>), PlonkError> {
-        let prod_perm_poly = self.mask_polynomial(
-            prng,
-            cs.compute_prod_permutation_polynomial(&challenges.beta, &challenges.gamma)?,
-            2,
-        );
+        let mut prod_perm_poly =
+            cs.compute_prod_permutation_polynomial(&challenges.beta, &challenges.gamma)?;
+        if blind {
+            prod_perm_poly = self.mask_polynomial(prng, prod_perm_poly, 2);
+        };
         let prod_perm_comm = PCS::commit(ck, &prod_perm_poly)?;
         Ok((prod_perm_comm, prod_perm_poly))
     }
@@ -164,6 +176,7 @@ where
     /// Round 2.5 (Plookup): Compute and commit the Plookup grand product
     /// polynomial. Return the grand product polynomial and its commitment.
     /// `cs` is guaranteed to support lookup
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_plookup_2nd_round<
         C: Arithmetization<P::ScalarField>,
         R: CryptoRng + RngCore,
@@ -175,6 +188,7 @@ where
         challenges: &Challenges<P::ScalarField>,
         merged_lookup_table: Option<&Vec<P::ScalarField>>,
         sorted_vec: Option<&Vec<P::ScalarField>>,
+        blind: bool,
     ) -> Result<(PCS::Commitment, DensePolynomial<P::ScalarField>), PlonkError> {
         if sorted_vec.is_none() {
             return Err(
@@ -182,17 +196,16 @@ where
             );
         }
 
-        let prod_lookup_poly = self.mask_polynomial(
-            prng,
-            cs.compute_lookup_prod_polynomial(
-                &challenges.tau,
-                &challenges.beta,
-                &challenges.gamma,
-                merged_lookup_table.unwrap(),
-                sorted_vec.unwrap(),
-            )?,
-            2,
-        );
+        let mut prod_lookup_poly = cs.compute_lookup_prod_polynomial(
+            &challenges.tau,
+            &challenges.beta,
+            &challenges.gamma,
+            merged_lookup_table.unwrap(),
+            sorted_vec.unwrap(),
+        )?;
+        if blind {
+            prod_lookup_poly = self.mask_polynomial(prng, prod_lookup_poly, 2);
+        };
         let prod_lookup_comm = PCS::commit(ck, &prod_lookup_poly)?;
         Ok((prod_lookup_comm, prod_lookup_poly))
     }
@@ -200,6 +213,7 @@ where
     /// Round 3: Return the splitted quotient polynomials and their commitments.
     /// Note that the first `num_wire_types`-1 splitted quotient polynomials
     /// have degree `domain_size`+1.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn run_3rd_round<R: CryptoRng + RngCore>(
         &self,
         prng: &mut R,
@@ -208,10 +222,12 @@ where
         challenges: &Challenges<P::ScalarField>,
         online_oracles: &Oracles<P::ScalarField>,
         num_wire_types: usize,
+        blind: bool,
     ) -> Result<CommitmentsAndPolys<PCS>, PlonkError> {
         let quot_poly =
             self.compute_quotient_polynomial(challenges, pks, online_oracles, num_wire_types)?;
-        let split_quot_polys = self.split_quotient_polynomial(prng, &quot_poly, num_wire_types)?;
+        let split_quot_polys =
+            self.split_quotient_polynomial(prng, &quot_poly, num_wire_types, blind)?;
         let split_quot_poly_comms = cfg_iter!(split_quot_polys)
             .map(|split_quot_poly| PCS::commit(ck, split_quot_poly))
             .collect::<Result<Vec<PCS::Commitment>, _>>()?;
@@ -359,13 +375,19 @@ where
         domain_size: usize,
         zeta: P::ScalarField,
         quot_polys: &[DensePolynomial<P::ScalarField>],
+        blind: bool,
     ) -> Result<DensePolynomial<P::ScalarField>, PlonkError> {
-        let vanish_eval = zeta.pow([domain_size as u64]) - P::ScalarField::one();
-        let zeta_to_n_plus_2 = (vanish_eval + P::ScalarField::one()) * zeta * zeta;
+        let zeta_to_n = zeta.pow([domain_size as u64]);
+        let vanish_eval = zeta_to_n - P::ScalarField::one();
+        let scalar = if blind {
+            zeta_to_n * zeta * zeta
+        } else {
+            zeta_to_n
+        };
         let mut r_quot = quot_polys.first().ok_or(PlonkError::IndexError)?.clone();
         let mut coeff = P::ScalarField::one();
         for poly in quot_polys.iter().skip(1) {
-            coeff *= zeta_to_n_plus_2;
+            coeff *= scalar;
             r_quot = r_quot + Self::mul_poly(poly, &coeff);
         }
         r_quot = Self::mul_poly(&r_quot, &vanish_eval.neg());
@@ -1113,49 +1135,57 @@ where
         prng: &mut R,
         quot_poly: &DensePolynomial<P::ScalarField>,
         num_wire_types: usize,
+        blind: bool,
     ) -> Result<Vec<DensePolynomial<P::ScalarField>>, PlonkError> {
-        let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types);
+        let expected_degree = quotient_polynomial_degree(self.domain.size(), num_wire_types, blind);
         if quot_poly.degree() != expected_degree {
             return Err(WrongQuotientPolyDegree(quot_poly.degree(), expected_degree).into());
         }
         let n = self.domain.size();
+        // Each polynomial chunk has degree n+1 (blinding case) or n-1 (non-blinding case).
+        // We add 1 to retrieve the number of coefficients.
+        let num_coeffs = n + 2 * blind as usize;
+        // We pad the coeffs vec with zeroes to make its length num_wire_types * num_coeffs.
+        let padded_coeffs_iter = quot_poly.coeffs.iter()
+            .cloned() // yield actual coeffs
+            .chain(repeat(P::ScalarField::zero()).take(num_wire_types * num_coeffs - quot_poly.coeffs.len()));
         // compute the splitting polynomials t'_i(X) s.t. t(X) =
         // \sum_{i=0}^{num_wire_types} X^{i*(n+2)} * t'_i(X)
         let mut split_quot_polys: Vec<DensePolynomial<P::ScalarField>> =
             parallelizable_slice_iter(&(0..num_wire_types).collect::<Vec<_>>())
                 .map(|&i| {
-                    let end = if i < num_wire_types - 1 {
-                        (i + 1) * (n + 2)
-                    } else {
-                        quot_poly.degree() + 1
-                    };
-                    // Degree-(n+1) polynomial has n + 2 coefficients.
-                    DensePolynomial::<P::ScalarField>::from_coefficients_slice(
-                        &quot_poly.coeffs[i * (n + 2)..end],
-                    )
+                    let coeff_chunk: Vec<P::ScalarField> = padded_coeffs_iter
+                        .clone() // clone the iterator state, cheap (since it's lazy)
+                        .skip(i * num_coeffs)
+                        .take(num_coeffs)
+                        .collect();
+                    // Degree-(n+1) polynomial has n + 2 coefficients (blinding case)
+                    // Degree-(n-1) polynomial has n coefficients (non-blinding case)
+                    DensePolynomial::<P::ScalarField>::from_coefficients_slice(&coeff_chunk)
                 })
                 .collect();
+        // Apply blinding to the splitting polynomials if required.
+        if blind {
+            // mask splitting polynomials t_i(X), for i in {0..num_wire_types}.
+            // t_i(X) = t'_i(X) - b_last_i + b_now_i * X^(n+2)
+            // with t_lowest_i(X) = t_lowest_i(X) - 0 + b_now_i * X^(n+2)
+            // and t_highest_i(X) = t_highest_i(X) - b_last_i
+            let mut last_randomizer = P::ScalarField::zero();
+            split_quot_polys
+                .iter_mut()
+                .take(num_wire_types - 1)
+                .for_each(|poly| {
+                    let now_randomizer = P::ScalarField::rand(prng);
 
-        // mask splitting polynomials t_i(X), for i in {0..num_wire_types}.
-        // t_i(X) = t'_i(X) - b_last_i + b_now_i * X^(n+2)
-        // with t_lowest_i(X) = t_lowest_i(X) - 0 + b_now_i * X^(n+2)
-        // and t_highest_i(X) = t_highest_i(X) - b_last_i
-        let mut last_randomizer = P::ScalarField::zero();
-        split_quot_polys
-            .iter_mut()
-            .take(num_wire_types - 1)
-            .for_each(|poly| {
-                let now_randomizer = P::ScalarField::rand(prng);
+                    poly.coeffs[0] -= last_randomizer;
+                    assert_eq!(poly.degree(), n + 1);
+                    poly.coeffs.push(now_randomizer);
 
-                poly.coeffs[0] -= last_randomizer;
-                assert_eq!(poly.degree(), n + 1);
-                poly.coeffs.push(now_randomizer);
-
-                last_randomizer = now_randomizer;
-            });
-        // mask the highest splitting poly
-        split_quot_polys[num_wire_types - 1].coeffs[0] -= last_randomizer;
-
+                    last_randomizer = now_randomizer;
+                });
+            // mask the highest splitting poly
+            split_quot_polys[num_wire_types - 1].coeffs[0] -= last_randomizer;
+        }
         Ok(split_quot_polys)
     }
 
@@ -1346,8 +1376,12 @@ where
 }
 
 #[inline]
-fn quotient_polynomial_degree(domain_size: usize, num_wire_types: usize) -> usize {
-    num_wire_types * (domain_size + 1) + 2
+fn quotient_polynomial_degree(domain_size: usize, num_wire_types: usize, blind: bool) -> usize {
+    if blind {
+        num_wire_types * (domain_size + 1) + 2
+    } else {
+        num_wire_types * (domain_size - 1) - 1
+    }
 }
 
 #[cfg(test)]
@@ -1381,7 +1415,7 @@ mod test {
         let bad_quot_poly =
             <DensePolynomial<E::ScalarField> as DenseUVPolynomial<E::ScalarField>>::rand(25, rng);
         assert!(prover
-            .split_quotient_polynomial(rng, &bad_quot_poly, GATE_WIDTH + 1)
+            .split_quotient_polynomial(rng, &bad_quot_poly, GATE_WIDTH + 1, true)
             .is_err());
         Ok(())
     }

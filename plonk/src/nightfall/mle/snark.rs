@@ -91,7 +91,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             Polynomial = Arc<DenseMultilinearExtension<F>>,
         >,
     {
-        let srs_size = circuit.srs_size()? - 2;
+        let srs_size = circuit.srs_size(false)?;
 
         let params_to_extract = srs_size.ilog2();
 
@@ -1510,7 +1510,7 @@ pub mod tests {
 
             proofs.push(
                 MLEPlonk::<PCS>::recursive_prove::<_, _, RescueTranscript<F>>(
-                    rng, cs, pk_ref, None,
+                    rng, cs, pk_ref, None, false,
                 )
                 .unwrap(),
             );

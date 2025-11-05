@@ -208,7 +208,13 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, base_grumpkin_pk, None)
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    base_grumpkin_pk,
+                    None,
+                    false,
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -339,7 +345,7 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None)
+                FFTPlonk::<Kzg>::recursive_prove(&mut rng, &circuit, base_bn254_pk, None, false)
             })
             .collect::<Result<Vec<Bn254Output>, PlonkError>>()?
             .try_into()
@@ -406,7 +412,13 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    merge_grumpkin_pk,
+                    None,
+                    false,
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -472,7 +484,13 @@ pub trait RecursiveProver {
                         "ChaCha20Rng initialization failure: {e}"
                     ))
                 })?;
-                MLEPlonk::<Zmorph>::recursive_prove(&mut rng, &circuit, merge_grumpkin_pk, None)
+                MLEPlonk::<Zmorph>::recursive_prove(
+                    &mut rng,
+                    &circuit,
+                    merge_grumpkin_pk,
+                    None,
+                    false,
+                )
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -593,7 +611,7 @@ pub trait RecursiveProver {
         // We know the outputs is non-zero so we can safely unwrap here
         let base_grumpkin_circuit = &base_grumpkin_out[0].0;
         let (base_grumpkin_pk, _) =
-            MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, base_grumpkin_circuit)?;
+            MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, base_grumpkin_circuit, false)?;
         Self::store_base_grumpkin_pk(base_grumpkin_pk.clone()).ok_or(
             PlonkError::InvalidParameters("Could not store base Grumpkin proving key".to_string()),
         )?;
@@ -634,7 +652,8 @@ pub trait RecursiveProver {
             })
             .collect::<Result<Vec<Bn254Out>, PlonkError>>()?;
         let base_bn254_circuit = &base_bn254_out[0].0;
-        let (base_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit)?;
+        let (base_bn254_pk, _) =
+            FFTPlonk::<Kzg>::preprocess(kzg_srs, None, base_bn254_circuit, false)?;
         Self::store_base_bn254_pk(base_bn254_pk.clone()).ok_or(PlonkError::InvalidParameters(
             "Could not store base Bn254 proving key".to_string(),
         ))?;
@@ -697,7 +716,7 @@ pub trait RecursiveProver {
 
             let grumpkin_circuit = &grumpkin_out[0].0;
             let (new_grumpkin_pk, _) =
-                MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+                MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit, false)?;
             merge_grumpkin_pks.push(new_grumpkin_pk.clone());
             current_grumpkin_pk = new_grumpkin_pk;
 
@@ -722,7 +741,8 @@ pub trait RecursiveProver {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let bn254_circuit = &current_bn254_out[0].0;
-            let (new_bn254_pk, _) = FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit)?;
+            let (new_bn254_pk, _) =
+                FFTPlonk::<Kzg>::preprocess(kzg_srs, None, bn254_circuit, false)?;
             merge_bn254_pks.push(new_bn254_pk.clone());
             current_bn254_pk = new_bn254_pk;
         }
@@ -747,7 +767,8 @@ pub trait RecursiveProver {
             .collect::<Result<Vec<GrumpkinOut>, PlonkError>>()?;
 
         let grumpkin_circuit = &decider_input[0].0;
-        let (new_grumpkin_pk, _) = MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit)?;
+        let (new_grumpkin_pk, _) =
+            MLEPlonk::<Zmorph>::preprocess(ipa_srs, None, grumpkin_circuit, false)?;
         merge_grumpkin_pks.push(new_grumpkin_pk.clone());
         current_grumpkin_pk = new_grumpkin_pk;
 
@@ -769,7 +790,7 @@ pub trait RecursiveProver {
         )?;
 
         let (decider_pk, decider_vk) =
-            PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit)?;
+            PlonkKzgSnark::<Bn254>::preprocess(kzg_srs, None, &decider_out.circuit, false)?;
 
         Self::store_merge_grumpkin_pks(merge_grumpkin_pks).ok_or(PlonkError::InvalidParameters(
             "Could not store merge Grumpkin proving key".to_string(),
@@ -1007,6 +1028,7 @@ pub trait RecursiveProver {
             &circuit,
             &decider_pk,
             None,
+            false,
         )?;
 
         Ok(RecursiveProof {
@@ -1329,10 +1351,19 @@ mod tests {
         let ipa_srs: UnivariateUniversalIpaParams<Grumpkin> =
             Zmorph::gen_srs_for_testing(rng, 18).unwrap();
 
-        let (pk_one, input_vk_one) =
-            FFTPlonk::<Kzg>::preprocess(&kzg_srs, Some(VerificationKeyId::Client), &circuits[0])?;
-        let (pk_two, input_vk_two) =
-            FFTPlonk::<Kzg>::preprocess(&kzg_srs, Some(VerificationKeyId::Deposit), &circuits[43])?;
+        // The client proofs always include blinding.
+        let (pk_one, input_vk_one) = FFTPlonk::<Kzg>::preprocess(
+            &kzg_srs,
+            Some(VerificationKeyId::Client),
+            &circuits[0],
+            true,
+        )?;
+        let (pk_two, input_vk_two) = FFTPlonk::<Kzg>::preprocess(
+            &kzg_srs,
+            Some(VerificationKeyId::Deposit),
+            &circuits[43],
+            true,
+        )?;
         ark_std::println!("Made proving key in: {:?}", now.elapsed());
         // Scope the lock
         {
@@ -1544,7 +1575,7 @@ mod tests {
                     circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
                     let input_output =
                         FFTPlonk::<Kzg>::recursive_prove::<_, _, RescueTranscript<Fr254>>(
-                            &mut rng, &circuit, pk, None,
+                            &mut rng, &circuit, pk, None, true,
                         )?;
                     Ok((
                         (input_output, pk.vk.clone()),
@@ -1612,7 +1643,8 @@ mod tests {
             &TestProver::get_decider_pk().vk,
             &[pi_hash],
             &proof.proof,
-            None
+            None,
+            false,
         )
         .is_ok());
         Ok(())

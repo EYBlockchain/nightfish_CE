@@ -80,7 +80,13 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error> {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         if vk_id.is_some() {
             return Err(PlonkError::InvalidParameters(
                 "MLEPlonk verification keys do not have an ID".to_string(),
@@ -94,6 +100,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         C: Arithmetization<
@@ -102,6 +109,11 @@ where
         R: ark_std::rand::prelude::CryptoRng + ark_std::rand::prelude::RngCore,
         T: Transcript,
     {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         Self::prove::<_, _, _, T>(circuit, prove_key)
     }
 
@@ -110,7 +122,13 @@ where
         public_input: &[<<PCS as PolynomialCommitmentScheme>::Commitment as AffineRepr>::ScalarField],
         proof: &Self::Proof,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error> {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
             PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
         })?;
@@ -141,6 +159,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         _extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<crate::proof_system::RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,
@@ -151,6 +170,11 @@ where
         R: CryptoRng + RngCore,
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
+        if blind {
+            return Err(PlonkError::InvalidParameters(
+                "Blinding is not supported in MLEPlonk".to_string(),
+            ));
+        }
         let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
         let pi_hash = circuit.public_input()?[0];
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))

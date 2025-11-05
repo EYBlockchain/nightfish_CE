@@ -77,6 +77,7 @@ where
         srs: &Self::UniversalSRS,
         vk_id: Option<VerificationKeyId>,
         circuit: &C,
+        blind: bool,
     ) -> Result<(Self::ProvingKey, Self::VerifyingKey), Self::Error>;
 
     /// Compute a SNARK proof of a circuit `circuit`, using the corresponding
@@ -93,6 +94,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
         C: Arithmetization<<PCS::Commitment as AffineRepr>::ScalarField>,
@@ -108,6 +110,7 @@ where
         public_input: &[<PCS::Commitment as AffineRepr>::ScalarField],
         proof: &Self::Proof,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<(), Self::Error>;
 }
 
@@ -137,6 +140,7 @@ where
         circuit: &C,
         prove_key: &Self::ProvingKey,
         extra_transcript_init_msg: Option<Vec<u8>>,
+        blind: bool,
     ) -> Result<RecursiveOutput<PCS, Self, T>, Self::Error>
     where
         Self: Sized,
