@@ -2192,8 +2192,8 @@ fn convert_to_hash_form_fq254_lazy(
     let low_elem = val_biguint.clone() % BigUint::from(1u64) << bits;
     let high_elem = val_biguint >> bits;
 
-    let low_field_elem = Fq254::from_be_bytes_mod_order(&low_elem.to_bytes_be());
-    let high_field_elem = Fq254::from_be_bytes_mod_order(&high_elem.to_bytes_be());
+    let low_field_elem = Fq254::from_le_bytes_mod_order(&low_elem.to_bytes_le());
+    let high_field_elem = Fq254::from_le_bytes_mod_order(&high_elem.to_bytes_le());
 
     let low_var = circuit.create_variable(low_field_elem)?;
     let high_var = circuit.create_variable(high_field_elem)?;
