@@ -2204,6 +2204,7 @@ fn convert_to_hash_form_fq254_lazy(
 
     ark_std::println!("input var: {:?}", circuit.witness(var)?);
     let output = low_field_elem + high_field_elem * coeff;
+    ark_std::println!("low bigint: {:?}, high bigint: {:?}", low_elem, high_elem);
     ark_std::println!("low: {:?}, high: {:?}", low_field_elem, high_field_elem);
     ark_std::println!("recomposed: {:?}", output);
 
