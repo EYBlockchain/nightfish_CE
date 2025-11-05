@@ -12,10 +12,9 @@ use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
 use itertools::Itertools;
 use jf_primitives::{
-    circuit::{rescue::RescueNativeGadget, sha256::Sha256HashGadget},
+    circuit::{rescue::{PermutationGadget, RescueNativeGadget}, sha256::Sha256HashGadget},
     pcs::{
-        prelude::{UnivariateKzgPCS, UnivariateKzgProof},
-        PolynomialCommitmentScheme,
+        PolynomialCommitmentScheme, prelude::{UnivariateKzgPCS, UnivariateKzgProof}
     },
 };
 use num_bigint::BigUint;
@@ -2208,6 +2207,11 @@ fn convert_to_hash_form_fq254_lazy(
         &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
     )?;
 
+    let pi = circuit.public_input()?;
+    if circuit.check_circuit_satisfiability(&pi).is_err() {
+        ark_std::println!("Lazy conversion failed");
+    }
+
     Ok([low_var, high_var])
 }
 
@@ -2269,7 +2273,7 @@ impl MLEProofChallengesVar {
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<[Variable; 2]> = out
             .iter()
-            .map(|&v| convert_to_hash_form_fq254(circuit, v))
+            .map(|&v| convert_to_hash_form_fq254_lazy(circuit, v))
             .collect::<Result<_, _>>()?;
         Ok(out.into_iter().flatten().collect())
     }
@@ -2297,7 +2301,7 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<_> = out
             .iter()
-            .map(|v| convert_to_hash_form_emulated(circuit, v))
+            .map(|v| circuit.convert_for_transcript_lazy(v))
             .collect::<Result<_, _>>()?;
         Ok(out.into_iter().flatten().collect())
     }

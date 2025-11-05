@@ -1779,4 +1779,47 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn test_convert_to_transcript_lazy() -> Result<(), CircuitError> {
+        //test_convert_to_transcript_lazy_helper::<Fq377, Fr254>()?;
+        test_convert_to_transcript_lazy_helper::<Fr254, Fq254>()?;
+        test_convert_to_transcript_lazy_helper::<Fq254, Fr254>()
+        //test_convert_to_transcript_lazy_helper::<Fr377, Fq377>()?;
+        //test_convert_to_transcript_lazy_helper::<Fr381, Fq381>()?;
+        //test_convert_to_transcript_lazy_helper::<Fr761, Fq761>()
+    }
+
+    fn test_convert_to_transcript_lazy_helper<E: EmulationConfig<F>, F: PrimeField>(
+    ) -> Result<(), CircuitError> {
+        let num_vars = (F::MODULUS_BIT_SIZE - 1) as usize / E::B;
+        let rng = &mut test_rng();
+        for _ in 0..100 {
+            let raw_scalar = E::rand(rng);
+            let mut circuit: PlonkCircuit<F> = PlonkCircuit::new_ultra_plonk(8);
+            let scalar_var = circuit.create_emulated_variable(raw_scalar)?;
+
+            let num_gates = circuit.num_gates();
+            let function_vars = circuit.convert_for_transcript_lazy(&scalar_var)?;
+            ark_std::println!(
+                "convert to transcript with {} gates",
+                circuit.num_gates() - num_gates
+            );
+            ark_std::println!("function_vars length {}", function_vars.len());
+
+            // Calculate BigUint representated by `function_vars`.
+            let function_biguint = function_vars.iter().enumerate().try_fold(
+                BigUint::from(0u8),
+                |acc, (i, var)| {
+                    let var_value: BigUint = circuit.witness(*var)?.into_bigint().into();
+                    Ok(acc + (var_value << (i * num_vars * E::B)))
+                },
+            )?;
+
+            assert_eq!(function_biguint, raw_scalar.into_bigint().into());
+
+            circuit.check_circuit_satisfiability(&[])?;
+        }
+        Ok(())
+    }
 }
