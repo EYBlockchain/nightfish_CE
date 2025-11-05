@@ -322,6 +322,37 @@ impl<F: PrimeField> PlonkCircuit<F> {
         Ok(field_limb_vars)
     }
 
+    /// Converts an emulated variable into a form that can be pushed to a transcript.
+    /// We just want to do this in the most efficient way possible, without any range checks.
+    /// For each new `Variable`, we simply take the maximum number of limbs of the `EmulatedVariable` that will strictly fit into `F`.
+    /// We then constrain the `EmulatedVariable` to equal the decomposition into these `Variable`s.
+    /// We do not need to do any range checks, as the `EmulatedVariable` validity checks already ensure that the decomposition is valid.
+    pub fn convert_for_transcript_lazy<E: EmulationConfig<F>>(
+        &mut self,
+        var: &EmulatedVariable<E>,
+    ) -> Result<Vec<Variable>, CircuitError> {
+        // The number of `Variable`s that can fit into `F`.
+        let num_vars = (F::MODULUS_BIT_SIZE - 1) as usize / E::B;
+        let mut output_vars = Vec::<Variable>::new();
+        for chunk in var.0.chunks(num_vars) {
+            let mut coeff_vec = Vec::<F>::new();
+            let mut var_vec = Vec::<Variable>::new();
+            let mut coeff = F::one();
+            for &v in chunk.iter() {
+                var_vec.push(v);
+                coeff_vec.push(coeff);
+                coeff *= F::from(2u32).pow([E::B as u64]);
+            }
+            if var_vec.len() == 1 {
+                output_vars.push(var_vec[0]);
+                continue;
+            }
+            let ouput_var = self.lin_comb(&coeff_vec, &F::zero(), &var_vec)?;
+            output_vars.push(ouput_var);
+        }
+        Ok(output_vars)
+    }
+
     /// Constrain that a*b=c in the emulated field.
     /// Checking that a * b - k * E::MODULUS = c.
     /// This function doesn't perform emulated variable validaty check on the
