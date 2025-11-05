@@ -2211,6 +2211,42 @@ fn convert_to_hash_form_fq254_lazy(
     Ok([low_var, high_var])
 }
 
+fn convert_to_hash_form_emulated(
+    circuit: &mut PlonkCircuit<Fr254>,
+    var: &EmulatedVariable<Fq254>,
+) -> Result<[Variable; 2], CircuitError> {
+    let wit = circuit.emulated_witness(var)?;
+    let bytes = wit.into_bigint().to_bytes_le();
+
+    let [low_fe, high_fe]: [Fr254; 2] = bytes_to_field_elements::<_, Fr254>(bytes.clone())[1..]
+        .try_into()
+        .map_err(|_| {
+            CircuitError::ParameterError(
+                "Could not convert slice to fixed length array".to_string(),
+            )
+        })?;
+
+    let low_var = circuit.create_variable(low_fe)?;
+    let high_var = circuit.create_variable(high_fe)?;
+
+    let field_bytes_length = (Fq254::MODULUS_BIT_SIZE as usize - 1) / 8;
+    let bits = field_bytes_length * 8;
+    let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
+
+    circuit.enforce_in_range(low_var, bits)?;
+    circuit.enforce_in_range(high_var, leftover_bits)?;
+
+    let low_e = circuit.to_emulated_variable::<Fq254>(low_var)?;
+    let high_e = circuit.to_emulated_variable::<Fq254>(high_var)?;
+
+    let radix_fq = Fq254::from(2u64).pow([248u64]);
+    let hi_shifted = circuit.emulated_mul_constant::<Fq254>(&high_e, radix_fq)?;
+    let recomposed = circuit.emulated_add::<Fq254>(&hi_shifted, &low_e)?;
+    circuit.enforce_emulated_var_equal::<Fq254>(&recomposed, var)?;
+
+    Ok([low_var, high_var])
+}
+
 impl MLEProofChallengesVar {
     /// Serialize [MLEProofChallengesVar] into an array of variables fitting into the Fr256 scalar field
     pub fn convert_to_hash_form(
@@ -2233,7 +2269,7 @@ impl MLEProofChallengesVar {
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<[Variable; 2]> = out
             .iter()
-            .map(|&v| convert_to_hash_form_fq254_lazy(circuit, v))
+            .map(|&v| convert_to_hash_form_fq254(circuit, v))
             .collect::<Result<_, _>>()?;
         Ok(out.into_iter().flatten().collect())
     }
@@ -2261,7 +2297,7 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
         out.extend_from_slice(&self.final_sumcheck_challenges);
         let out: Vec<_> = out
             .iter()
-            .map(|v| circuit.convert_for_transcript_lazy(v))
+            .map(|v| convert_to_hash_form_emulated(circuit, v))
             .collect::<Result<_, _>>()?;
         Ok(out.into_iter().flatten().collect())
     }
