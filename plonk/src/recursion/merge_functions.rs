@@ -12,7 +12,7 @@ use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
 use itertools::Itertools;
 use jf_primitives::{
-    circuit::{rescue::{PermutationGadget, RescueNativeGadget}, sha256::Sha256HashGadget},
+    circuit::{rescue::{RescueNativeGadget}, sha256::Sha256HashGadget},
     pcs::{
         PolynomialCommitmentScheme, prelude::{UnivariateKzgPCS, UnivariateKzgProof}
     },
