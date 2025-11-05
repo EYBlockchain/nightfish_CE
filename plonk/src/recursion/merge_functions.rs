@@ -2201,22 +2201,10 @@ fn convert_to_hash_form_fq254_lazy(
     circuit.enforce_in_range(high_var, leftover_bits)?;
 
     let coeff = Fq254::from(2u8).pow([bits as u64]);
-
-    ark_std::println!("input var: {:?}", circuit.witness(var)?);
-    let output = low_field_elem + high_field_elem * coeff;
-    ark_std::println!("low bigint: {:?}, high bigint: {:?}", low_elem, high_elem);
-    ark_std::println!("low: {:?}, high: {:?}", low_field_elem, high_field_elem);
-    ark_std::println!("recomposed: {:?}", output);
-
     circuit.lc_gate(
         &[low_var, high_var, circuit.zero(), circuit.zero(), var],
         &[Fq254::one(), coeff, Fq254::zero(), Fq254::zero()],
     )?;
-
-    let pi = circuit.public_input()?;
-    if circuit.check_circuit_satisfiability(&pi).is_err() {
-        ark_std::println!("Lazy conversion failed");
-    }
 
     Ok([low_var, high_var])
 }
