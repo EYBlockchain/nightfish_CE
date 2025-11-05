@@ -2188,7 +2188,7 @@ fn convert_to_hash_form_fq254_lazy(
     let leftover_bits = Fq254::MODULUS_BIT_SIZE as usize - bits;
 
     let val_biguint: BigUint = circuit.witness(var)?.into_bigint().into();
-    let low_elem = val_biguint.clone() % BigUint::from(1u64) << bits;
+    let low_elem = val_biguint.clone() % (BigUint::from(1u64) << bits);
     let high_elem = val_biguint >> bits;
 
     let low_field_elem = Fq254::from_le_bytes_mod_order(&low_elem.to_bytes_le());
