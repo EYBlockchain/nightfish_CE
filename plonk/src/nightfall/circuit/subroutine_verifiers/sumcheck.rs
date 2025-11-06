@@ -43,6 +43,7 @@ pub trait SumCheckGadget<F: PrimeField + RescueParameter> {
         &mut self,
         sum_check_proof_var: &SumCheckProofVar<F>,
         transcript: &mut C,
+        num_rounds: usize,
     ) -> Result<Variable, CircuitError>
     where
         P: HasTEForm<ScalarField = F>,
@@ -54,6 +55,7 @@ pub trait SumCheckGadget<F: PrimeField + RescueParameter> {
     fn verify_sum_check_with_challenges(
         &mut self,
         sum_check_proof_var: &SumCheckProofVar<F>,
+        num_rounds: usize,
     ) -> Result<Variable, CircuitError>;
 
     /// Creates a [`EmulatedSumCheckProofVar`] from a [`SumCheckProof`]. Used to fully verify the proof in one circuit.
@@ -370,15 +372,16 @@ where
         &mut self,
         sum_check_proof_var: &SumCheckProofVar<F>,
         transcript: &mut C,
+        num_rounds: usize,
     ) -> Result<Variable, CircuitError>
     where
         P: HasTEForm<ScalarField = F>,
         P::BaseField: PrimeField,
         C: CircuitTranscript<F>,
     {
-        let num_rounds = sum_check_proof_var.point_var.len();
         let mut eval_var = sum_check_proof_var.eval_var;
 
+        assert_eq!(num_rounds, sum_check_proof_var.point_var.len());
         assert_eq!(num_rounds, sum_check_proof_var.oracles_var.len());
         assert_eq!(num_rounds, sum_check_proof_var.r_0_evals_var.len());
 
@@ -433,7 +436,12 @@ where
     fn verify_sum_check_with_challenges(
         &mut self,
         sum_check_proof_var: &SumCheckProofVar<F>,
+        num_rounds: usize,
     ) -> Result<Variable, CircuitError> {
+        assert_eq!(num_rounds, sum_check_proof_var.point_var.len());
+        assert_eq!(num_rounds, sum_check_proof_var.oracles_var.len());
+        assert_eq!(num_rounds, sum_check_proof_var.r_0_evals_var.len());
+
         let mut eval_var = sum_check_proof_var.eval_var;
         let challenges = &sum_check_proof_var.point_var;
         for (i, challenge) in challenges.iter().enumerate() {
@@ -679,6 +687,7 @@ mod test {
             let result_var = circuit.verify_sum_check::<E, RescueTranscriptVar<Fr>>(
                 &sum_check_proof_var,
                 &mut transcript_var,
+                num_vars,
             )?;
             assert!(circuit.check_circuit_satisfiability(&[]).is_ok());
             assert_eq!(circuit.witness(result_var)?, evaluation);

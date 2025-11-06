@@ -151,7 +151,8 @@ impl<F: PrimeField + RescueParameter> GKRProofVar<F> {
             let calc_initial_eval = sumcheck_initial_evaluation(evals, &lambda_powers, r, circuit)?;
             circuit.enforce_equal(calc_initial_eval, proof.eval_var)?;
 
-            res = circuit.verify_sum_check_with_challenges(proof)?;
+            let num_rounds = sumcheck_challenges.len();
+            res = circuit.verify_sum_check_with_challenges(proof, num_rounds)?;
             r = *r_challenge;
             sc_eq_eval = eq_x_r_eval_circuit(circuit, sumcheck_challenges, &challenge_point)?;
             challenge_point = [sumcheck_challenges.as_slice(), &[r]].concat();
