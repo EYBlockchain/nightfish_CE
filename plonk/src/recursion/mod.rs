@@ -503,7 +503,7 @@ pub trait RecursiveProver {
 
         let grumpkin_info = GrumpkinRecursiveInfo::from_parts(grumpkin_outputs, circuit_outputs);
 
-        let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(12);
+        let mut circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(16);
 
         let pi_out = decider_circuit(
             &grumpkin_info,
