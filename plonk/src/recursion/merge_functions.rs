@@ -1653,6 +1653,7 @@ pub fn decider_circuit(
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<Vec<Fr254>, PlonkError> {
+    let mut num_gates = circuit.num_gates();
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
         .bn254_outputs
@@ -1682,6 +1683,11 @@ pub fn decider_circuit(
         .map_err(|_| {
             PlonkError::InvalidParameters("Could not convert to fixed length array".to_string())
         })?;
+    ark_std::println!(
+        "Decider circuit: Created proof variables, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     // Calculate the two sets of scalars used in the previous Grumpkin proofs
     // As we're in the decider circuit, the incoming proof will not include blinding.
@@ -1703,9 +1709,19 @@ pub fn decider_circuit(
         )
     })
     .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+    ark_std::println!(
+        "Decider circuit: Calculated recursion scalars, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     // Make a vk variable
     let vk_var = MLEVerifyingKeyVar::new_constant(circuit, &pk_grumpkin.verifying_key)?;
+
+    ark_std::println!(
+        "Decider circuit: Created vk variable, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
 
     // Now we make variables for the specific pi as we will have to use these in the following for loop and later on.
     let impl_specific_pi = grumpkin_info
@@ -1726,6 +1742,7 @@ pub fn decider_circuit(
         .map(|o| o.pi_hash)
         .collect::<Vec<Variable>>();
 
+    num_gates = circuit.num_gates();
     let acc_comms: Vec<(PointVariable, EmulatedVariable<Fq254>)> = grumpkin_info
         .old_accumulators
         .iter()
@@ -1735,12 +1752,15 @@ pub fn decider_circuit(
             Ok((p, v))
         })
         .collect::<Result<Vec<_>, CircuitError>>()?;
+    ark_std::print!("Decider circuit: Created old accumulator variables, num_gates = {}", circuit.num_gates() - num_gates);
+    num_gates = circuit.num_gates();
 
     let pi_hashes: Vec<EmulatedVariable<Fq254>> = grumpkin_info
         .grumpkin_outputs
         .iter()
         .map(|o| circuit.create_emulated_variable(o.pi_hash))
         .collect::<Result<Vec<EmulatedVariable<Fq254>>, _>>()?;
+    ark_std::println!(" Decider circuit: Created grumpkin pi_hash variables, num_gates = {}", circuit.num_gates() - num_gates);
 
     // Now we reform the pi_hashes for both grumpkin proof and extract the scalars from them.
     izip!(
@@ -1762,6 +1782,7 @@ pub fn decider_circuit(
             bn254_proofs,
             bn254_pi_hashes,
         )| {
+            num_gates = circuit.num_gates();
             let recursion_scalars_prepped = recursion_scalars
                 .iter()
                 .map(|&var| convert_to_hash_form(circuit, var))
@@ -1921,22 +1942,29 @@ pub fn decider_circuit(
             )?;
 
             let pi_native = circuit.mod_to_native_field(pi_hash_emul)?;
+            ark_std::println!(" Decider circuit: Reformed pi_hash, num_gates = {}", circuit.num_gates() - num_gates);
 
             circuit.enforce_equal(pi_native, pi_hash)
         },
     )?;
+    num_gates = circuit.num_gates();
     let split_acc_info = SplitAccumulationInfo::perform_accumulation(
         &grumpkin_info.grumpkin_outputs,
         &grumpkin_info.old_accumulators,
         &pk_grumpkin.pcs_prover_params,
     )?;
-
+    ark_std::println!("Decider circuit: Performed split accumulation, num_gates = {}", circuit.num_gates() - num_gates);
+    num_gates = circuit.num_gates();
     // Create the variables for the commitments in the two proofs
     let proof_one =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[0].proof)?;
     let proof_two =
         SAMLEProofVar::<Zmorph>::from_struct(circuit, &grumpkin_info.grumpkin_outputs[1].proof)?;
-
+    ark_std::println!(
+        "Decider circuit: Created proof variables, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
     // We have already checked that lookup is supported so the following unwrap is safe.
     let lookup_vk = pk_grumpkin
         .verifying_key
@@ -1953,6 +1981,11 @@ pub fn decider_circuit(
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_dom_sep_comm))?;
     let q_lookup_comm =
         circuit.create_constant_point_variable(&Point::<Fr254>::from(lookup_vk.q_lookup_comm))?;
+    
+    ark_std::println!(
+        "Decider circuit: Created lookup vk commitment variables, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
 
     let lookup_bases = &[
         range_table_comm,
@@ -1974,6 +2007,7 @@ pub fn decider_circuit(
     ]
     .concat();
 
+    num_gates = circuit.num_gates();
     let (msm_scalars, acc_eval) = emulated_combine_mle_proof_scalars(
         &[proof_one, proof_two]
             .into_iter()
@@ -1984,12 +2018,21 @@ pub fn decider_circuit(
         &pk_grumpkin.verifying_key.gate_info,
         circuit,
     )?;
+    ark_std::println!(
+        "Decider circuit: Calculated MSM scalars, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     let accumulated_comm = EmulMultiScalarMultiplicationCircuit::<Fr254, SWGrumpkin>::msm(
         circuit,
         &proof_msm_bases,
         &msm_scalars,
     )?;
+    ark_std::println!(
+        "Decider circuit: Calculated accumulated commitment, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
 
     let (opening_proof, _) = Zmorph::open(
         &pk_grumpkin.pcs_prover_params,
@@ -1997,12 +2040,18 @@ pub fn decider_circuit(
         &split_acc_info.new_accumulator().point,
     )?;
 
+    num_gates = circuit.num_gates();
     let point = split_acc_info
         .new_accumulator()
         .point
         .iter()
         .map(|p| circuit.create_emulated_variable(*p))
         .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+    ark_std::println!(
+        "Decider circuit: Created new accumulator point variables, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     let impl_spec_pi = grumpkin_info
         .specific_pi
@@ -2015,6 +2064,11 @@ pub fn decider_circuit(
                 .collect::<Result<Vec<Variable>, CircuitError>>()
         })
         .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+    ark_std::println!(
+        "Decider circuit: Created specific pi variables, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     let mut lookup_vars = Vec::<(Variable, Variable, Variable)>::new();
     let specific_pi = specific_pi_fn(
@@ -2023,6 +2077,11 @@ pub fn decider_circuit(
         circuit,
         &mut lookup_vars,
     )?;
+    ark_std::println!(
+        "Decider circuit: Calculated specific pi, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
+    num_gates = circuit.num_gates();
 
     verify_zeromorph_circuit(
         circuit,
@@ -2032,6 +2091,10 @@ pub fn decider_circuit(
         &acc_eval,
         opening_proof,
     )?;
+    ark_std::println!(
+        "Decider circuit: Verified Zeromorph opening, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
 
     // Now to make on chain verification easier we perform a Keccak hash of the specific pi with forwarded accumulators and set it as the public input
     let field_pi_out = specific_pi
@@ -2039,9 +2102,14 @@ pub fn decider_circuit(
         .map(|pi| circuit.witness(*pi))
         .collect::<Result<Vec<Fr254>, CircuitError>>()?;
 
+    num_gates = circuit.num_gates();
     let (_, sha_hash) = circuit
         .full_shifted_sha256_hash(&[specific_pi, bn254_acc_vars].concat(), &mut lookup_vars)?;
     circuit.finalize_for_sha256_hash(&mut lookup_vars)?;
+    ark_std::println!(
+        "Decider circuit: Calculated SHA256 hash, num_gates = {}",
+        circuit.num_gates() - num_gates
+    );
 
     circuit.set_variable_public(sha_hash)?;
     Ok(field_pi_out)
