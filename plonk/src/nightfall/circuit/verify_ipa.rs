@@ -143,13 +143,17 @@ where
     let bases_vars = [bases_vars.as_slice(), &[verifier_u_var, verifier_h_var]].concat();
     let scalars = [scalar_vars.as_slice(), &[u_scalar.clone(), f_var.clone()]].concat();
 
+    let mut num_gates = circuit.num_gates();
     let g_base = EmulMultiScalarMultiplicationCircuit::<_, P>::fixed_base_msm(
         circuit,
         g_prime,
         &msm_scalars,
     )?;
+    ark_std::println!("Fixed Base MSM used {} gates", circuit.num_gates() - num_gates);
+    num_gates = circuit.num_gates();
     let intermediate =
         EmulMultiScalarMultiplicationCircuit::<_, P>::msm(circuit, &bases_vars, &scalars)?;
+    ark_std::println!("MSM used {} gates", circuit.num_gates() - num_gates);
 
     let out = circuit.ecc_add::<P>(commitment, &intermediate)?;
     let out = circuit.ecc_add::<P>(&out, &g_base)?;
