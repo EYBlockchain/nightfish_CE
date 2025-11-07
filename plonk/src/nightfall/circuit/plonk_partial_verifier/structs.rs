@@ -236,8 +236,8 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         transcript_var.push_emulated_variable(pi, circuit)?;
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
-        let [gamma, alpha, tau]: [usize; 3] = transcript_var
-            .squeeze_scalar_challenges::<P>(3, circuit)?
+        let [gamma, tau]: [usize; 2] = transcript_var
+            .squeeze_scalar_challenges::<P>(2, circuit)?
             .try_into()
             .map_err(|_| {
                 CircuitError::ParameterError("Could not convert to fixed length array".to_string())
@@ -245,20 +245,19 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
 
         let gamma_var = circuit.to_emulated_variable(gamma)?;
 
-        let alpha_var = circuit.to_emulated_variable(alpha)?;
-
         let tau_var = circuit.to_emulated_variable(tau)?;
 
         if let Some(lookup_proof_var) = proof_var.lookup_proof_var.as_ref() {
             transcript_var.append_point_variable(&lookup_proof_var.m_poly_comm_var, circuit)?;
         }
 
-        let [beta, delta, epsilon]: [usize; 3] = transcript_var
-            .squeeze_scalar_challenges::<P>(3, circuit)?
+        let [alpha, beta, delta, epsilon]: [usize; 4] = transcript_var
+            .squeeze_scalar_challenges::<P>(4, circuit)?
             .try_into()
             .map_err(|_| {
                 CircuitError::ParameterError("Could not convert to fixed length array".to_string())
             })?;
+        let alpha_var = circuit.to_emulated_variable(alpha)?;
         let beta_var = circuit.to_emulated_variable(beta)?;
         let delta_var = circuit.to_emulated_variable(delta)?;
         let epsilon_var = circuit.to_emulated_variable(epsilon)?;
@@ -369,8 +368,8 @@ impl MLEChallengesVar {
         transcript_var.push_emulated_variable(pi_hash, circuit)?;
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
-        let [gamma, alpha, tau]: [usize; 3] = transcript_var
-            .squeeze_scalar_challenges::<P>(3, circuit)?
+        let [gamma, tau]: [usize; 2] = transcript_var
+            .squeeze_scalar_challenges::<P>(2, circuit)?
             .try_into()
             .map_err(|_| {
                 CircuitError::ParameterError("Could not convert to fixed length array".to_string())
@@ -380,8 +379,8 @@ impl MLEChallengesVar {
             transcript_var.append_point_variable(&lookup_proof_var.m_poly_comm_var, circuit)?;
         }
 
-        let [beta, delta, epsilon]: [usize; 3] = transcript_var
-            .squeeze_scalar_challenges::<P>(3, circuit)?
+        let [alpha, beta, delta, epsilon]: [usize; 4] = transcript_var
+            .squeeze_scalar_challenges::<P>(4, circuit)?
             .try_into()
             .map_err(|_| {
                 CircuitError::ParameterError("Could not convert to fixed length array".to_string())
