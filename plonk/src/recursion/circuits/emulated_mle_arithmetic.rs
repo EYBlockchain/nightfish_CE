@@ -4,6 +4,8 @@
 //! of this accumulator.
 
 use super::{split_acc::SplitAccumulationInfo, Zmorph};
+use crate::nightfall::mle::mle_structs::MLEVerifyingKey;
+use crate::recursion::fs_domain::{hash_canonical, FSInitMetadata};
 use crate::{
     nightfall::{
         accumulation::circuit::structs::EmulatedPCSInstanceVar,
@@ -16,6 +18,7 @@ use crate::{
         },
         mle::mle_structs::GateInfo,
     },
+    recursion::fs_domain::fs_domain_bytes,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
@@ -429,6 +432,8 @@ pub fn emulated_combine_mle_proof_scalars(
     old_accs: &[(PointVariable, EmulatedVariable<Fq254>)],
     gate_info: &GateInfo<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
+    merge_grumpkin_vk: &MLEVerifyingKey<Zmorph>,
+    fs_metadata: &Option<FSInitMetadata>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
@@ -436,7 +441,26 @@ pub fn emulated_combine_mle_proof_scalars(
     let mut transcripts = Vec::new();
     let one_var = circuit.emulated_one();
     for (proof_var, pi) in proof_vars.iter() {
-        let mut transcript_var = RescueTranscriptVar::<Fr254>::new_transcript(circuit);
+        let mut transcript_var = if let Some(fs_metadata) = fs_metadata {
+            let fs_msg = fs_domain_bytes(
+                "nightfish.pcd",
+                "plonk-recursion",
+                "v1",
+                "rollup_prover",
+                "merge_grumpkin",
+                hash_canonical(merge_grumpkin_vk),
+                fs_metadata.srs_digest,
+                fs_metadata.recursion_depth as u32 - 1u32,
+                fs_metadata.rollup_size,
+            );
+
+            RescueTranscriptVar::new_with_initial_message::<_, ark_bn254::g1::Config>(
+                &fs_msg, circuit,
+            )?
+        } else {
+            RescueTranscriptVar::<Fr254>::new_transcript(circuit)
+        };
+
         let challenges = EmulatedMLEChallenges::<Fq254>::compute_challenges_vars(
             circuit,
             pi,
@@ -623,6 +647,7 @@ mod tests {
                     &vk,
                     output.pi_hash,
                     rng,
+                    None,
                 )
                 .unwrap();
             }
@@ -674,6 +699,8 @@ mod tests {
                 &accs,
                 &vk.gate_info,
                 &mut verifier_circuit,
+                &vk,
+                &None,
             )?;
 
             let m_comm = outputs[0].proof.lookup_proof.as_ref().unwrap().m_poly_comm;

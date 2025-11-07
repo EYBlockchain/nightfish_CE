@@ -197,6 +197,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     pub fn prove<C, F, P, T>(
         circuit: &C,
         pk: &MLEProvingKey<PCS>,
+        extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<MLEProof<PCS>, PlonkError>
     where
         F: PrimeField + RescueParameter,
@@ -211,7 +212,11 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         P::ScalarField: EmulationConfig<F>,
         T: Transcript,
     {
-        let mut transcript = T::new_transcript(b"mle_plonk");
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(&msg)?
+        } else {
+            T::new_transcript(b"mle_plonk")
+        };
 
         // Append public input to transcript.
         for public_input in circuit.public_input()? {
@@ -554,6 +559,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
     pub fn sa_prove<C, F, P, T>(
         circuit: &C,
         pk: &MLEProvingKey<PCS>,
+        extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<InternalRecursionOutput<PCS, T>, PlonkError>
     where
         F: PrimeField + RescueParameter,
@@ -575,7 +581,11 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             ));
         }
 
-        let mut transcript = T::new_transcript(b"mle_plonk");
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(&msg)?
+        } else {
+            T::new_transcript(b"mle_plonk")
+        };
 
         // Compute the wire polynomials.
         let wire_polys = circuit.compute_wire_mles()?;
@@ -823,6 +833,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         vk: &MLEVerifyingKey<PCS>,
         public_input: &[P::ScalarField],
         _rng: &mut R,
+        extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<bool, PlonkError>
     where
         F: PrimeField + RescueParameter,
@@ -837,7 +848,11 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         R: RngCore + CryptoRng,
         T: Transcript,
     {
-        let mut transcript = T::new_transcript(b"mle_plonk");
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(&msg)?
+        } else {
+            T::new_transcript(b"mle_plonk")
+        };
 
         let num_vars = vk.num_vars as usize;
         let n = 1usize << num_vars;
@@ -1037,6 +1052,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         vk: &MLEVerifyingKey<PCS>,
         public_input: P::ScalarField,
         _rng: &mut R,
+        extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<bool, PlonkError>
     where
         F: PrimeField + RescueParameter,
@@ -1051,7 +1067,12 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         R: RngCore + CryptoRng,
         T: Transcript + ark_serialize::CanonicalSerialize + ark_serialize::CanonicalDeserialize,
     {
-        let mut transcript = T::new_transcript(b"mle_plonk");
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(&msg)?
+        } else {
+            T::new_transcript(b"mle_plonk")
+        };
+
         let proof = &recursion_output.proof;
         let num_vars = vk.num_vars as usize;
         let n = 1usize << num_vars;
@@ -1417,8 +1438,9 @@ pub mod tests {
         for (i, cs) in circuits.iter().enumerate() {
             let pk_ref = if i < 3 { &pk1 } else { &pk2 };
 
-            proofs
-                .push(MLEPlonk::<PCS>::prove::<_, _, _, RescueTranscript<F>>(cs, pk_ref).unwrap());
+            proofs.push(
+                MLEPlonk::<PCS>::prove::<_, _, _, RescueTranscript<F>>(cs, pk_ref, None).unwrap(),
+            );
         }
 
         // 5. Verification
@@ -1433,7 +1455,8 @@ pub mod tests {
                 proof,
                 vk_ref,
                 &public_inputs[i],
-                rng
+                rng,
+                None
             )
             .unwrap());
             // Inconsistent proof should fail the verification.
@@ -1444,6 +1467,7 @@ pub mod tests {
                 vk_ref,
                 &bad_pub_input,
                 rng,
+                None
             )
             .is_err());
 
@@ -1458,6 +1482,7 @@ pub mod tests {
                 vk_ref,
                 &public_inputs[i],
                 rng,
+                None
             )
             .is_err());
         }
@@ -1538,7 +1563,8 @@ pub mod tests {
                     &opening_proof,
                     vk_ref,
                     public_inputs[i][0],
-                    rng
+                    rng,
+                    None
                 )
                 .unwrap()
             );
@@ -1551,6 +1577,7 @@ pub mod tests {
                     vk_ref,
                     E::ScalarField::zero(),
                     rng,
+                    None
                 )
                 .is_err()
             );
@@ -1567,6 +1594,7 @@ pub mod tests {
                     vk_ref,
                     public_inputs[i][0],
                     rng,
+                    None
                 )
                 .is_err()
             );

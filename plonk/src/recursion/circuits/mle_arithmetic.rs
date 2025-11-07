@@ -787,6 +787,7 @@ mod tests {
                 &_vk1,
                 public_input[0],
                 rng,
+                None,
             )
             .unwrap();
 
@@ -936,16 +937,17 @@ mod tests {
                         .unwrap();
                     let proof_var =
                         SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
-                    let (stuff, _) =
-                        reconstruct_mle_challenges::<
-                            _,
-                            _,
-                            Zmorph,
-                            MLEPlonk<Zmorph>,
-                            RescueTranscript<Fr254>,
-                            RescueTranscriptVar<Fr254>,
-                        >(&proof_var, &mut challenges_circuit, &pi_hash)
-                        .unwrap();
+                    let (stuff, _) = reconstruct_mle_challenges::<
+                        _,
+                        _,
+                        Zmorph,
+                        MLEPlonk<Zmorph>,
+                        RescueTranscript<Fr254>,
+                        RescueTranscriptVar<Fr254>,
+                    >(
+                        &proof_var, &mut challenges_circuit, &pi_hash, &None
+                    )
+                    .unwrap();
                     stuff
                 })
                 .collect::<Vec<MLEProofChallenges<Fq254>>>();

@@ -8,7 +8,6 @@ use super::ipa_structs::{
     eval_merged_lookup_witness, eval_merged_table, Challenges, Proof, ScalarsAndBases, VerifyingKey,
 };
 use crate::{
-    constants::EXTRA_TRANSCRIPT_MSG_LABEL,
     errors::{PlonkError, SnarkError::ParameterError},
     nightfall::ipa_structs::{MapKey, VerificationKeyId},
     transcript::*,
@@ -414,10 +413,11 @@ where
     where
         T: Transcript,
     {
-        let mut transcript = T::new_transcript(b"PlonkProof");
-        if let Some(msg) = extra_transcript_init_msg {
-            transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
-        }
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, E>(msg)?
+        } else {
+            T::new_transcript(b"PlonkProof")
+        };
 
         if verify_key.id.is_some() {
             transcript.append_visitor(verify_key)?;
