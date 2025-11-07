@@ -31,8 +31,8 @@ use crate::{
         hops::srs::UnivariateUniversalIpaParams,
         ipa_structs::{Challenges as PCSChallenges, PlookupProof, Proof as PCSProof},
         mle::mle_structs::{
-            MLEChallenges, MLELookupEvals, MLELookupProof, MLEProofEvals, MLEVerifyingKey,
-            SAMLEProof,
+            FullMLEChallenges, MLEChallenges, MLELookupEvals, MLELookupProof, MLEProofEvals,
+            MLEVerifyingKey, SAMLEProof,
         },
     },
     proof_system::structs::{PlookupEvaluations, ProofEvaluations},
@@ -175,8 +175,6 @@ pub struct EmulatedMLEChallenges<E: PrimeField> {
     pub(crate) alpha: EmulatedVariable<E>,
     pub(crate) tau: EmulatedVariable<E>,
     pub(crate) beta: EmulatedVariable<E>,
-    pub(crate) delta: EmulatedVariable<E>,
-    pub(crate) epsilon: EmulatedVariable<E>,
 }
 
 impl<E: PrimeField> EmulatedMLEChallenges<E> {
@@ -186,16 +184,12 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         alpha: EmulatedVariable<E>,
         tau: EmulatedVariable<E>,
         beta: EmulatedVariable<E>,
-        delta: EmulatedVariable<E>,
-        epsilon: EmulatedVariable<E>,
     ) -> Self {
         Self {
             gamma,
             alpha,
             tau,
             beta,
-            delta,
-            epsilon,
         }
     }
 
@@ -213,10 +207,8 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         let alpha = circuit.create_emulated_variable(challenges.alpha)?;
         let tau = circuit.create_emulated_variable(challenges.tau)?;
         let beta = circuit.create_emulated_variable(challenges.beta)?;
-        let delta = circuit.create_emulated_variable(challenges.delta)?;
-        let epsilon = circuit.create_emulated_variable(challenges.epsilon)?;
 
-        Ok(Self::new(gamma, alpha, tau, beta, delta, epsilon))
+        Ok(Self::new(gamma, alpha, tau, beta))
     }
 
     /// Computes challenges from a proof.
@@ -251,31 +243,75 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
             transcript_var.append_point_variable(&lookup_proof_var.m_poly_comm_var, circuit)?;
         }
 
-        let [alpha, beta, delta, epsilon]: [usize; 4] = transcript_var
-            .squeeze_scalar_challenges::<P>(4, circuit)?
+        let [alpha, beta]: [usize; 2] = transcript_var
+            .squeeze_scalar_challenges::<P>(2, circuit)?
             .try_into()
             .map_err(|_| {
                 CircuitError::ParameterError("Could not convert to fixed length array".to_string())
             })?;
         let alpha_var = circuit.to_emulated_variable(alpha)?;
         let beta_var = circuit.to_emulated_variable(beta)?;
-        let delta_var = circuit.to_emulated_variable(delta)?;
-        let epsilon_var = circuit.to_emulated_variable(epsilon)?;
-        Ok(Self::new(
-            gamma_var,
-            alpha_var,
-            tau_var,
-            beta_var,
-            delta_var,
-            epsilon_var,
-        ))
+        Ok(Self::new(gamma_var, alpha_var, tau_var, beta_var))
+    }
+}
+
+/// Struct used to represent [`FullMLEChallenges`] as [`EmulatedVariable`]s.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct EmulatedFullMLEChallenges<E: PrimeField> {
+    pub(crate) gamma: EmulatedVariable<E>,
+    pub(crate) alpha: EmulatedVariable<E>,
+    pub(crate) tau: EmulatedVariable<E>,
+    pub(crate) beta: EmulatedVariable<E>,
+    pub(crate) delta: EmulatedVariable<E>,
+    pub(crate) epsilon: EmulatedVariable<E>,
+}
+
+impl<E: PrimeField> EmulatedFullMLEChallenges<E> {
+    /// Create a new [`EmulatedFullMLEChallenges`].
+    pub fn new(
+        gamma: EmulatedVariable<E>,
+        alpha: EmulatedVariable<E>,
+        tau: EmulatedVariable<E>,
+        beta: EmulatedVariable<E>,
+        delta: EmulatedVariable<E>,
+        epsilon: EmulatedVariable<E>,
+    ) -> Self {
+        Self {
+            gamma,
+            alpha,
+            tau,
+            beta,
+            delta,
+            epsilon,
+        }
+    }
+
+    /// Create a new [`EmulatedMLEChallenges`] variable from a reference to a [`MLEChallenges`].
+    pub fn from_struct<P>(
+        circuit: &mut PlonkCircuit<P::BaseField>,
+        challenges: &FullMLEChallenges<P::ScalarField>,
+    ) -> Result<Self, CircuitError>
+    where
+        P: HasTEForm<ScalarField = E>,
+        P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
+        P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
+    {
+        let gamma = circuit.create_emulated_variable(challenges.gamma)?;
+        let alpha = circuit.create_emulated_variable(challenges.alpha)?;
+        let tau = circuit.create_emulated_variable(challenges.tau)?;
+        let beta = circuit.create_emulated_variable(challenges.beta)?;
+        let delta = circuit.create_emulated_variable(challenges.delta)?;
+        let epsilon = circuit.create_emulated_variable(challenges.epsilon)?;
+
+        Ok(Self::new(gamma, alpha, tau, beta, delta, epsilon))
     }
 
     /// Reconstruct a concrete `MLEChallenges` from the emulated variables.
     pub fn to_struct<P>(
         &self,
         circuit: &mut PlonkCircuit<P::BaseField>,
-    ) -> Result<MLEChallenges<P::ScalarField>, CircuitError>
+    ) -> Result<FullMLEChallenges<P::ScalarField>, CircuitError>
     where
         P: HasTEForm<ScalarField = E>,
         P::BaseField: PrimeField + EmulationConfig<P::ScalarField> + RescueParameter,
@@ -290,7 +326,7 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         let delta = read(&self.delta)?;
         let epsilon = read(&self.epsilon)?;
 
-        Ok(MLEChallenges {
+        Ok(FullMLEChallenges {
             gamma,
             alpha,
             tau,
@@ -298,6 +334,22 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
             delta,
             epsilon,
         })
+    }
+
+    /// Creates a new [`EmulatedFullMLEChallenges`] from [`EmulatedMLEChallenges`] and delta, epsilon variables.
+    pub fn from_parts(
+        emulated_mle_challenges: &EmulatedMLEChallenges<E>,
+        delta: &EmulatedVariable<E>,
+        epsilon: &EmulatedVariable<E>,
+    ) -> Self {
+        Self::new(
+            emulated_mle_challenges.gamma.clone(),
+            emulated_mle_challenges.alpha.clone(),
+            emulated_mle_challenges.tau.clone(),
+            emulated_mle_challenges.beta.clone(),
+            delta.clone(),
+            epsilon.clone(),
+        )
     }
 }
 
@@ -308,11 +360,114 @@ pub struct MLEChallengesVar {
     pub(crate) alpha: Variable,
     pub(crate) tau: Variable,
     pub(crate) beta: Variable,
+}
+
+impl MLEChallengesVar {
+    /// Create a new [`MLEChallengesVar`].
+    pub fn new(gamma: Variable, alpha: Variable, tau: Variable, beta: Variable) -> Self {
+        Self {
+            gamma,
+            alpha,
+            tau,
+            beta,
+        }
+    }
+
+    /// Create a new [`MLEChallengesNative`] variable from a reference to a [`MLEChallenges`].
+    pub fn from_struct<F>(
+        circuit: &mut PlonkCircuit<F>,
+        challenges: &MLEChallenges<F>,
+    ) -> Result<Self, CircuitError>
+    where
+        F: PrimeField,
+    {
+        let gamma = circuit.create_variable(challenges.gamma)?;
+        let alpha = circuit.create_variable(challenges.alpha)?;
+        let tau = circuit.create_variable(challenges.tau)?;
+        let beta = circuit.create_variable(challenges.beta)?;
+
+        Ok(Self::new(gamma, alpha, tau, beta))
+    }
+
+    /// Computes challenges from a proof.
+    pub fn compute_challenges<PCS, P, F, C>(
+        circuit: &mut PlonkCircuit<F>,
+        pi_hash: &EmulatedVariable<P::ScalarField>,
+        proof_var: &SAMLEProofVar<PCS>,
+        transcript_var: &mut C,
+    ) -> Result<Self, CircuitError>
+    where
+        PCS: PolynomialCommitmentScheme<Commitment = Affine<P>, Evaluation = P::ScalarField>,
+        P: HasTEForm<BaseField = F>,
+        P::BaseField: PrimeField + RescueParameter,
+        P::ScalarField: PrimeField + RescueParameter + EmulationConfig<F>,
+        F: PrimeField + RescueParameter,
+        C: CircuitTranscript<F>,
+    {
+        transcript_var.push_emulated_variable(pi_hash, circuit)?;
+        transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
+
+        let [gamma, tau]: [usize; 2] = transcript_var
+            .squeeze_scalar_challenges::<P>(2, circuit)?
+            .try_into()
+            .map_err(|_| {
+                CircuitError::ParameterError("Could not convert to fixed length array".to_string())
+            })?;
+
+        if let Some(lookup_proof_var) = proof_var.lookup_proof_var.as_ref() {
+            transcript_var.append_point_variable(&lookup_proof_var.m_poly_comm_var, circuit)?;
+        }
+
+        let [alpha, beta]: [usize; 2] = transcript_var
+            .squeeze_scalar_challenges::<P>(2, circuit)?
+            .try_into()
+            .map_err(|_| {
+                CircuitError::ParameterError("Could not convert to fixed length array".to_string())
+            })?;
+
+        Ok(Self::new(gamma, alpha, tau, beta))
+    }
+
+    /// Exposes the challenges as public inputs to the circuit.
+    pub fn set_public<F>(&self, circuit: &mut PlonkCircuit<F>) -> Result<(), CircuitError>
+    where
+        F: PrimeField,
+    {
+        circuit.set_variable_public(self.gamma)?;
+        circuit.set_variable_public(self.alpha)?;
+        circuit.set_variable_public(self.tau)?;
+        circuit.set_variable_public(self.beta)
+    }
+
+    /// Converts the challenges to field elements.
+    pub fn to_field<F>(
+        &self,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<MLEChallenges<F>, CircuitError>
+    where
+        F: PrimeField,
+    {
+        Ok(MLEChallenges {
+            gamma: circuit.witness(self.gamma)?,
+            alpha: circuit.witness(self.alpha)?,
+            tau: circuit.witness(self.tau)?,
+            beta: circuit.witness(self.beta)?,
+        })
+    }
+}
+
+/// Struct use to represent [`MLEChallenges`] as [`Variable`]s over the native field.
+#[derive(Debug, Clone, Copy)]
+pub struct FullMLEChallengesVar {
+    pub(crate) gamma: Variable,
+    pub(crate) alpha: Variable,
+    pub(crate) tau: Variable,
+    pub(crate) beta: Variable,
     pub(crate) delta: Variable,
     pub(crate) epsilon: Variable,
 }
 
-impl MLEChallengesVar {
+impl FullMLEChallengesVar {
     /// Create a new [`MLEChallengesVar`].
     pub fn new(
         gamma: Variable,
@@ -332,10 +487,10 @@ impl MLEChallengesVar {
         }
     }
 
-    /// Create a new [`MLEChallengesNative`] variable from a reference to a [`MLEChallenges`].
+    /// Create a new [`FullMLEChallengesVar`] variable from a reference to a [`FullMLEChallenges`].
     pub fn from_struct<F>(
         circuit: &mut PlonkCircuit<F>,
-        challenges: &MLEChallenges<F>,
+        challenges: &FullMLEChallenges<F>,
     ) -> Result<Self, CircuitError>
     where
         F: PrimeField,
@@ -350,74 +505,20 @@ impl MLEChallengesVar {
         Ok(Self::new(gamma, alpha, tau, beta, delta, epsilon))
     }
 
-    /// Computes challenges from a proof.
-    pub fn compute_challenges<PCS, P, F, C>(
-        circuit: &mut PlonkCircuit<F>,
-        pi_hash: &EmulatedVariable<P::ScalarField>,
-        proof_var: &SAMLEProofVar<PCS>,
-        transcript_var: &mut C,
-    ) -> Result<Self, CircuitError>
-    where
-        PCS: PolynomialCommitmentScheme<Commitment = Affine<P>, Evaluation = P::ScalarField>,
-        P: HasTEForm,
-        P::BaseField: PrimeField + RescueParameter,
-        P::ScalarField: PrimeField + RescueParameter + EmulationConfig<F>,
-        F: PrimeField,
-        C: CircuitTranscript<F>,
-    {
-        transcript_var.push_emulated_variable(pi_hash, circuit)?;
-        transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
-
-        let [gamma, tau]: [usize; 2] = transcript_var
-            .squeeze_scalar_challenges::<P>(2, circuit)?
-            .try_into()
-            .map_err(|_| {
-                CircuitError::ParameterError("Could not convert to fixed length array".to_string())
-            })?;
-
-        if let Some(lookup_proof_var) = proof_var.lookup_proof_var.as_ref() {
-            transcript_var.append_point_variable(&lookup_proof_var.m_poly_comm_var, circuit)?;
-        }
-
-        let [alpha, beta, delta, epsilon]: [usize; 4] = transcript_var
-            .squeeze_scalar_challenges::<P>(4, circuit)?
-            .try_into()
-            .map_err(|_| {
-                CircuitError::ParameterError("Could not convert to fixed length array".to_string())
-            })?;
-
-        Ok(Self::new(gamma, alpha, tau, beta, delta, epsilon))
-    }
-
-    /// Exposes the challenges as public inputs to the circuit.
-    pub fn set_public<F>(&self, circuit: &mut PlonkCircuit<F>) -> Result<(), CircuitError>
-    where
-        F: PrimeField,
-    {
-        circuit.set_variable_public(self.gamma)?;
-        circuit.set_variable_public(self.alpha)?;
-        circuit.set_variable_public(self.tau)?;
-        circuit.set_variable_public(self.beta)?;
-        circuit.set_variable_public(self.delta)?;
-        circuit.set_variable_public(self.epsilon)
-    }
-
-    /// Converts the challenges to field elements.
-    pub fn to_field<F>(
-        &self,
-        circuit: &mut PlonkCircuit<F>,
-    ) -> Result<MLEChallenges<F>, CircuitError>
-    where
-        F: PrimeField,
-    {
-        Ok(MLEChallenges {
-            gamma: circuit.witness(self.gamma)?,
-            alpha: circuit.witness(self.alpha)?,
-            tau: circuit.witness(self.tau)?,
-            beta: circuit.witness(self.beta)?,
-            delta: circuit.witness(self.delta)?,
-            epsilon: circuit.witness(self.epsilon)?,
-        })
+    /// Creates a new [`FullMLEChallengesVar`] from [`MLEChallengesVar`] and delta, epsilon variables.
+    pub fn from_parts(
+        mle_challenges_var: &MLEChallengesVar,
+        delta: Variable,
+        epsilon: Variable,
+    ) -> Self {
+        Self::new(
+            mle_challenges_var.gamma,
+            mle_challenges_var.alpha,
+            mle_challenges_var.tau,
+            mle_challenges_var.beta,
+            delta,
+            epsilon,
+        )
     }
 }
 

@@ -377,7 +377,7 @@ pub struct MLELookupVerifyingKey<PCS: PolynomialCommitmentScheme> {
     pub(crate) q_lookup_comm: PCS::Commitment,
 }
 
-/// Struct used to store challenges for the MLE Plonk protocol during verification.
+/// Struct used to store the first four challenges for the MLE Plonk protocol during verification.
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub struct MLEChallenges<F: PrimeField> {
     /// Gamma challenge used in permutation polynomials.
@@ -388,10 +388,6 @@ pub struct MLEChallenges<F: PrimeField> {
     pub tau: F,
     /// Beta challenge used for GKR domain separation.
     pub beta: F,
-    /// The challenge used to combine all the commitments.
-    pub delta: F,
-    /// The challenge used for the batch ZeroCheck.
-    pub epsilon: F,
 }
 
 impl<F: PrimeField> Default for MLEChallenges<F> {
@@ -401,8 +397,6 @@ impl<F: PrimeField> Default for MLEChallenges<F> {
             alpha: F::zero(),
             tau: F::zero(),
             beta: F::zero(),
-            delta: F::zero(),
-            epsilon: F::zero(),
         }
     }
 }
@@ -439,8 +433,8 @@ impl<F: PrimeField> MLEChallenges<F> {
             transcript.append_curve_point(b"m_poly_comm", &lookup_proof.m_poly_comm)?;
         }
 
-        let [alpha, beta, delta, epsilon]: [F; 4] = transcript
-            .squeeze_scalar_challenges::<P>(b"alpha beta, delta epsilon", 4)?
+        let [alpha, beta]: [F; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
@@ -451,8 +445,6 @@ impl<F: PrimeField> MLEChallenges<F> {
             alpha,
             tau,
             beta,
-            delta,
-            epsilon,
         })
     }
 
@@ -491,8 +483,8 @@ impl<F: PrimeField> MLEChallenges<F> {
             transcript.append_curve_point(b"m_poly_comm", &lookup_proof.m_poly_comm)?;
         }
 
-        let [alpha, beta, delta, epsilon]: [F; 4] = transcript
-            .squeeze_scalar_challenges::<P>(b"alpha beta, delta epsilon", 4)?
+        let [alpha, beta]: [F; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
@@ -503,8 +495,6 @@ impl<F: PrimeField> MLEChallenges<F> {
             alpha,
             tau,
             beta,
-            delta,
-            epsilon,
         })
     }
 }
@@ -513,7 +503,7 @@ impl<F: PrimeField> TryFrom<Vec<F>> for MLEChallenges<F> {
     type Error = PlonkError;
 
     fn try_from(challenges: Vec<F>) -> Result<Self, Self::Error> {
-        if challenges.len() != 6 {
+        if challenges.len() != 4 {
             return Err(PlonkError::InvalidParameters(
                 "MLEChallenges must have length 6".to_string(),
             ));
@@ -523,8 +513,6 @@ impl<F: PrimeField> TryFrom<Vec<F>> for MLEChallenges<F> {
             alpha: challenges[1],
             tau: challenges[2],
             beta: challenges[3],
-            delta: challenges[4],
-            epsilon: challenges[5],
         })
     }
 }
@@ -536,6 +524,65 @@ where
     Fq: PrimeField,
 {
     fn from(challenges: &MLEChallenges<Fq>) -> Self {
+        Self {
+            gamma: Fr::from_le_bytes_mod_order(&challenges.gamma.into_bigint().to_bytes_le()),
+            alpha: Fr::from_le_bytes_mod_order(&challenges.alpha.into_bigint().to_bytes_le()),
+            tau: Fr::from_le_bytes_mod_order(&challenges.tau.into_bigint().to_bytes_le()),
+            beta: Fr::from_le_bytes_mod_order(&challenges.beta.into_bigint().to_bytes_le()),
+        }
+    }
+}
+
+/// Struct used to store the six challenges for the MLE Plonk protocol during verification.
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub struct FullMLEChallenges<F: PrimeField> {
+    /// Gamma challenge used in permutation polynomials.
+    pub gamma: F,
+    /// Alpha challenge used in ZeroCheck batching.
+    pub alpha: F,
+    /// Lookup challenge used in lookup arguments.
+    pub tau: F,
+    /// Beta challenge used for GKR domain separation.
+    pub beta: F,
+    /// The challenge used to combine all the commitments.
+    pub delta: F,
+    /// The challenge used for the batch ZeroCheck.
+    pub epsilon: F,
+}
+
+impl<F: PrimeField> FullMLEChallenges<F> {
+    pub(crate) fn from_parts(challenges: MLEChallenges<F>, delta: F, epsilon: F) -> Self {
+        FullMLEChallenges::<F> {
+            gamma: challenges.gamma,
+            alpha: challenges.alpha,
+            tau: challenges.tau,
+            beta: challenges.beta,
+            delta,
+            epsilon,
+        }
+    }
+}
+
+impl<F: PrimeField> Default for FullMLEChallenges<F> {
+    fn default() -> Self {
+        FullMLEChallenges::<F> {
+            gamma: F::zero(),
+            alpha: F::zero(),
+            tau: F::zero(),
+            beta: F::zero(),
+            delta: F::zero(),
+            epsilon: F::zero(),
+        }
+    }
+}
+
+// Challenges always fit into either the base field or scalar field so we can write a From implementation for this struct.
+impl<Fq, Fr> From<&FullMLEChallenges<Fq>> for FullMLEChallenges<Fr>
+where
+    Fr: PrimeField,
+    Fq: PrimeField,
+{
+    fn from(challenges: &FullMLEChallenges<Fq>) -> Self {
         Self {
             gamma: Fr::from_le_bytes_mod_order(&challenges.gamma.into_bigint().to_bytes_le()),
             alpha: Fr::from_le_bytes_mod_order(&challenges.alpha.into_bigint().to_bytes_le()),

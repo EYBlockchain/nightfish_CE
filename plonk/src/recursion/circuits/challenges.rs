@@ -4,7 +4,7 @@
 
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{BigInteger, PrimeField};
-use ark_std::{string::ToString, vec::Vec};
+use ark_std::vec::Vec;
 use jf_primitives::{pcs::Accumulation, rescue::RescueParameter};
 use jf_relation::{
     errors::CircuitError,
@@ -13,13 +13,15 @@ use jf_relation::{
 };
 
 use crate::{
-    errors::PlonkError,
     nightfall::{
         circuit::{
-            plonk_partial_verifier::{EmulatedMLEChallenges, MLEChallengesVar, SAMLEProofVar},
+            plonk_partial_verifier::{
+                EmulatedFullMLEChallenges, EmulatedMLEChallenges, FullMLEChallengesVar,
+                SAMLEProofVar,
+            },
             subroutine_verifiers::sumcheck::SumCheckGadget,
         },
-        mle::mle_structs::{MLEChallenges, SAMLEProof},
+        mle::mle_structs::{FullMLEChallenges, SAMLEProof},
     },
     recursion::UniversalRecursiveSNARK,
     transcript::{CircuitTranscript, Transcript},
@@ -29,7 +31,7 @@ use crate::{
 #[derive(Clone, Debug, Default)]
 pub struct MLEProofChallenges<F: PrimeField> {
     /// The plonk challenges themselves.
-    pub challenges: MLEChallenges<F>,
+    pub challenges: FullMLEChallenges<F>,
     /// The r challenges used in the GKR proof for combining claims about p0 and p1 or q0 and q1.
     pub gkr_r_challenges: Vec<F>,
     /// The lambda challenges used in the GKR proof for separating the claims about p0 and p1 or q0 and q1.
@@ -70,7 +72,7 @@ impl<Fq: PrimeField, Fr: PrimeField> From<&MLEProofChallenges<Fr>> for MLEProofC
             .map(|c| Fq::from_le_bytes_mod_order(&c.into_bigint().to_bytes_le()))
             .collect();
 
-        let mle_challenges: MLEChallenges<Fq> = (&challenges.challenges).into();
+        let mle_challenges: FullMLEChallenges<Fq> = (&challenges.challenges).into();
         Self {
             challenges: mle_challenges,
             gkr_r_challenges,
@@ -84,7 +86,7 @@ impl<Fq: PrimeField, Fr: PrimeField> From<&MLEProofChallenges<Fr>> for MLEProofC
 impl<F: PrimeField> MLEProofChallenges<F> {
     /// Create a new [`MLEProofChallenges`] struct from the given challenges.
     pub fn new(
-        challenges: MLEChallenges<F>,
+        challenges: FullMLEChallenges<F>,
         gkr_r_challenges: Vec<F>,
         gkr_lambda_challenges: Vec<F>,
         gkr_sumcheck_challenges: Vec<Vec<F>>,
@@ -100,7 +102,7 @@ impl<F: PrimeField> MLEProofChallenges<F> {
     }
 
     /// Getter for the challenges.
-    pub fn challenges(&self) -> &MLEChallenges<F> {
+    pub fn challenges(&self) -> &FullMLEChallenges<F> {
         &self.challenges
     }
     /// Getter for the r challenges.
@@ -166,15 +168,18 @@ where
         .gkr_proof
         .extract_challenges::<P, F, C>(circuit, &mut transcript)?;
 
-    let gkr_r_challenges = flat_gkr_challenges[0..num_vars + 1].to_vec();
+    let epsilon = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+    let epsilon_var = circuit.to_emulated_variable(epsilon)?;
 
-    let gkr_lambda_challenges = flat_gkr_challenges[num_vars + 1..2 * num_vars + 1].to_vec();
+    let gkr_r_challenges = flat_gkr_challenges[0..num_vars].to_vec();
+
+    let gkr_lambda_challenges = flat_gkr_challenges[num_vars..2 * num_vars].to_vec();
 
     let mut gkr_sumcheck_challenges = Vec::new();
     let mut gkr_sumcheck_challenges_field = Vec::new();
     let mut j = 0usize;
     for i in 1..=num_vars {
-        let round_i_sumcheck_challenges: Vec<usize> = flat_gkr_challenges[2 * num_vars + 1..]
+        let round_i_sumcheck_challenges: Vec<usize> = flat_gkr_challenges[2 * num_vars..]
             .iter()
             .skip(j)
             .take(i)
@@ -194,9 +199,15 @@ where
     let final_sumcheck_challenges =
         circuit.recover_sumcheck_challenges::<P, C>(&proof_var.sumcheck_proof, &mut transcript)?;
 
+    let delta = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+    let delta_var = circuit.to_emulated_variable(delta)?;
+
+    let full_mle_challenges =
+        EmulatedFullMLEChallenges::from_parts(&mle_challenges, &delta_var, &epsilon_var);
+
     let mle_proof_challenges: MLEProofChallengesEmulatedVar<P::ScalarField> =
         MLEProofChallengesEmulatedVar::new(
-            mle_challenges,
+            full_mle_challenges,
             gkr_r_challenges
                 .into_iter()
                 .map(|c| circuit.to_emulated_variable(c))
@@ -222,64 +233,11 @@ where
     Ok((mle_proof_challenges, transcript))
 }
 
-// We wish to be able to recover the challenges from a vector of field elements.
-// If we denote by n the number of variables in the multilinear extensions used in the circuit then the total number of challenges is given by:
-//          7 + (n + 1) + n + n(n + 1)/2 + n = n^2 + 3n + 7.
-// So we can recover the challenges without knowing the number of variables in the circuit.
-impl<F> TryFrom<&[F]> for MLEProofChallenges<F>
-where
-    F: PrimeField,
-{
-    type Error = PlonkError;
-    fn try_from(challenges: &[F]) -> Result<Self, Self::Error> {
-        let discriminant = 9 + 28 * challenges.len() as i64;
-        let disc_sqrt = (discriminant as f64).sqrt() as i64;
-
-        if disc_sqrt * disc_sqrt != discriminant {
-            return Err(PlonkError::InvalidParameters("The length of challenges provided does not give an integer solution to the quadratic equation".to_string()));
-        }
-
-        let num_vars = (disc_sqrt as usize - 3) / 2;
-
-        let gkr_r_challenges = challenges[7..num_vars + 8].to_vec();
-        let gkr_lambda_challenges = challenges[num_vars + 8..2 * num_vars + 8].to_vec();
-        let mut gkr_sumcheck_challenges = Vec::new();
-        let mut j = 0usize;
-        for i in 1..=num_vars {
-            let round_i_sumcheck_challenges: Vec<F> = challenges[2 * num_vars + 8..]
-                .iter()
-                .skip(j)
-                .take(i)
-                .copied()
-                .collect();
-            j += i;
-            gkr_sumcheck_challenges.push(round_i_sumcheck_challenges);
-        }
-        // 2 * num_vars + 8 + num_vars * (num_vars + 1)/2 = num_vars * (num_vars + 5)/2 + 8
-        let total_gkr_challenges = num_vars * (num_vars + 5) / 2 + 8;
-        let final_sumcheck_challenges = challenges[total_gkr_challenges..].to_vec();
-
-        // Check that we have the correct length here.
-        if final_sumcheck_challenges.len() != num_vars {
-            return Err(PlonkError::InvalidParameters("The number of final sumcheck challenges is not equal to the number of variables in the circuit".to_string()));
-        }
-
-        let mle_challenges = MLEChallenges::try_from(challenges[0..7].to_vec())?;
-        Ok(Self {
-            challenges: mle_challenges,
-            gkr_r_challenges,
-            gkr_lambda_challenges,
-            gkr_sumcheck_challenges,
-            final_sumcheck_challenges,
-        })
-    }
-}
-
 /// Struct for converting everything in the [`MLEProofChallenges`] struct to [`Variable`]'s.
 #[derive(Clone, Debug)]
 pub struct MLEProofChallengesVar {
     /// The plonk challenges themselves.
-    pub challenges: MLEChallengesVar,
+    pub challenges: FullMLEChallengesVar,
     /// The r challenges used in the GKR proof for combining claims about p0 and p1 or q0 and q1.
     pub gkr_r_challenges: Vec<Variable>,
     /// The lambda challenges used in the GKR proof for separating the claims about p0 and p1 or q0 and q1.
@@ -295,7 +253,7 @@ pub struct MLEProofChallengesVar {
 impl MLEProofChallengesVar {
     /// Create a new instance of the struct from the given challenges.
     pub fn new(
-        challenges: MLEChallengesVar,
+        challenges: FullMLEChallengesVar,
         gkr_r_challenges: Vec<Variable>,
         gkr_lambda_challenges: Vec<Variable>,
         gkr_sumcheck_challenges: Vec<Vec<Variable>>,
@@ -318,7 +276,7 @@ impl MLEProofChallengesVar {
     where
         F: PrimeField,
     {
-        let mle_challenges = MLEChallengesVar::from_struct(circuit, &challenges.challenges)?;
+        let mle_challenges = FullMLEChallengesVar::from_struct(circuit, &challenges.challenges)?;
 
         let gkr_r_challenges = challenges
             .gkr_r_challenges()
@@ -358,7 +316,7 @@ impl MLEProofChallengesVar {
     }
 
     /// Getter for the challenges.
-    pub fn challenges(&self) -> &MLEChallengesVar {
+    pub fn challenges(&self) -> &FullMLEChallengesVar {
         &self.challenges
     }
     /// Getter for the r challenges.
@@ -383,7 +341,7 @@ impl MLEProofChallengesVar {
 #[derive(Clone, Debug)]
 pub struct MLEProofChallengesEmulatedVar<E: PrimeField> {
     /// The plonk challenges themselves.
-    pub challenges: EmulatedMLEChallenges<E>,
+    pub challenges: EmulatedFullMLEChallenges<E>,
     /// The r challenges used in the GKR proof for combining claims about p0 and p1 or q0 and q1.
     pub gkr_r_challenges: Vec<EmulatedVariable<E>>,
     /// The lambda challenges used in the GKR proof for separating the claims about p0 and p1 or q0 and q1.
@@ -399,7 +357,7 @@ pub struct MLEProofChallengesEmulatedVar<E: PrimeField> {
 impl<E: PrimeField> MLEProofChallengesEmulatedVar<E> {
     /// Create a new instance of the struct from the given challenges.
     pub fn new(
-        challenges: EmulatedMLEChallenges<E>,
+        challenges: EmulatedFullMLEChallenges<E>,
         gkr_r_challenges: Vec<EmulatedVariable<E>>,
         gkr_lambda_challenges: Vec<EmulatedVariable<E>>,
         gkr_sumcheck_challenges: Vec<Vec<EmulatedVariable<E>>>,
@@ -425,7 +383,7 @@ impl<E: PrimeField> MLEProofChallengesEmulatedVar<E> {
         P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
     {
         let mle_challenges =
-            EmulatedMLEChallenges::from_struct::<P>(circuit, &challenges.challenges)?;
+            EmulatedFullMLEChallenges::from_struct::<P>(circuit, &challenges.challenges)?;
 
         let gkr_r_challenges = challenges
             .gkr_r_challenges()
@@ -514,7 +472,7 @@ impl<E: PrimeField> MLEProofChallengesEmulatedVar<E> {
     }
 
     /// Getter for the challenges.
-    pub fn challenges(&self) -> &EmulatedMLEChallenges<E> {
+    pub fn challenges(&self) -> &EmulatedFullMLEChallenges<E> {
         &self.challenges
     }
     /// Getter for the r challenges.

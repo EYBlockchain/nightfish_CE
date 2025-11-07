@@ -807,11 +807,6 @@ mod test {
                 mle_challenges.tau,
                 plonk_circuit.emulated_witness(&mle_challenges_var.tau)?
             );
-
-            assert_eq!(
-                mle_challenges.delta,
-                plonk_circuit.emulated_witness(&mle_challenges_var.delta)?
-            );
         }
         Ok(())
     }

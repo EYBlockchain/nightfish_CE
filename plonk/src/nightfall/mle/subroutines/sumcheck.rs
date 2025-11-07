@@ -8,6 +8,7 @@ use crate::{
 
 use ark_ff::{Field, PrimeField};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::vec::Vec;
 use jf_relation::gadgets::{ecc::HasTEForm, EmulationConfig};
 
 /// A trait that defines what it means to be an oracle to a polynomial.
@@ -55,4 +56,10 @@ where
         proof: &Self::Proof,
         transcript: &mut T,
     ) -> Result<Self::DeferredCheck, PlonkError>;
+
+    /// Recovers the sumcheck challenges from the proof and transcript.
+    fn recover_sumcheck_challenges<T: Transcript>(
+        proof: &Self::Proof,
+        transcript: &mut T,
+    ) -> Result<Vec<P::ScalarField>, PlonkError>;
 }
