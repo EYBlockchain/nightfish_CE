@@ -8,6 +8,8 @@ use ark_bn254::{g1::Config as BnConfig, Bn254, Fq as Fq254, Fr as Fr254};
 use ark_ec::short_weierstrass::Affine;
 use ark_ff::{BigInteger, Field, One, PrimeField, Zero};
 
+use crate::recursion::fs_domain::{hash_canonical, FSInitMetadata};
+use crate::recursion::fs_domain_bytes;
 use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
 use ark_std::{string::ToString, sync::Arc, vec, vec::Vec};
 use itertools::Itertools;
@@ -396,6 +398,7 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         &mut PlonkCircuit<Fq254>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fq254>,
+    fs_metadata: &Option<FSInitMetadata>,
 ) -> Result<GrumpkinCircuitOutput, PlonkError> {
     // We first construct the pair of `VerifyingKeyBasesVar`s corresponding to `vk_bn254`.
     let vk_bases_var: [VerifyingKeyScalarsAndBasesVar<Kzg>; 2] = if IS_FIRST_ROUND {
@@ -437,13 +440,36 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
     // If this is the first round, the incoming proof will include blinding.
     let output_pcs_info_var_pair: [(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>); 2] = bn254info.bn254_outputs.iter()
         .zip(vk_bases_var.iter())
-        .map(|(output, vk)| {
+        .zip(vk_bn254.iter())
+        .map(|((output, vk), vk_child)| {
             let verifier = Verifier::new(vk.domain_size)?;
+
+            let fs_msg = if IS_FIRST_ROUND {
+                None
+            } else if let Some(fs_metadata) = fs_metadata {
+                // 0: base_grumpkin, 1: base_bn254, 2: merge_grumpkin, 3: merge_bn254 (partially verifies four base_bn254 proofs)
+                let layer = if fs_metadata.recursion_depth == 2 { "base_bn254" } else { "merge_bn254" };
+                let fs_msg = fs_domain_bytes(
+                    "nightfish.pcd",
+                    "plonk-recursion",
+                    "v1",
+                    "rollup_prover",
+                    layer,
+                    hash_canonical(vk_child),
+                    fs_metadata.srs_digest,
+                    fs_metadata.recursion_depth as u32 - 1u32,
+                    fs_metadata.rollup_size,
+                );
+                   Some(fs_msg)
+                } else {
+                    None
+            };
+
             verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                 vk,
                 &[output.pi_hash],
                 output,
-                &None,
+                &fs_msg,
                 circuit,
                 IS_FIRST_ROUND,
             )
@@ -1126,6 +1152,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
         &mut PlonkCircuit<Fr254>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
+    fs_metadata: &Option<FSInitMetadata>,
 ) -> Result<Bn254CircuitOutput, PlonkError> {
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
@@ -1227,6 +1254,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     .expect("base_vars_pair length verified by chunks_exact"),
                 &bn254_vks[0],
                 circuit,
+                fs_metadata,
                 false,
             )
         })
@@ -1514,6 +1542,23 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 }
                 let pi_hash_emul: EmulatedVariable<Fq254> = circuit.to_emulated_variable(pi_hash)?;
 
+                let fs_msg = if let Some(fs_metadata) = fs_metadata {
+                    let layer = if IS_BASE { "base_grumpkin" } else { "merge_grumpkin" };
+                    Some(fs_domain_bytes(
+                        "nightfish.pcd",
+                        "plonk-recursion",
+                        "v1",
+                        "rollup_prover",
+                        layer,
+                        hash_canonical(&pk_grumpkin.verifying_key),
+                        fs_metadata.srs_digest,
+                        fs_metadata.recursion_depth as u32 - 1u32,
+                        fs_metadata.rollup_size,
+                    ))
+                } else {
+                    None
+                };
+
                 let next_grumpkin_challenges = reconstruct_mle_challenges::<
                     _,
                     _,
@@ -1521,7 +1566,7 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                     MLEPlonk<Zmorph>,
                     RescueTranscript<Fr254>,
                     RescueTranscriptVar<Fr254>,
-                >(grumpkin_proof_vars, circuit, &pi_hash_emul)?;
+                >(grumpkin_proof_vars, circuit, &pi_hash_emul, &fs_msg)?;
                 Ok(next_grumpkin_challenges)
             },
         )
@@ -1652,6 +1697,7 @@ pub fn decider_circuit(
         &mut Vec<(Variable, Variable, Variable)>,
     ) -> Result<Vec<Variable>, CircuitError>,
     circuit: &mut PlonkCircuit<Fr254>,
+    fs_metadata: &Option<FSInitMetadata>,
 ) -> Result<Vec<Fr254>, PlonkError> {
     // We first construct variables for the two bn254 proofs that we will be verifying.
     let output_var_pairs = grumpkin_info
@@ -1699,6 +1745,7 @@ pub fn decider_circuit(
                 .expect("base_vars_pair length verified by chunks_exact"),
             vk_bn254,
             circuit,
+            fs_metadata,
             false,
         )
     })
@@ -1983,6 +2030,8 @@ pub fn decider_circuit(
         &acc_comms,
         &pk_grumpkin.verifying_key.gate_info,
         circuit,
+        &pk_grumpkin.verifying_key,
+        fs_metadata,
     )?;
 
     let accumulated_comm = EmulMultiScalarMultiplicationCircuit::<Fr254, SWGrumpkin>::msm(

@@ -6,6 +6,8 @@ use ark_std::{string::ToString, vec::Vec};
 
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
+use crate::recursion::fs_domain::{hash_canonical, FSInitMetadata};
+use crate::recursion::fs_domain_bytes;
 use crate::{
     nightfall::{
         circuit::plonk_partial_verifier::{
@@ -67,6 +69,7 @@ pub fn partial_verify_fft_plonk(
     base_vars: &ProofVarNative<BnConfig>,
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
+    fs_metadata: &Option<FSInitMetadata>,
     blind: bool,
 ) -> Result<PCSInfoCircuit, CircuitError> {
     let ProofScalarsVarNative {
@@ -75,7 +78,30 @@ pub fn partial_verify_fft_plonk(
         pi_hash,
     } = scalar_var;
 
-    let mut transcript = RescueTranscriptVar::new_transcript(circuit);
+    let mut transcript = if let Some(fs_metadata) = fs_metadata {
+        // 0: base_grumpkin, 1: base_bn254, 2: merge_grumpkin, 3: merge_bn254 (partially verifies four base_bn254 proofs)
+        let layer = if fs_metadata.recursion_depth == 3 {
+            "base_bn254"
+        } else {
+            "merge_bn254"
+        };
+
+        let fs_msg = fs_domain_bytes(
+            "nightfish.pcd",
+            "plonk-recursion",
+            "v1",
+            "rollup_prover",
+            layer,
+            hash_canonical(vk),
+            fs_metadata.srs_digest,
+            fs_metadata.recursion_depth as u32 - 2u32,
+            fs_metadata.rollup_size,
+        );
+
+        RescueTranscriptVar::new_with_initial_message::<_, BnConfig>(&fs_msg, circuit)?
+    } else {
+        RescueTranscriptVar::new_transcript(circuit)
+    };
 
     // Generate the challenges
     // As this is the non-base version, the verification key is fixed and we do not pass in the vk_id to be added to the transcript.
@@ -149,6 +175,7 @@ pub(crate) fn calculate_recursion_scalars(
     base_vars: &[ProofVarNative<BnConfig>; 2],
     vk: &VerifyingKey<Kzg>,
     circuit: &mut PlonkCircuit<Fr254>,
+    fs_metadata: &Option<FSInitMetadata>,
     blind: bool,
 ) -> Result<Vec<Variable>, CircuitError> {
     // First prepare the pcs_infos for each proof
@@ -156,7 +183,7 @@ pub(crate) fn calculate_recursion_scalars(
         .iter()
         .zip(base_vars.iter())
         .map(|(scalar_var, base_var)| {
-            partial_verify_fft_plonk(scalar_var, base_var, vk, circuit, blind)
+            partial_verify_fft_plonk(scalar_var, base_var, vk, circuit, fs_metadata, blind)
         })
         .collect::<Result<Vec<PCSInfoCircuit>, CircuitError>>()?
         .try_into()
@@ -442,6 +469,7 @@ mod tests {
                 &base_var,
                 &vk,
                 &mut verifier_circuit,
+                &None,
                 blind,
             )?;
 
@@ -700,6 +728,7 @@ mod tests {
                 &output_base_vars,
                 &vk,
                 &mut scalars_verifier_circuit,
+                &None,
                 blind,
             )?;
             let (instance_scalar_vars, proof_scalar_vars) =
