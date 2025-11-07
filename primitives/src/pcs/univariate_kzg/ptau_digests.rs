@@ -249,6 +249,7 @@ pub const PSE_PPOT_SHA256: &[(&str, &str)] = &[
     // ("final", "PLACEHOLDER_FOR_FINAL"), // Placeholder, replace with actual hash if needed
 ];
 
+/// Returns the sha256 digest for the SRS with length 2^{label}
 pub fn expected_sha256_for_label(label: &str) -> Option<&'static str> {
     PSE_PPOT_SHA256
         .iter()

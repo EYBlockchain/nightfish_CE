@@ -8,6 +8,7 @@
 pub use crate::pcs::{
     errors::PCSError,
     univariate_kzg::{
+        ptau_digests::expected_sha256_for_label,
         srs::{UnivariateProverParam, UnivariateUniversalParams, UnivariateVerifierParam},
         UnivariateKzgBatchProof, UnivariateKzgPCS, UnivariateKzgProof,
     },
