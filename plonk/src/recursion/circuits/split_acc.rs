@@ -249,6 +249,7 @@ impl SplitAccumulationInfo {
     }
 
     /// Used to verify the accumulation performed in [`Self::perform_accumulation`] in a Bn254 circuit.
+    #[allow(clippy::type_complexity)]
     pub fn verify_split_accumulation(
         &self,
         proof_vars: &[SAMLEProofVar<Zmorph>; 2],

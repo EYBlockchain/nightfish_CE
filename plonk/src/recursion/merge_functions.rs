@@ -46,9 +46,7 @@ use crate::{
     },
     proof_system::RecursiveOutput,
     recursion::circuits::{
-        challenges::{
-            reconstruct_mle_challenges, MLEProofChallengesEmulatedVar, MLEProofChallengesVar,
-        },
+        challenges::{reconstruct_mle_challenges, MLEProofChallengesEmulatedVar},
         emulated_mle_arithmetic::emulated_combine_mle_proof_scalars,
         split_acc::SplitAccumulationInfoVar,
     },
@@ -2296,11 +2294,28 @@ impl MLEProofChallengesVar {
                 .collect::<Vec<Variable>>(),
         );
         out.extend_from_slice(&self.final_sumcheck_challenges);
-        let out: Vec<[Variable; 2]> = out
-            .iter()
-            .map(|&v| convert_to_hash_form_fq254(circuit, v))
-            .collect::<Result<_, _>>()?;
-        Ok(out.into_iter().flatten().collect())
+        let mut output_vec = Vec::<Variable>::new();
+        let mut leftover_vec = Vec::<Variable>::new();
+        for var in out {
+            let [low_var, high_var] = convert_to_hash_form_fq254(circuit, var).map_err(|_| {
+                CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
+            })?;
+            output_vec.push(low_var);
+            leftover_vec.push(high_var);
+        }
+
+        let field_bytes_length = (Fq254::MODULUS_BIT_SIZE - 1) / 8;
+        let bits = field_bytes_length * 8;
+        let leftover_bits = Fq254::MODULUS_BIT_SIZE - bits;
+        let chunk_size = (Fq254::MODULUS_BIT_SIZE - 1) / leftover_bits;
+        let coeffs = (0..chunk_size)
+            .map(|i| Fq254::from(2u8).pow([(leftover_bits * i) as u64]))
+            .collect::<Vec<Fq254>>();
+        for chunk in leftover_vec.chunks(chunk_size as usize) {
+            let var = circuit.lin_comb(&coeffs[..chunk.len()], &Fq254::zero(), chunk)?;
+            output_vec.push(var);
+        }
+        Ok(output_vec)
     }
 }
 
@@ -2324,10 +2339,32 @@ impl MLEProofChallengesEmulatedVar<Fq254> {
                 .collect::<Vec<EmulatedVariable<Fq254>>>(),
         );
         out.extend_from_slice(&self.final_sumcheck_challenges);
-        let out: Vec<_> = out
-            .iter()
-            .map(|v| convert_to_hash_form_emulated(circuit, v))
-            .collect::<Result<_, _>>()?;
-        Ok(out.into_iter().flatten().collect())
+        let mut output_vec = Vec::<Variable>::new();
+        let mut leftover_vec = Vec::<Variable>::new();
+        for emu_var in out {
+            let [low_var, high_var] = circuit
+                .convert_for_transcript(&emu_var)?
+                .try_into()
+                .map_err(|_| {
+                    CircuitError::ParameterError(
+                        "Couldn't convert to fixed length array".to_string(),
+                    )
+                })?;
+            output_vec.push(low_var);
+            leftover_vec.push(high_var);
+        }
+
+        let field_bytes_length = (Fq254::MODULUS_BIT_SIZE - 1) / 8;
+        let bits = field_bytes_length * 8;
+        let leftover_bits = Fq254::MODULUS_BIT_SIZE - bits;
+        let chunk_size = (Fq254::MODULUS_BIT_SIZE - 1) / leftover_bits;
+        let coeffs = (0..chunk_size)
+            .map(|i| Fr254::from(2u8).pow([(leftover_bits * i) as u64]))
+            .collect::<Vec<Fr254>>();
+        for chunk in leftover_vec.chunks(chunk_size as usize) {
+            let var = circuit.lin_comb(&coeffs[..chunk.len()], &Fr254::zero(), chunk)?;
+            output_vec.push(var);
+        }
+        Ok(output_vec)
     }
 }
