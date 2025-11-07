@@ -25,11 +25,7 @@ use ark_bn254::{Fq as Fq254, Fr as Fr254};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
-use super::{
-    challenges::{MLEProofChallenges, MLEProofChallengesVar},
-    split_acc::SplitAccumulationInfo,
-    Zmorph,
-};
+use super::{challenges::MLEProofChallengesVar, split_acc::SplitAccumulationInfo, Zmorph};
 
 /// Function for taking the deferred evaluations output by verifying a GKR proof and combines them into the expected initial value of
 /// the final SumCheck proof.
@@ -510,7 +506,7 @@ type MLEScalarsAndAccEval = (Vec<Variable>, Variable);
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn combine_mle_proof_scalars(
     outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
-    challenges: &[MLEProofChallenges<Fq254>],
+    challenges: &[MLEProofChallengesVar],
     pi_hashes: &[Variable],
     acc_info: &SplitAccumulationInfo,
     vk: &MLEVerifyingKey<Zmorph>,
@@ -531,11 +527,10 @@ pub fn combine_mle_proof_scalars(
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
     let mut points = Vec::new();
-    for ((output, pi_hash), proof_challenges) in
+    for ((output, pi_hash), proof_challenges_var) in
         outputs.iter().zip(pi_hashes).zip(challenges.iter())
     {
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
-        let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
 
         let zero_eval =
             proof_var
@@ -929,6 +924,8 @@ mod tests {
             )?;
 
             let mut challenges_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
+            let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+
             let mle_proof_challenges = outputs
                 .iter()
                 .map(|output| {
@@ -937,7 +934,7 @@ mod tests {
                         .unwrap();
                     let proof_var =
                         SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
-                    let (stuff, _) = reconstruct_mle_challenges::<
+                    let (challenges, _) = reconstruct_mle_challenges::<
                         _,
                         _,
                         Zmorph,
@@ -948,11 +945,12 @@ mod tests {
                         &proof_var, &mut challenges_circuit, &pi_hash, &None
                     )
                     .unwrap();
-                    stuff
+                    let challenges = challenges
+                        .to_struct::<SWGrumpkin>(&mut challenges_circuit)
+                        .unwrap();
+                    MLEProofChallengesVar::from_struct(&mut verifier_circuit, &challenges).unwrap()
                 })
-                .collect::<Vec<MLEProofChallenges<Fq254>>>();
-
-            let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+                .collect::<Vec<MLEProofChallengesVar>>();
 
             let pi_hashes: Vec<Variable> = outputs
                 .iter()
