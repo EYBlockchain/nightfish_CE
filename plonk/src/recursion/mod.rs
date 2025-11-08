@@ -178,7 +178,24 @@ pub trait RecursiveProver {
             );
         }
 
+        ark_std::println!(
+            "base grumpkin circuit size pre-finalize: {}",
+            circuit.num_gates()
+        );
+
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
+
+        ark_std::println!(
+            "base grumpkin circuit size post-finalize: {}",
+            circuit.num_gates()
+        );
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "base grumpkin circuit is not satisfiable".to_string(),
+            ));
+        }
 
         #[cfg(test)]
         {
@@ -331,7 +348,24 @@ pub trait RecursiveProver {
             );
         }
 
+        ark_std::println!(
+            "base bn254 circuit size pre-finalize: {}",
+            circuit.num_gates()
+        );
+
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
+
+        ark_std::println!(
+            "base bn254 circuit size post-finalize: {}",
+            circuit.num_gates()
+        );
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "base bn254 circuit is not satisfiable".to_string(),
+            ));
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -419,7 +453,24 @@ pub trait RecursiveProver {
             );
         }
 
+        ark_std::println!(
+            "merge grumpkin circuit size pre-finalize: {}",
+            circuit.num_gates()
+        );
+
         circuit.finalize_for_recursive_mle_arithmetization::<RescueCRHF<Fr254>>()?;
+
+        ark_std::println!(
+            "merge grumpkin circuit size post-finalize: {}",
+            circuit.num_gates()
+        );
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Merge grumpkin circuit is not satisfiable".to_string(),
+            ));
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -509,7 +560,24 @@ pub trait RecursiveProver {
             }),
         )?;
 
+        ark_std::println!(
+            "merge bn254 circuit size pre-finalize: {}",
+            circuit.num_gates()
+        );
+
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
+
+        ark_std::println!(
+            "merge bn254 circuit size post-finalize: {}",
+            circuit.num_gates()
+        );
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Merge bn254 circuit is not satisfiable".to_string(),
+            ));
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
@@ -597,7 +665,24 @@ pub trait RecursiveProver {
             );
         }
 
+        ark_std::println!(
+            "decider circuit circuit size pre-finalize: {}",
+            circuit.num_gates()
+        );
+
         circuit.finalize_for_arithmetization()?;
+
+        ark_std::println!(
+            "decider circuit circuit size post-finalize: {}",
+            circuit.num_gates()
+        );
+
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Decider circuit is not satisfiable".to_string(),
+            ));
+        }
 
         // Run the following code only when testing
         #[cfg(test)]
