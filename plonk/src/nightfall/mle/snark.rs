@@ -31,7 +31,7 @@ use crate::{
     errors::{PlonkError, SnarkError},
     nightfall::{
         accumulation::{accumulation_structs::SplitAccumulator, MLAccumulator},
-        mle::mle_structs::MLEProofShared,
+        mle::mle_structs::{FullMLEChallenges, MLEProofShared},
     },
     proof_system::RecursiveOutput,
     transcript::Transcript,
@@ -247,8 +247,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // We know that the commitments we are using will always be points on an SW curve.
         transcript.append_curve_points(b"wires", &wire_comms)?;
 
-        let [gamma, alpha, tau]: [P::ScalarField; 3] = transcript
-            .squeeze_scalar_challenges::<P>(b"gamma alpha tau", 3)?
+        let [gamma, tau]: [P::ScalarField; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"gamma tau", 2)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
@@ -261,7 +261,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let mut gkr_q_polys = vec![perm_q_poly];
 
         // Run the lookup related subroutines if support lookup.
-        let (m_poly, m_commit, [beta, delta, epsilon]) = if pk.lookup_proving_key.is_some() {
+        let (m_poly, m_commit, [alpha, beta]) = if pk.lookup_proving_key.is_some() {
             let lookup_table = circuit.compute_merged_lookup_table_mle(tau)?;
             let lookup_wire = circuit.compute_lookup_sorted_vec_mles(tau, &lookup_table)?;
             let table = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
@@ -273,8 +273,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             let m_commit = PCS::commit(&pk.pcs_prover_params, &m_poly)?;
 
             transcript.append_curve_point(b"m_commit", &m_commit)?;
-            let [beta, delta, epsilon]: [P::ScalarField; 3] = transcript
-                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 3)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
@@ -287,17 +287,17 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
             gkr_p_polys.push(prepped_items.p_poly);
             gkr_q_polys.push(prepped_items.q_poly);
-            (Some(m_poly), Some(m_commit), [beta, delta, epsilon])
+            (Some(m_poly), Some(m_commit), [alpha, beta])
         } else {
-            let [beta, delta, epsilon]: [P::ScalarField; 3] = transcript
-                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 3)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
                         "Couldn't convert to fixed length array".to_string(),
                     )
                 })?;
-            (None, None, [beta, delta, epsilon])
+            (None, None, [alpha, beta])
         };
         let gkr_proof = batch_prove_gkr::<P, _>(&gkr_p_polys, &gkr_q_polys, &mut transcript)?;
         // Now we have done the GKR proof we run a final zero check on the underlying products of MLEs.
@@ -312,9 +312,10 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             gamma,
             alpha,
             tau,
-            delta,
-            epsilon,
         };
+
+        let epsilon = transcript.squeeze_scalar_challenge::<P>(b"epsilon")?;
+
         let sumcheck_vp = build_sumcheck_poly(
             &wire_polys,
             &pk.selector_oracles,
@@ -323,6 +324,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             eq_poly.clone(),
             &pk.verifying_key.gate_info,
             &challenges,
+            epsilon,
             pk.lookup_proving_key.as_ref(),
             m_poly.clone(),
         )?;
@@ -530,6 +532,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             None
         };
 
+        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
+
         let mut combiner = P::ScalarField::one();
         let batched_poly_evals = pcs_accumulator.polynomials().iter().try_fold(
             vec![P::ScalarField::zero(); 1 << num_vars],
@@ -613,8 +617,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // We know that the commitments we are using will always be points on an SW curve.
         transcript.append_curve_points(b"wires", &wire_comms)?;
 
-        let [gamma, alpha, tau]: [P::ScalarField; 3] = transcript
-            .squeeze_scalar_challenges::<P>(b"gamma alpha tau", 3)?
+        let [gamma, tau]: [P::ScalarField; 2] = transcript
+            .squeeze_scalar_challenges::<P>(b"gamma tau", 2)?
             .try_into()
             .map_err(|_| {
                 PlonkError::InvalidParameters("Couldn't convert to fixed length array".to_string())
@@ -629,7 +633,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let mut gkr_q_polys = vec![perm_q_poly.clone()];
 
         // Run the lookup related subroutines if support lookup.
-        let (m_poly, m_commit, [beta, delta, epsilon]) = if pk.lookup_proving_key.is_some() {
+        let (m_poly, m_commit, [alpha, beta]) = if pk.lookup_proving_key.is_some() {
             let lookup_table = circuit.compute_merged_lookup_table_mle(tau)?;
             let lookup_wire = circuit.compute_lookup_sorted_vec_mles(tau, &lookup_table)?;
             let table = Arc::new(DenseMultilinearExtension::from_evaluations_vec(
@@ -641,8 +645,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             let m_commit = PCS::commit(&pk.pcs_prover_params, &m_poly)?;
 
             transcript.append_curve_point(b"m_commit", &m_commit)?;
-            let [beta, delta, epsilon]: [P::ScalarField; 3] = transcript
-                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 3)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
@@ -655,22 +659,24 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
 
             gkr_p_polys.push(prepped_items.p_poly);
             gkr_q_polys.push(prepped_items.q_poly);
-            (Some(m_poly), Some(m_commit), [beta, delta, epsilon])
+            (Some(m_poly), Some(m_commit), [alpha, beta])
         } else {
-            let [beta, delta, epsilon]: [P::ScalarField; 3] = transcript
-                .squeeze_scalar_challenges::<P>(b"beta delta epsilon", 3)?
+            let [alpha, beta]: [P::ScalarField; 2] = transcript
+                .squeeze_scalar_challenges::<P>(b"alpha beta", 2)?
                 .try_into()
                 .map_err(|_| {
                     PlonkError::InvalidParameters(
                         "Couldn't convert to fixed length array".to_string(),
                     )
                 })?;
-            (None, None, [beta, delta, epsilon])
+            (None, None, [alpha, beta])
         };
 
         let gkr_proof = batch_prove_gkr::<P, _>(&gkr_p_polys, &gkr_q_polys, &mut transcript)?;
 
         // Now we have done the GKR proof we run a final zero check on the underlying products of MLEs.
+        let epsilon = transcript.squeeze_scalar_challenge::<P>(b"epsilon")?;
+
         let gkr_point = &gkr_proof.sumcheck_proofs.last().as_ref().unwrap().point;
 
         let eq_poly = Arc::new(build_eq_x_r(gkr_point));
@@ -679,8 +685,6 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             gamma,
             alpha,
             tau,
-            delta,
-            epsilon,
         };
 
         let sumcheck_vp = build_sumcheck_poly(
@@ -691,6 +695,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             eq_poly.clone(),
             &pk.verifying_key.gate_info,
             &challenges,
+            epsilon,
             pk.lookup_proving_key.as_ref(),
             m_poly.clone(),
         )?;
@@ -796,6 +801,8 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             permutation_evals,
         };
 
+        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
+
         let (_, poly_evals) = combiner_set.iter().try_fold(
             (
                 P::ScalarField::one(),
@@ -882,29 +889,31 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // gkr_evals[7] = (beta * alpha - beta * lookup_table)
         let gkr_evals = gkr_deferred_check.evals();
 
+        let epsilon = transcript.squeeze_scalar_challenge::<P>(b"epsilon")?;
+
         let initial_sumcheck_eval = if gkr_evals.len() == 8 {
             let mut combiner = P::ScalarField::one();
             let perm_eval = gkr_evals[..4]
                 .iter()
                 .fold(P::ScalarField::zero(), |acc, eval| {
-                    combiner *= challenges.epsilon;
+                    combiner *= epsilon;
                     acc + *eval * combiner
                 });
 
-            combiner *= challenges.epsilon;
+            combiner *= epsilon;
             combiner /= challenges.beta;
             let beta_alpha = challenges.beta * challenges.alpha;
             perm_eval
                 + combiner
                     * ((beta_alpha - gkr_evals[6])
-                        + challenges.epsilon * (beta_alpha - gkr_evals[7])
-                        + challenges.epsilon * challenges.epsilon * gkr_evals[5])
+                        + epsilon * (beta_alpha - gkr_evals[7])
+                        + epsilon * epsilon * gkr_evals[5])
         } else if gkr_evals.len() == 4 {
             let mut combiner = P::ScalarField::one();
             gkr_evals[..4]
                 .iter()
                 .fold(P::ScalarField::zero(), |acc, eval| {
-                    combiner *= challenges.epsilon;
+                    combiner *= epsilon;
                     acc + *eval * combiner
                 })
         } else {
@@ -934,6 +943,10 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
                     "Could not evaluate pi poly".to_string(),
                 ))?;
 
+        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
+
+        let full_challenges = FullMLEChallenges::from_parts(challenges, delta, epsilon);
+
         let zero_check_calc_eval = build_zerocheck_eval(
             &proof.evals,
             proof
@@ -941,7 +954,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
                 .as_ref()
                 .map(|lookup_proof| &lookup_proof.lookup_evals),
             &vk.gate_info,
-            &challenges,
+            &full_challenges,
             pi_poly_eval,
             zc_eq_eval,
         );
@@ -1015,7 +1028,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         }
 
         let delta_powers = (0..comms.len() as u64)
-            .map(|i| challenges.delta.pow([i]))
+            .map(|i| delta.pow([i]))
             .collect::<Vec<P::ScalarField>>();
 
         let eval = evals
@@ -1106,29 +1119,31 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // gkr_evals[7] = (beta * alpha - beta * lookup_table)
         let gkr_evals = gkr_deferred_check.evals();
 
+        let epsilon = transcript.squeeze_scalar_challenge::<P>(b"epsilon")?;
+
         let initial_sumcheck_eval = if gkr_evals.len() == 8 {
             let mut combiner = P::ScalarField::one();
             let perm_eval = gkr_evals[..4]
                 .iter()
                 .fold(P::ScalarField::zero(), |acc, eval| {
-                    combiner *= challenges.epsilon;
+                    combiner *= epsilon;
                     acc + *eval * combiner
                 });
 
-            combiner *= challenges.epsilon;
+            combiner *= epsilon;
             combiner /= challenges.beta;
             let beta_alpha = challenges.beta * challenges.alpha;
             perm_eval
                 + combiner
                     * ((beta_alpha - gkr_evals[6])
-                        + challenges.epsilon * (beta_alpha - gkr_evals[7])
-                        + challenges.epsilon * challenges.epsilon * gkr_evals[5])
+                        + epsilon * (beta_alpha - gkr_evals[7])
+                        + epsilon * epsilon * gkr_evals[5])
         } else if gkr_evals.len() == 4 {
             let mut combiner = P::ScalarField::one();
             gkr_evals[..4]
                 .iter()
                 .fold(P::ScalarField::zero(), |acc, eval| {
-                    combiner *= challenges.epsilon;
+                    combiner *= epsilon;
                     acc + *eval * combiner
                 })
         } else {
@@ -1158,6 +1173,10 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
                     "Could not evaluate pi poly".to_string(),
                 ))?;
 
+        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
+
+        let full_challenges = FullMLEChallenges::from_parts(challenges, delta, epsilon);
+
         let zero_check_calc_eval = build_zerocheck_eval(
             &proof.evals,
             proof
@@ -1165,7 +1184,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
                 .as_ref()
                 .map(|lookup_proof| &lookup_proof.lookup_evals),
             &vk.gate_info,
-            &challenges,
+            &full_challenges,
             pi_poly_eval,
             zc_eq_eval,
         );
@@ -1239,7 +1258,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         }
 
         let delta_powers = (0..comms.len() as u64)
-            .map(|i| challenges.delta.pow([i]))
+            .map(|i| delta.pow([i]))
             .collect::<Vec<P::ScalarField>>();
 
         let eval = evals
