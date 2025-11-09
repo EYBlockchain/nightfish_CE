@@ -627,6 +627,8 @@ pub trait RecursiveProver {
         srs_digest: &[u8; 32],
         rollup_size: u32,
     ) -> Result<(), PlonkError> {
+        ark_std::println!("srs digest in preprocess: {:?}", srs_digest);
+        ark_std::println!("rollup size in preprocess: {}", rollup_size);
         // First check that we have the same number of outputs and pi's and that they are also non-zero in length
         if outputs.len() != specific_pi.len() {
             return Err(PlonkError::InvalidParameters(format!(
@@ -948,6 +950,8 @@ pub trait RecursiveProver {
         srs_digest: &[u8; 32],
         rollup_size: u32,
     ) -> Result<RecursiveProof, PlonkError> {
+        ark_std::println!("srs digest in prove: {:?}", srs_digest);
+        ark_std::println!("rollup size in prove: {}", rollup_size);
         // First check that we have the same number of outputs and pi's and that they are also non-zero in length
         if outputs_and_circuit_type.len() != specific_pi.len() {
             return Err(PlonkError::InvalidParameters(format!(
