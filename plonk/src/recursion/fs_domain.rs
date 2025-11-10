@@ -27,10 +27,22 @@ pub fn hash_canonical<T: CanonicalSerialize>(x: &T) -> [u8; 32] {
 
 /// Computes the vk hash as in the Solidity verifier
 pub fn compute_vk_hash(vk: &VerifyingKey<Bn254>) -> [u8; 32] {
+    // Layout (matches the Solidity assembly):
+    //  domain_size (last 8 bytes of a uint256) ||
+    //  sigma_comms_1..6 (x||y each 32B) ||
+    //  selector_comms_1..18 (x||y) ||
+    //  k1..k6 (each 32B) ||
+    //  range_table_comm, key_table_comm, table_dom_sep_comm, q_dom_sep_comm (x||y)
+    //
+    // Total = 8 + 6*64 + 18*64 + 6*32 + 4*64 = 1992 bytes
     let mut buf = Vec::with_capacity(1992);
+
+    // 1) domain_size: Solidity writes only the last 8 bytes (big-endian)
     buf.extend_from_slice(&(vk.domain_size as u64).to_be_bytes());
+
+    // Helpers: push canonical big-endian 32-byte encodings
     let push_fq = |buf: &mut Vec<u8>, x: &Fq| {
-        let mut b = x.into_bigint().to_bytes_be();
+        let mut b = x.into_bigint().to_bytes_be(); // canonical integer, big-endian
         if b.len() < 32 {
             let mut z = vec![0u8; 32 - b.len()];
             z.extend_from_slice(&b);
@@ -39,7 +51,7 @@ pub fn compute_vk_hash(vk: &VerifyingKey<Bn254>) -> [u8; 32] {
         buf.extend_from_slice(&b);
     };
     let push_fr = |buf: &mut Vec<u8>, x: &Fr| {
-        let mut b = x.into_bigint().to_bytes_be();
+        let mut b = x.into_bigint().to_bytes_be(); // canonical integer, big-endian
         if b.len() < 32 {
             let mut z = vec![0u8; 32 - b.len()];
             z.extend_from_slice(&b);
@@ -52,16 +64,22 @@ pub fn compute_vk_hash(vk: &VerifyingKey<Bn254>) -> [u8; 32] {
         push_fq(buf, &p.y);
     };
 
+    // 2) sigma_comms_1..6
     vk.sigma_comms
         .iter()
         .take(6)
         .for_each(|c| push_g1(&mut buf, c));
+
+    // 3) selector_comms_1..18
     vk.selector_comms
         .iter()
         .take(18)
         .for_each(|c| push_g1(&mut buf, c));
+
+    // 4) k1..k6
     vk.k.iter().take(6).for_each(|x| push_fr(&mut buf, x));
 
+    // 5) plookup commitments
     let pl = vk.plookup_vk.as_ref().expect("plookup_vk required");
     [
         &pl.range_table_comm,
@@ -72,7 +90,22 @@ pub fn compute_vk_hash(vk: &VerifyingKey<Bn254>) -> [u8; 32] {
     .into_iter()
     .for_each(|c| push_g1(&mut buf, c));
 
-    Keccak256::digest(&buf).into()
+    // keccak256 over the 1992-byte payload
+    let h = Keccak256::digest(&buf);
+
+    // Solidity returns keccak(buf) mod r, where r is BN254 scalar field modulus.
+    // Use arkworks to reduce and then output the canonical 32-byte big-endian integer.
+    let reduced = Fr::from_be_bytes_mod_order(&h);
+    let mut out = reduced.into_bigint().to_bytes_be();
+    if out.len() < 32 {
+        let mut z = vec![0u8; 32 - out.len()];
+        z.extend_from_slice(&out);
+        out = z;
+    }
+
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&out);
+    arr
 }
 
 /// Build a fixed-order, length-prefixed FS init message.
