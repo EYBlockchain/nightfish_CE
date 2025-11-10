@@ -216,7 +216,6 @@ pub trait RecursiveProver {
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     "base_grumpkin",
                     hash_canonical(&base_grumpkin_pk.verifying_key),
@@ -375,7 +374,6 @@ pub trait RecursiveProver {
                     fs_domain_bytes(
                         "nightfish.pcd",
                         "plonk-recursion",
-                        "v1",
                         "rollup_prover",
                         layer,
                         hash_canonical(&bn254_pk.vk),
@@ -458,7 +456,6 @@ pub trait RecursiveProver {
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     "merge_grumpkin",
                     hash_canonical(&merge_grumpkin_pk.verifying_key),
@@ -547,7 +544,6 @@ pub trait RecursiveProver {
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     "merge_grumpkin",
                     hash_canonical(&merge_grumpkin_pk.verifying_key),
@@ -1209,7 +1205,6 @@ pub trait RecursiveProver {
         let fs_msg = fs_domain_bytes(
             "nightfish.pcd",
             "plonk-recursion",
-            "v1",
             "rollup_prover",
             "decider",
             compute_vk_hash(&decider_pk.vk),
@@ -1860,7 +1855,6 @@ mod tests {
         let fs_msg = fs_domain_bytes(
             "nightfish.pcd",
             "plonk-recursion",
-            "v1",
             "rollup_prover",
             "decider",
             compute_vk_hash(&TestProver::get_decider_pk().vk),

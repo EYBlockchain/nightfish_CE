@@ -81,7 +81,6 @@ pub fn compute_vk_hash(vk: &VerifyingKey<Bn254>) -> [u8; 32] {
 pub fn fs_domain_bytes(
     app_id: &'static str,
     proto: &'static str,
-    version: &'static str,
     role: &'static str,   // e.g. "rollup_prover"
     layer: &'static str,  // e.g. "base_bn254" | "merge_grumpkin" | "decider"
     vk_digest: [u8; 32],  // hash_canonical(&vk)
@@ -98,7 +97,6 @@ pub fn fs_domain_bytes(
     };
     push(&mut msg, "app_id", app_id.as_bytes());
     push(&mut msg, "proto", proto.as_bytes());
-    push(&mut msg, "version", version.as_bytes());
     push(&mut msg, "role", role.as_bytes());
     push(&mut msg, "layer", layer.as_bytes());
     push(&mut msg, "vk_digest", &vk_digest);
