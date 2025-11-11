@@ -200,7 +200,7 @@ where
         y_powers.as_slice(),
     ]
     .concat();
-    let g_base = circuit.create_point_variable(&Point::from(verifier_param.g_bases[0]))?;
+    let g_base = circuit.create_constant_point_variable(&Point::from(verifier_param.g_bases[0]))?;
     let bases = [
         &[q_hat_var, f_hat_var, g_base],
         commitment_vars.as_slice(),
