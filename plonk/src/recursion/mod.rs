@@ -1213,6 +1213,8 @@ pub trait RecursiveProver {
             rollup_size,
         );
 
+        ark_std::println!("decider fs bytes {:?}", fs_msg);
+
         let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
 
         let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
