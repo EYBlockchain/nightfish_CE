@@ -770,6 +770,30 @@ mod tests {
                 &mut transcript,
             )
             .unwrap();
+            // Append evals and lookup_proof.poly_evals to the transcript.
+            for eval in inner_proof
+                .evals
+                .wire_evals
+                .iter()
+                .chain(&inner_proof.evals.selector_evals)
+                .chain(&inner_proof.evals.permutation_evals)
+            {
+                transcript.push_message(b"eval", eval)?;
+            }
+            if let Some(lookup_proof) = inner_proof.lookup_proof.clone() {
+                for eval in [
+                    lookup_proof.lookup_evals.m_poly_eval,
+                    lookup_proof.lookup_evals.range_table_eval,
+                    lookup_proof.lookup_evals.key_table_eval,
+                    lookup_proof.lookup_evals.table_dom_sep_eval,
+                    lookup_proof.lookup_evals.q_dom_sep_eval,
+                    lookup_proof.lookup_evals.q_lookup_eval,
+                ]
+                .iter()
+                {
+                    transcript.push_message(b"lookup eval", eval)?;
+                }
+            }
             let delta = transcript.squeeze_scalar_challenge::<P>(b"delta").unwrap();
 
             let (opening_proof, _eval) = PCS::open(

@@ -199,6 +199,32 @@ where
     let final_sumcheck_challenges =
         circuit.recover_sumcheck_challenges::<P, C>(&proof_var.sumcheck_proof, &mut transcript)?;
 
+    // Append evals and lookup_proof.poly_evals to the transcript.
+    for eval in proof_var
+        .poly_evals_var
+        .wire_evals
+        .iter()
+        .chain(&proof_var.poly_evals_var.selector_evals)
+        .chain(&proof_var.poly_evals_var.permutation_evals)
+    {
+        transcript.push_emulated_variable(eval, circuit)?;
+    }
+
+    if let Some(lookup_proof) = &proof_var.lookup_proof_var {
+        for eval in [
+            &lookup_proof.poly_evals_var.m_poly_eval,
+            &lookup_proof.poly_evals_var.range_table_eval,
+            &lookup_proof.poly_evals_var.key_table_eval,
+            &lookup_proof.poly_evals_var.table_dom_sep_eval,
+            &lookup_proof.poly_evals_var.q_dom_sep_eval,
+            &lookup_proof.poly_evals_var.q_lookup_eval,
+        ]
+        .iter()
+        {
+            transcript.push_emulated_variable(eval, circuit)?;
+        }
+    }
+
     let delta = transcript.squeeze_scalar_challenge::<P>(circuit)?;
     let delta_var = circuit.to_emulated_variable(delta)?;
 
