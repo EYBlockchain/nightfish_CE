@@ -332,6 +332,32 @@ pub(crate) fn verify_mleplonk_emulated_scalar_arithmetic(
     let zerocheck_eval =
         circuit.verify_emulated_proof::<SWGrumpkin>(&proof.sumcheck_proof, transcript)?;
 
+    // Append evals and lookup_proof.poly_evals to the transcript.
+    for eval in proof
+        .poly_evals_var
+        .wire_evals
+        .iter()
+        .chain(&proof.poly_evals_var.selector_evals)
+        .chain(&proof.poly_evals_var.permutation_evals)
+    {
+        transcript.push_emulated_variable(eval, circuit)?;
+    }
+
+    if let Some(lookup_proof) = &proof.lookup_proof_var {
+        for eval in [
+            &lookup_proof.poly_evals_var.m_poly_eval,
+            &lookup_proof.poly_evals_var.range_table_eval,
+            &lookup_proof.poly_evals_var.key_table_eval,
+            &lookup_proof.poly_evals_var.table_dom_sep_eval,
+            &lookup_proof.poly_evals_var.q_dom_sep_eval,
+            &lookup_proof.poly_evals_var.q_lookup_eval,
+        ]
+        .iter()
+        {
+            transcript.push_emulated_variable(eval, circuit)?;
+        }
+    }
+
     let delta = transcript.squeeze_scalar_challenge::<SWGrumpkin>(circuit)?;
     let delta_var = circuit.to_emulated_variable(delta)?;
 
