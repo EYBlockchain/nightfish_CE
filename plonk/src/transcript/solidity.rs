@@ -52,7 +52,18 @@ impl Transcript for SolidityTranscript {
         E::BaseField: PrimeField,
     {
         let mut transcript = Self::new_transcript(b"");
-        transcript.push_message(b"", msg)?;
+        // We remove the labels for better efficiency
+        let mut writer = Vec::new();
+        msg.serialize_uncompressed(&mut writer)?;
+        // Reverse the byte order for big-endian
+        writer.reverse();
+        ark_std::println!("Initial message bytes: {:?}", writer);
+        transcript.transcript.extend_from_slice(writer.as_slice());
+        ark_std::println!(
+            "Transcript after initial message: {:?}",
+            transcript.transcript
+        );
+        ark_std::println!("State after initial message: {:?}", transcript.state);
         Ok(transcript)
     }
 
