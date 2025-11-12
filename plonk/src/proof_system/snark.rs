@@ -263,6 +263,9 @@ where
         let mut online_oracles = vec![Oracles::default(); circuits.len()];
         let prover = Prover::new(n, num_wire_types)?;
 
+        let sec_print_chall = transcript.squeeze_scalar_challenge::<P>(b"test")?;
+        ark_std::println!("Second test challenge: {:?}", sec_print_chall);
+
         // Round 1
         let mut wires_poly_comms_vec = vec![];
         for i in 0..circuits.len() {
