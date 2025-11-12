@@ -248,6 +248,10 @@ where
         } else {
             T::new_transcript(b"PlonkProof")
         };
+
+        let print_chall = transcript.squeeze_scalar_challenge::<P>(b"test")?;
+        ark_std::println!("Test challenge: {:?}", print_chall);
+
         for (pk, circuit) in prove_keys.iter().zip(circuits.iter()) {
             transcript.append_visitor(&pk.vk)?;
             for pub_input in circuit.public_input()? {
