@@ -47,18 +47,17 @@ impl Transcript for SolidityTranscript {
     fn new_with_initial_message<S, E>(msg: &S) -> Result<Self, PlonkError>
     where
         Self: Sized,
-        S: CanonicalSerialize + ?Sized + 'static,
+        S: CanonicalSerialize + AsRef<[u8]> + ?Sized + 'static,
         E: HasTEForm,
         E::BaseField: PrimeField,
     {
         let mut transcript = Self::new_transcript(b"");
         // We remove the labels for better efficiency
-        let mut writer = Vec::new();
-        msg.serialize_uncompressed(&mut writer)?;
-        // Reverse the byte order for big-endian
-        writer.reverse();
-        ark_std::println!("Initial message bytes: {:?}", writer);
-        transcript.transcript.extend_from_slice(writer.as_slice());
+        // Solidity-compatible mode: raw bytes (no reverse, no serialization)
+
+        transcript
+            .transcript
+            .extend_from_slice(msg.as_ref().to_vec().as_slice());
         ark_std::println!(
             "Transcript after initial message: {:?}",
             transcript.transcript
