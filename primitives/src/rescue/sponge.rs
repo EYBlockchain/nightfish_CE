@@ -36,7 +36,7 @@ pub struct RescueCRHF<F: RescueParameter> {
 impl<F: RescueParameter> RecursionHasher for RescueCRHF<F> {
     type Error = CircuitError;
 
-    fn hash_public_inputs<E: PrimeField>(public_inputs: &[E]) -> Result<E, Self::Error> {
+    fn hash_public_inputs<E: PrimeField>(public_inputs: &[E]) -> Result<[E; 2], Self::Error> {
         let mut input = Vec::new();
         let e_modulus: BigUint = E::MODULUS.into();
         let f_modulus: BigUint = F::MODULUS.into();
@@ -61,17 +61,20 @@ impl<F: RescueParameter> RecursionHasher for RescueCRHF<F> {
 
         // Find the byte length of the scalar field (minus one).
         let field_bytes_length = (E::MODULUS_BIT_SIZE as usize - 1) / 8;
-        let hash = E::from_le_bytes_mod_order(
-            output
-                .into_bigint()
-                .to_bytes_le()
-                .iter()
-                .take(field_bytes_length)
-                .copied()
-                .collect::<Vec<u8>>()
-                .as_slice(),
-        );
-        Ok(hash)
+
+        // Two elements of E. One per chunk of `field_bytes_length` bytes
+        let hashes: [E; 2] = output
+            .into_bigint()
+            .to_bytes_le()
+            .chunks(field_bytes_length)
+            .map(|chunk| E::from_le_bytes_mod_order(chunk))
+            .collect::<Vec<E>>()
+            .try_into()
+            .map_err(|_| {
+                CircuitError::InternalError("Could not convert to fixed length array".to_string())
+            })?;
+
+        Ok(hashes)
     }
 }
 /// PRF

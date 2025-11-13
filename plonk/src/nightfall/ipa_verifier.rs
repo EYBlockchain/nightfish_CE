@@ -72,7 +72,7 @@ pub(crate) struct FFTVerifier<PCS: PolynomialCommitmentScheme> {
 /// Function used to reproduce the end state of a transcript, used in recursive proving and verification.
 pub fn reproduce_transcript<PCS, E, F, T>(
     vk_id: Option<VerificationKeyId>,
-    public_input: E::ScalarField,
+    public_input: [E::ScalarField; 2],
     proof: &Proof<PCS>,
 ) -> Result<T, PlonkError>
 where
@@ -93,7 +93,10 @@ where
     if let Some(id) = vk_id {
         transcript.push_message(b"vk_id", &E::ScalarField::from(id as u8))?;
     }
-    transcript.push_message(b"public_input", &public_input)?;
+
+    for pi in public_input.iter() {
+        transcript.push_message(b"public_input", pi)?;
+    }
 
     transcript.append_curve_points(b"witness_poly_comms", &proof.wires_poly_comms)?;
 

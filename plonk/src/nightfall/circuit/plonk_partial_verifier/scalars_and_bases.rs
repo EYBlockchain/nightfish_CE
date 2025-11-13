@@ -747,7 +747,7 @@ mod tests {
             [true, false],
         ) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
-            let pi = circuit.public_input()?[0];
+            let pi = circuit.public_input()?;
 
             let srs_size = circuit.srs_size(blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
@@ -764,7 +764,7 @@ mod tests {
 
             let pcs_info = fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                 &vk,
-                &[pi],
+                &pi,
                 &output.proof,
                 &None,
                 blind,
@@ -776,7 +776,7 @@ mod tests {
             let (mut output_var, pcs_info_var) = fft_verifier
                 .prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                     &vk_var,
-                    &[pi],
+                    &pi,
                     &output,
                     &None,
                     &mut verifier_circuit,

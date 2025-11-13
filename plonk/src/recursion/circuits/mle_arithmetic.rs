@@ -508,7 +508,7 @@ type MLEScalarsAndAccEval = (Vec<Variable>, Variable);
 pub fn combine_mle_proof_scalars(
     outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
     challenges: &[MLEProofChallengesVar],
-    pi_hashes: &[Variable],
+    pi_hashes: &Vec<[Variable; 2]>,
     acc_info: &SplitAccumulationInfoVar,
     vk: &MLEVerifyingKey<Zmorph>,
     circuit: &mut PlonkCircuit<Fq254>,
@@ -533,19 +533,32 @@ pub fn combine_mle_proof_scalars(
     {
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
 
-        let zero_eval =
-            proof_var
-                .sumcheck_proof()
-                .point_var
-                .iter()
-                .try_fold(circuit.one(), |acc, point| {
-                    circuit.mul_add(
-                        &[acc, circuit.one(), acc, *point],
-                        &[Fq254::one(), -Fq254::one()],
-                    )
-                })?;
+        // Since we have two public inputs, we need to construct the public input polynomial given by:
+        // pi_hash[0] * (1 - p_0) * (1 - p_1) * ... * (1 - p_{n-1}) + pi_hash[1] * p_0 * (1 - p_1) * ... * (1 - p_{n-1}),
+        // where p_i are the coordinates in the sumcheck proof point.
+        // We first construct (1 - p_1) * ... * (1 - p_{n-1}).
+        let intermediate_eval = proof_var.sumcheck_proof.point_var.iter().skip(1).try_fold(
+            circuit.one(),
+            |acc, point| {
+                circuit.mul_add(
+                    &[acc, circuit.one(), acc, *point],
+                    &[Fq254::one(), -Fq254::one()],
+                )
+            },
+        )?;
 
-        let pi_eval = circuit.mul(*pi_hash, zero_eval)?;
+        let one_minus_p0 = circuit.lin_comb(
+            &[-Fq254::one()],
+            &Fq254::one(),
+            &[proof_var.sumcheck_proof.point_var[0]],
+        )?;
+        let eval_0 = circuit.mul(one_minus_p0, intermediate_eval)?;
+        let eval_1 = circuit.mul(proof_var.sumcheck_proof.point_var[0], intermediate_eval)?;
+
+        let pi_eval = circuit.mul_add(
+            &[pi_hash[0], eval_0, pi_hash[1], eval_1],
+            &[Fq254::one(), Fq254::one()],
+        )?;
 
         let (scalars, eval) = verify_mleplonk_scalar_arithmetic(
             circuit,
@@ -655,7 +668,7 @@ mod tests {
     use ark_std::{sync::Arc, vec, vec::Vec, UniformRand};
     use jf_primitives::pcs::{Accumulation, PolynomialCommitmentScheme};
     use jf_relation::{
-        gadgets::{ecc::HasTEForm, EmulationConfig},
+        gadgets::{ecc::HasTEForm, EmulatedVariable, EmulationConfig},
         Arithmetization, PlonkType,
     };
     use jf_utils::test_rng;
@@ -745,7 +758,7 @@ mod tests {
             let mut transcript = RescueTranscript::<P::BaseField>::new_transcript(b"mle_plonk");
             let mle_challenges = MLEChallenges::<P::ScalarField>::new_recursion(
                 &proof.proof,
-                &[public_input[0]],
+                public_input,
                 &mut transcript,
             )
             .unwrap();
@@ -802,12 +815,15 @@ mod tests {
                 &inner_proof.opening_point,
             )
             .unwrap();
+            let pi: &[F; 2] = public_input.as_slice().try_into().map_err(|_| {
+                PlonkError::InvalidParameters("Public input length mismatch".to_string())
+            })?;
             assert!(MLEPlonk::<PCS>::verify_recursive_proof::<
                 _,
                 _,
                 _,
                 RescueTranscript<P::BaseField>,
-            >(proof, &opening_proof, &_vk1, public_input[0], rng, None)
+            >(proof, &opening_proof, &_vk1, *pi, rng, None)
             .unwrap());
 
             let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
@@ -834,13 +850,15 @@ mod tests {
             let proof_native = SAMLEProofNative::from_struct(&mut circuit, &proof.proof)?;
 
             let gate_info = &pk1.verifying_key.gate_info;
-            let mut pi_poly = vec![public_input[0]];
             let num_vars = gkr_sumcheck_challenges.last().as_ref().unwrap().len();
-            pi_poly.resize(1 << num_vars, F::zero());
 
-            let pi_pol = DenseMultilinearExtension::<F>::from_evaluations_vec(num_vars, pi_poly);
+            let mut pi_poly = vec![F::zero(); 1 << num_vars];
+            pi_poly[..public_input.len()].copy_from_slice(public_input);
 
-            let pi_eval = pi_pol.evaluate(&proof.proof.sumcheck_proof.point).unwrap();
+            let pi_poly =
+                DenseMultilinearExtension::<F>::from_evaluations_vec(num_vars, pi_poly.to_vec());
+
+            let pi_eval = pi_poly.evaluate(&proof.proof.sumcheck_proof.point).unwrap();
             let pi_eval = circuit.create_variable(pi_eval)?;
 
             let epsilon_var = circuit.create_variable(epsilon)?;
@@ -961,8 +979,13 @@ mod tests {
             let mle_proof_challenges = outputs
                 .iter()
                 .map(|output| {
-                    let pi_hash = challenges_circuit
-                        .create_emulated_variable(output.pi_hash)
+                    let pi_hash: [EmulatedVariable<Fq254>; 2] = output
+                        .pi_hash
+                        .iter()
+                        .map(|val| challenges_circuit.create_emulated_variable(*val))
+                        .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()
+                        .unwrap()
+                        .try_into()
                         .unwrap();
                     let proof_var =
                         SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
@@ -984,11 +1007,20 @@ mod tests {
                 })
                 .collect::<Vec<MLEProofChallengesVar>>();
 
-            let pi_hashes: Vec<Variable> = outputs
+            let pi_hashes: Vec<[Variable; 2]> = outputs
                 .iter()
-                .map(|o| verifier_circuit.create_variable(o.pi_hash))
-                .collect::<Result<Vec<Variable>, _>>()
-                .unwrap();
+                .map(|o| {
+                    let pi: [Variable; 2] = o
+                        .pi_hash
+                        .iter()
+                        .map(|val| verifier_circuit.create_variable(*val))
+                        .collect::<Result<Vec<Variable>, CircuitError>>()
+                        .unwrap()
+                        .try_into()
+                        .unwrap();
+                    pi
+                })
+                .collect::<Vec<[Variable; 2]>>();
             let (combined_scalars, combined_eval) = combine_mle_proof_scalars(
                 &outputs,
                 &mle_proof_challenges,

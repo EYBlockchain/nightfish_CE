@@ -463,7 +463,7 @@ type MLEScalarsAndAccEval = (Vec<EmulatedVariable<Fq254>>, EmulatedVariable<Fq25
 /// This function takes in two ['RecursiveOutput']s and some pre-calculated challenges and produces the scalars that should be used to calculate their final commitment.
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn emulated_combine_mle_proof_scalars(
-    proof_vars: &[(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>)],
+    proof_vars: &[(SAMLEProofVar<Zmorph>, [EmulatedVariable<Fq254>; 2])],
     acc_info: &SplitAccumulationInfo,
     old_accs: &[(PointVariable, EmulatedVariable<Fq254>)],
     gate_info: &GateInfo<Fq254>,
@@ -503,17 +503,26 @@ pub fn emulated_combine_mle_proof_scalars(
             &mut transcript_var,
         )?;
 
-        let zero_eval =
-            proof_var
-                .sumcheck_proof
-                .point_var
-                .iter()
-                .try_fold(one_var.clone(), |acc, point| {
-                    let tmp1 = circuit.emulated_mul(&acc, point)?;
-                    circuit.emulated_sub(&acc, &tmp1)
-                })?;
+        // Since we have two public inputs, we need to construct the public input polynomial given by:
+        // pi[0] * (1 - p_0) * (1 - p_1) * ... * (1 - p_{n-1}) + pi[1] * p_0 * (1 - p_1) * ... * (1 - p_{n-1}),
+        // where p_i are the coordinates in the sumcheck proof point.
+        // We first construct (1 - p_1) * ... * (1 - p_{n-1}).
+        let intermediate_eval = proof_var.sumcheck_proof.point_var.iter().skip(1).try_fold(
+            one_var.clone(),
+            |acc, point| {
+                let tmp1 = circuit.emulated_mul(&acc, point)?;
+                circuit.emulated_sub(&acc, &tmp1)
+            },
+        )?;
 
-        let pi_eval = circuit.emulated_mul(pi, &zero_eval)?;
+        let one_minus_p0 =
+            circuit.emulated_sub(&one_var, &proof_var.sumcheck_proof.point_var[0])?;
+        let eval_0 = circuit.emulated_mul(&one_minus_p0, &intermediate_eval)?;
+        let eval_1 =
+            circuit.emulated_mul(&proof_var.sumcheck_proof.point_var[0], &intermediate_eval)?;
+
+        let mut pi_eval = circuit.emulated_mul(&pi[0], &eval_0)?;
+        pi_eval = circuit.emulated_mul_add(&pi[1], &eval_1, &pi_eval)?;
 
         let (scalars, eval) = verify_mleplonk_emulated_scalar_arithmetic(
             circuit,
@@ -719,12 +728,22 @@ mod tests {
                 })
                 .collect::<Result<Vec<(PointVariable, EmulatedVariable<Fq254>)>, CircuitError>>()?;
 
-            let proof_vars: Vec<(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>)> = outputs
+            let proof_vars: Vec<(SAMLEProofVar<Zmorph>, [EmulatedVariable<Fq254>; 2])> = outputs
                 .iter()
                 .map(|o| {
                     let p = SAMLEProofVar::from_struct(&mut verifier_circuit, &o.proof)?;
-                    let h = verifier_circuit.create_emulated_variable(o.pi_hash)?;
-                    Ok::<(SAMLEProofVar<Zmorph>, EmulatedVariable<Fq254>), CircuitError>((p, h))
+                    let h: [EmulatedVariable<Fq254>; 2] = o
+                        .pi_hash
+                        .iter()
+                        .map(|val| verifier_circuit.create_emulated_variable(*val))
+                        .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?
+                        .try_into()
+                        .map_err(|_| {
+                            CircuitError::ParameterError("Invalid pi_hash length".to_string())
+                        })?;
+                    Ok::<(SAMLEProofVar<Zmorph>, [EmulatedVariable<Fq254>; 2]), CircuitError>((
+                        p, h,
+                    ))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 

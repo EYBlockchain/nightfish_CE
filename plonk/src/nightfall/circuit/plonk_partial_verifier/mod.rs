@@ -936,7 +936,9 @@ mod test {
             circuit
                 .finalize_for_recursive_arithmetization::<RescueCRHF<P::ScalarField>>()
                 .unwrap();
-            let pi = circuit.public_input().unwrap()[0];
+            let pi: [P::ScalarField; 2] = circuit.public_input()?.try_into().map_err(|_| {
+                CircuitError::ParameterError("Couldn't convert to fixed length array".to_string())
+            })?;
             let max_degree = circuit.srs_size(blind)?;
             let srs = FFTPlonk::<PCS>::universal_setup_for_testing(max_degree, rng).unwrap();
 
@@ -954,7 +956,7 @@ mod test {
             let pcs_info = verifier
                 .prepare_pcs_info::<RescueTranscript<P::BaseField>>(
                     &vk,
-                    &[pi],
+                    &pi,
                     &proof.proof,
                     &None,
                     blind,
@@ -969,7 +971,7 @@ mod test {
 
             let challenges = FFTVerifier::<PCS>::compute_challenges::<
                 RescueTranscript<P::BaseField>,
-            >(&vk, &[pi], &proof.proof, &None)?;
+            >(&vk, &pi, &proof.proof, &None)?;
 
             let mut circuit = PlonkCircuit::<P::ScalarField>::new_turbo_plonk();
             let tau = circuit.create_variable(challenges.tau)?;
@@ -999,11 +1001,20 @@ mod test {
                 &proof.proof.plookup_proof.as_ref().unwrap().poly_evals,
             )?;
 
-            let pi_var = circuit.create_variable(pi)?;
+            let pi_vars: [Variable; 2] = pi
+                .iter()
+                .map(|val| circuit.create_variable(*val))
+                .collect::<Result<Vec<Variable>, CircuitError>>()?
+                .try_into()
+                .map_err(|_| {
+                    CircuitError::ParameterError(
+                        "Couldn't convert to fixed length array".to_string(),
+                    )
+                })?;
 
             let scalars = compute_scalars_for_native_field::<P::ScalarField>(
                 &mut circuit,
-                &pi_var,
+                &pi_vars,
                 &challenges_var,
                 &proof_evals,
                 &Some(lookup_evals),
@@ -1083,7 +1094,7 @@ mod test {
             let vk_k = vec![Fr254::zero(); 6];
             let scalars = compute_scalars_for_native_field::<Fr254>(
                 &mut circuit,
-                &0,
+                &[0, 0],
                 &challenges_var,
                 &proof_evals,
                 &Some(lookup_evals),
