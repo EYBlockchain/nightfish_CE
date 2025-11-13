@@ -733,7 +733,7 @@ impl<F: PoseidonParams> LeafDB<F> for HashMap<F, LeafDBEntry<F>> {
         out
     }
 
-    fn store_nullifier(&mut self, nullifier: F, index: Option<u32>) -> Option<()> {
+    fn store_nullifier(&mut self, nullifier: F, index: Option<u64>) -> Option<()> {
         // If the new nullifier is already in the db then we shouldn't store it.
         if self.get(&nullifier).is_some() {
             return None;
@@ -744,7 +744,7 @@ impl<F: PoseidonParams> LeafDB<F> for HashMap<F, LeafDBEntry<F>> {
         let index = if let Some(index) = index {
             index
         } else {
-            self.values().map(|v| v.index).max().unwrap_or(1) + 1
+            self.values().map(|v| v.index as u64).max().unwrap_or(1) + 1
         };
         let entry = LeafDBEntry::<F>::new(
             nullifier,
@@ -1486,7 +1486,7 @@ mod tests {
                     let next_index = F::from(y.1 as u8);
                     LeafDBEntry {
                         value: x.0,
-                        index: x.1 as u32,
+                        index: x.1 as u64,
                         next_index,
                         next_value: y.0,
                     }
