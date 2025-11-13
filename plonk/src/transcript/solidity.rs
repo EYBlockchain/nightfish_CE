@@ -47,12 +47,22 @@ impl Transcript for SolidityTranscript {
     fn new_with_initial_message<S, E>(msg: &S) -> Result<Self, PlonkError>
     where
         Self: Sized,
-        S: CanonicalSerialize + ?Sized + 'static,
+        S: CanonicalSerialize + AsRef<[u8]> + ?Sized + 'static,
         E: HasTEForm,
         E::BaseField: PrimeField,
     {
         let mut transcript = Self::new_transcript(b"");
-        transcript.push_message(b"", msg)?;
+        // We remove the labels for better efficiency
+        // Solidity-compatible mode: raw bytes (no reverse, no serialization)
+
+        transcript
+            .transcript
+            .extend_from_slice(msg.as_ref().to_vec().as_slice());
+        ark_std::println!(
+            "Transcript after initial message: {:?}",
+            transcript.transcript
+        );
+        ark_std::println!("State after initial message: {:?}", transcript.state);
         Ok(transcript)
     }
 
