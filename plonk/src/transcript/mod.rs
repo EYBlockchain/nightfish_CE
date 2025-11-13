@@ -38,7 +38,7 @@ pub trait Transcript {
     fn new_with_initial_message<S, E>(msg: &S) -> Result<Self, PlonkError>
     where
         Self: Sized,
-        S: CanonicalSerialize + ?Sized + 'static,
+        S: CanonicalSerialize + AsRef<[u8]> + ?Sized + 'static,
         E: HasTEForm,
         E::BaseField: PrimeField;
 
