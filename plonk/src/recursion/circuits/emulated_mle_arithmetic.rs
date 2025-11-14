@@ -455,7 +455,6 @@ pub fn emulated_combine_mle_proof_scalars(
             let fs_msg = fs_domain_bytes(
                 "nightfish.pcd",
                 "plonk-recursion",
-                "v1",
                 "rollup_prover",
                 "merge_grumpkin",
                 hash_canonical(merge_grumpkin_vk),
