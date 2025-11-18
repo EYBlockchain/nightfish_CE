@@ -454,7 +454,6 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     layer,
                     hash_canonical(vk_child),
@@ -1597,7 +1596,6 @@ pub fn prove_grumpkin_accumulation<const IS_BASE: bool>(
                 Some(fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     layer,
                     hash_canonical(&pk_grumpkin.verifying_key),

@@ -43,7 +43,7 @@ use crate::{
         structs::{Proof, ProvingKey as JFProvingKey, VerifyingKey as PlonkVerifyingKey},
         PlonkKzgSnark, UniversalRecursiveSNARK, UniversalSNARK,
     },
-    recursion::fs_domain::{hash_canonical, FSInitMetadata},
+    recursion::fs_domain::{compute_vk_hash, hash_canonical, FSInitMetadata},
     transcript::SolidityTranscript,
 };
 
@@ -216,7 +216,6 @@ pub trait RecursiveProver {
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     "base_grumpkin",
                     hash_canonical(&base_grumpkin_pk.verifying_key),
@@ -375,7 +374,6 @@ pub trait RecursiveProver {
                     fs_domain_bytes(
                         "nightfish.pcd",
                         "plonk-recursion",
-                        "v1",
                         "rollup_prover",
                         layer,
                         hash_canonical(&bn254_pk.vk),
@@ -458,7 +456,6 @@ pub trait RecursiveProver {
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     "merge_grumpkin",
                     hash_canonical(&merge_grumpkin_pk.verifying_key),
@@ -547,7 +544,6 @@ pub trait RecursiveProver {
                 let fs_msg = fs_domain_bytes(
                     "nightfish.pcd",
                     "plonk-recursion",
-                    "v1",
                     "rollup_prover",
                     "merge_grumpkin",
                     hash_canonical(&merge_grumpkin_pk.verifying_key),
@@ -1209,10 +1205,9 @@ pub trait RecursiveProver {
         let fs_msg = fs_domain_bytes(
             "nightfish.pcd",
             "plonk-recursion",
-            "v1",
             "rollup_prover",
             "decider",
-            hash_canonical(&decider_pk.vk),
+            compute_vk_hash(&decider_pk.vk),
             *srs_digest,
             recursion_depth as u32,
             rollup_size,
@@ -1860,10 +1855,9 @@ mod tests {
         let fs_msg = fs_domain_bytes(
             "nightfish.pcd",
             "plonk-recursion",
-            "v1",
             "rollup_prover",
             "decider",
-            hash_canonical(&TestProver::get_decider_pk().vk),
+            compute_vk_hash(&TestProver::get_decider_pk().vk),
             *srs_digest,
             decider_depth,
             rollup_size,

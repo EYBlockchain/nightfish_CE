@@ -89,7 +89,6 @@ pub fn partial_verify_fft_plonk(
         let fs_msg = fs_domain_bytes(
             "nightfish.pcd",
             "plonk-recursion",
-            "v1",
             "rollup_prover",
             layer,
             hash_canonical(vk),
