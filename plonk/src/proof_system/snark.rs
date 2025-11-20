@@ -445,6 +445,14 @@ where
             plookup_proofs_vec.push(plookup_proof);
         }
 
+        ark_std::println!("tau: {:?}", challenges.tau);
+        ark_std::println!("beta: {:?}", challenges.beta);
+        ark_std::println!("gamma: {:?}", challenges.gamma);
+        ark_std::println!("alpha: {:?}", challenges.alpha);
+        ark_std::println!("zeta: {:?}", challenges.zeta);
+        ark_std::println!("v: {:?}", challenges.v);
+        ark_std::println!("u: {:?}", challenges.u);
+
         Ok((
             BatchProof {
                 wires_poly_comms_vec,
