@@ -57,6 +57,10 @@ impl Transcript for SolidityTranscript {
         transcript
             .transcript
             .extend_from_slice(msg.as_ref().to_vec().as_slice());
+
+        ark_std::println!("transcript transcript: {:?}", transcript.transcript);
+        ark_std::println!("transcript state: {:?}", transcript.state);
+
         Ok(transcript)
     }
 
