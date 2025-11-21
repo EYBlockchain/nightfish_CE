@@ -1213,6 +1213,9 @@ pub trait RecursiveProver {
             rollup_size,
         );
 
+        ark_std::println!("vk_digest: {:?}", decider_pk.vk);
+        ark_std::println!("vk_hash: {:?}", compute_vk_hash(&decider_pk.vk));
+
         let mut rng = ChaCha20Rng::from_seed(rng_seed_from_fs(&fs_msg));
 
         let proof = PlonkKzgSnark::<Bn254>::prove::<_, _, SolidityTranscript>(
