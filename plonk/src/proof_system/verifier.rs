@@ -123,6 +123,7 @@ where
             batch_proof,
             extra_transcript_init_msg,
         )?;
+        ark_std::println!("get challenges during verification: {:?}", challenges);
 
         // pre-compute alpha related values
         let alpha_2 = challenges.alpha.square();

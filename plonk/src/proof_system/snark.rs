@@ -425,7 +425,7 @@ where
             };
             plookup_proofs_vec.push(plookup_proof);
         }
-
+        ark_std::println!("get challenges during proving: {:?}", challenges);
         Ok((
             BatchProof {
                 wires_poly_comms_vec,
