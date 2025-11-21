@@ -345,6 +345,7 @@ where
             None
         };
         drop(polys_and_eval_sets);
+        ark_std::println!("get challenges during proving: {:?}", challenges);
         Ok((
             Proof {
                 wires_poly_comms,
