@@ -193,6 +193,7 @@ where
             proof,
             extra_transcript_init_msg,
         )?;
+        ark_std::println!("challenges: {:?}", challenges);
 
         // pre-compute alpha related values
         let alpha_2 = challenges.alpha.square();
