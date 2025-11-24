@@ -253,7 +253,6 @@ where
         ark_std::println!("Test challenge: {:?}", print_chall);*/
 
         for (pk, circuit) in prove_keys.iter().zip(circuits.iter()) {
-            transcript.append_visitor(&pk.vk)?;
             for pub_input in circuit.public_input()? {
                 transcript.push_message(b"public_input", &pub_input)?;
             }
@@ -263,8 +262,8 @@ where
         let mut online_oracles = vec![Oracles::default(); circuits.len()];
         let prover = Prover::new(n, num_wire_types)?;
 
-        let sec_print_chall = transcript.squeeze_scalar_challenge::<P>(b"test")?;
-        ark_std::println!("Second test challenge: {:?}", sec_print_chall);
+        /*let sec_print_chall = transcript.squeeze_scalar_challenge::<P>(b"test")?;
+        ark_std::println!("Second test challenge: {:?}", sec_print_chall);*/
 
         // Round 1
         let mut wires_poly_comms_vec = vec![];
