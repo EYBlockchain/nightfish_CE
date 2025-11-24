@@ -313,8 +313,7 @@ where
         } else {
             T::new_transcript(b"PlonkProof")
         };
-        for (&vk, &pi) in verify_keys.iter().zip(public_inputs.iter()) {
-            transcript.append_visitor(vk)?;
+        for pi in public_inputs {
             for pub_input in pi.iter() {
                 transcript.push_message(b"public_input", pub_input)?;
             }
