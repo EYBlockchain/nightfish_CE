@@ -248,8 +248,7 @@ where
         } else {
             T::new_transcript(b"PlonkProof")
         };
-        for (pk, circuit) in prove_keys.iter().zip(circuits.iter()) {
-            transcript.append_visitor(&pk.vk)?;
+        for circuit in circuits {
             for pub_input in circuit.public_input()? {
                 transcript.push_message(b"public_input", &pub_input)?;
             }
