@@ -282,6 +282,7 @@ where
         // Plookup: compute and interpolate the sorted concatenation of the (merged)
         // lookup table and the (merged) witness values
         challenges.tau = transcript.squeeze_scalar_challenge::<P>(b"tau")?;
+        ark_std::println!("tau challenge: {:?}", challenges.tau);
         let mut h_poly_comms_vec = vec![];
         let mut sorted_vec_list = vec![];
         let mut merged_table_list = vec![];
