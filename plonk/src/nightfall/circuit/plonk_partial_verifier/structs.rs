@@ -1202,21 +1202,22 @@ impl<F: PrimeField> UnivariateUniversalIpaParamsVar<F> {
         <E::G1Affine as AffineRepr>::Config: HasTEForm<BaseField = F>,
         E::G1Affine: AffineRepr<BaseField = F, ScalarField = E::ScalarField>,
     {
+        // We use a fixed IPA bases throughout nightfall
         let g_bases = params
             .g_bases
             .iter()
             .map(|base| {
                 let point = Point::<F>::from(*base);
-                circuit.create_point_variable(&point)
+                circuit.create_constant_point_variable(&point)
             })
             .collect::<Result<Vec<PointVariable>, CircuitError>>()?;
         let h = {
             let point = Point::<F>::from(params.h);
-            circuit.create_point_variable(&point)?
+            circuit.create_constant_point_variable(&point)?
         };
         let u = {
             let point = Point::<F>::from(params.u);
-            circuit.create_point_variable(&point)?
+            circuit.create_constant_point_variable(&point)?
         };
 
         Ok(Self {
