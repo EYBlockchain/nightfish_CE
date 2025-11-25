@@ -382,12 +382,6 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             permutation_evals.push(value);
         }
 
-        let evals = MLEProofEvals::<PCS> {
-            wire_evals,
-            selector_evals,
-            permutation_evals,
-        };
-
         // Now we handle lookup related subroutines if support lookup.
         let lookup_proof = if let (Some(m_poly), Some(m_commit)) = (m_poly, m_commit) {
             let m_poly_eval =
@@ -530,6 +524,35 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             })
         } else {
             None
+        };
+
+        // Append evals and lookup_proof.poly_evals to the transcript.
+        for eval in wire_evals
+            .iter()
+            .chain(&selector_evals)
+            .chain(&permutation_evals)
+        {
+            transcript.push_message(b"eval", eval)?;
+        }
+        if let Some(lookup_proof) = lookup_proof.clone() {
+            for eval in [
+                lookup_proof.lookup_evals.m_poly_eval,
+                lookup_proof.lookup_evals.range_table_eval,
+                lookup_proof.lookup_evals.key_table_eval,
+                lookup_proof.lookup_evals.table_dom_sep_eval,
+                lookup_proof.lookup_evals.q_dom_sep_eval,
+                lookup_proof.lookup_evals.q_lookup_eval,
+            ]
+            .iter()
+            {
+                transcript.push_message(b"lookup eval", eval)?;
+            }
+        }
+
+        let evals = MLEProofEvals::<PCS> {
+            wire_evals,
+            selector_evals,
+            permutation_evals,
         };
 
         let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
@@ -795,6 +818,29 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             None
         };
 
+        // Append evals and lookup_proof.poly_evals to the transcript.
+        for eval in wire_evals
+            .iter()
+            .chain(&selector_evals)
+            .chain(&permutation_evals)
+        {
+            transcript.push_message(b"eval", eval)?;
+        }
+        if let Some(lookup_proof) = lookup_proof.clone() {
+            for eval in [
+                lookup_proof.lookup_evals.m_poly_eval,
+                lookup_proof.lookup_evals.range_table_eval,
+                lookup_proof.lookup_evals.key_table_eval,
+                lookup_proof.lookup_evals.table_dom_sep_eval,
+                lookup_proof.lookup_evals.q_dom_sep_eval,
+                lookup_proof.lookup_evals.q_lookup_eval,
+            ]
+            .iter()
+            {
+                transcript.push_message(b"lookup eval", eval)?;
+            }
+        }
+
         let evals = MLEProofEvals::<PCS> {
             wire_evals,
             selector_evals,
@@ -943,29 +989,6 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
                     "Could not evaluate pi poly".to_string(),
                 ))?;
 
-        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
-
-        let full_challenges = FullMLEChallenges::from_parts(challenges, delta, epsilon);
-
-        let zero_check_calc_eval = build_zerocheck_eval(
-            &proof.evals,
-            proof
-                .lookup_proof
-                .as_ref()
-                .map(|lookup_proof| &lookup_proof.lookup_evals),
-            &vk.gate_info,
-            &full_challenges,
-            pi_poly_eval,
-            zc_eq_eval,
-        );
-
-        if zero_check_calc_eval != sumcheck_deferred_check.eval {
-            return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
-                "ZeroCheck check failed. Expected {}, got {}",
-                sumcheck_deferred_check.eval, zero_check_calc_eval
-            ))));
-        }
-
         let mut comms = Vec::new();
 
         let mut evals = Vec::new();
@@ -1025,6 +1048,34 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             comms.push(vk.lookup_verifying_key.as_ref().unwrap().q_lookup_comm);
 
             evals.push(lookup_proof.lookup_evals.q_lookup_eval);
+        }
+
+        // Append evals and lookup_proof.poly_evals to the transcript.
+        for eval in evals.iter() {
+            transcript.push_message(b"eval", eval)?;
+        }
+
+        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
+
+        let full_challenges = FullMLEChallenges::from_parts(challenges, delta, epsilon);
+
+        let zero_check_calc_eval = build_zerocheck_eval(
+            &proof.evals,
+            proof
+                .lookup_proof
+                .as_ref()
+                .map(|lookup_proof| &lookup_proof.lookup_evals),
+            &vk.gate_info,
+            &full_challenges,
+            pi_poly_eval,
+            zc_eq_eval,
+        );
+
+        if zero_check_calc_eval != sumcheck_deferred_check.eval {
+            return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+                "ZeroCheck check failed. Expected {}, got {}",
+                sumcheck_deferred_check.eval, zero_check_calc_eval
+            ))));
         }
 
         let delta_powers = (0..comms.len() as u64)
@@ -1173,29 +1224,6 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
                     "Could not evaluate pi poly".to_string(),
                 ))?;
 
-        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
-
-        let full_challenges = FullMLEChallenges::from_parts(challenges, delta, epsilon);
-
-        let zero_check_calc_eval = build_zerocheck_eval(
-            &proof.evals,
-            proof
-                .lookup_proof
-                .as_ref()
-                .map(|lookup_proof| &lookup_proof.lookup_evals),
-            &vk.gate_info,
-            &full_challenges,
-            pi_poly_eval,
-            zc_eq_eval,
-        );
-
-        if zero_check_calc_eval != sumcheck_deferred_check.eval {
-            return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
-                "ZeroCheck check failed. Expected {}, got {}",
-                sumcheck_deferred_check.eval, zero_check_calc_eval
-            ))));
-        }
-
         let mut comms = Vec::new();
 
         let mut evals = Vec::new();
@@ -1255,6 +1283,34 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             comms.push(vk.lookup_verifying_key.as_ref().unwrap().q_lookup_comm);
 
             evals.push(lookup_proof.lookup_evals.q_lookup_eval);
+        }
+
+        // Append evals and lookup_proof.poly_evals to the transcript.
+        for eval in evals.iter() {
+            transcript.push_message(b"eval", eval)?;
+        }
+
+        let delta = transcript.squeeze_scalar_challenge::<P>(b"delta")?;
+
+        let full_challenges = FullMLEChallenges::from_parts(challenges, delta, epsilon);
+
+        let zero_check_calc_eval = build_zerocheck_eval(
+            &proof.evals,
+            proof
+                .lookup_proof
+                .as_ref()
+                .map(|lookup_proof| &lookup_proof.lookup_evals),
+            &vk.gate_info,
+            &full_challenges,
+            pi_poly_eval,
+            zc_eq_eval,
+        );
+
+        if zero_check_calc_eval != sumcheck_deferred_check.eval {
+            return Err(PlonkError::SnarkError(SnarkError::ParameterError(format!(
+                "ZeroCheck check failed. Expected {}, got {}",
+                sumcheck_deferred_check.eval, zero_check_calc_eval
+            ))));
         }
 
         let delta_powers = (0..comms.len() as u64)
