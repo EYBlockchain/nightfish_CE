@@ -467,7 +467,9 @@ impl<F: PrimeField> MLEChallenges<F> {
         T: Transcript,
     {
         // Append public input to transcript.
-        transcript.push_message(b"public input", &public_input[0])?;
+        for pi in public_input.iter() {
+            transcript.push_message(b"public input", pi)?;
+        }
 
         // We know that the commitments we are using will always be points on an SW curve.
         // We append wire commitments here.

@@ -128,7 +128,7 @@ impl<F: PrimeField> MLEProofChallenges<F> {
 pub fn reconstruct_mle_challenges<P, F, PCS, Scheme, T, C>(
     proof_var: &SAMLEProofVar<PCS>,
     circuit: &mut PlonkCircuit<F>,
-    pi_hash: &EmulatedVariable<P::ScalarField>,
+    pi_hash: &[EmulatedVariable<P::ScalarField>; 2],
     initialisation_msg: &Option<Vec<u8>>,
 ) -> Result<(MLEProofChallengesEmulatedVar<P::ScalarField>, C), CircuitError>
 where

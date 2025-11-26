@@ -1539,17 +1539,19 @@ impl<F: PrimeField> PlonkCircuit<F> {
                 .unwrap();
         }
 
-        // Here we make the only public input the hash of all the public inputs.
+        // Here we make the only two public inputs the hash of all the public inputs.
         let public_input = self
             .pub_input_indices
             .iter()
             .map(|&i| self.witness[i])
             .collect::<Vec<F>>();
-        let new_public_input: F = H::hash_public_inputs::<F>(&public_input)
+        let new_public_inputs: [F; 2] = H::hash_public_inputs::<F>(&public_input)
             .map_err(|_| CircuitError::InternalError("Public input hashing failed".to_string()))?;
 
         self.pub_input_indices = vec![];
-        let _ = self.create_public_variable(new_public_input)?;
+        for new_public_input in new_public_inputs.iter() {
+            self.create_public_variable(*new_public_input)?;
+        }
 
         let wire_vars = self
             .pub_input_indices
@@ -1664,17 +1666,19 @@ impl<F: PrimeField> PlonkCircuit<F> {
                 .unwrap();
         }
 
-        // Here we make the only public input the hash of all the public inputs.
+        // Here we make the only two public inputs the hash of all the public inputs.
         let public_input = self
             .pub_input_indices
             .iter()
             .map(|&i| self.witness[i])
             .collect::<Vec<F>>();
-        let new_public_input: F = H::hash_public_inputs::<F>(&public_input)
+        let new_public_input: [F; 2] = H::hash_public_inputs::<F>(&public_input)
             .map_err(|_| CircuitError::InternalError("Public input hashing failed".to_string()))?;
 
         self.pub_input_indices = vec![];
-        let _ = self.create_public_variable(new_public_input)?;
+        for new_public_input in new_public_input.iter() {
+            self.create_public_variable(*new_public_input)?;
+        }
 
         let wire_vars = self
             .pub_input_indices

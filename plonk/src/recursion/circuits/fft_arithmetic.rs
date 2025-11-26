@@ -445,7 +445,9 @@ mod tests {
         let rng = &mut jf_utils::test_rng();
         for (m, blind) in (2..8).zip([true, false]) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
-            let pi = circuit.public_input()?[0];
+            let pi: [Fr254; 2] = circuit.public_input()?.try_into().map_err(|_| {
+                PlonkError::InvalidParameters("public input must have length 2".to_string())
+            })?;
 
             let srs_size = circuit.srs_size(blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
@@ -460,7 +462,15 @@ mod tests {
 
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
             let base_var = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
-            let pi_hash = verifier_circuit.create_variable(output.pi_hash)?;
+            let pi_hash: [Variable; 2] = output
+                .pi_hash
+                .into_iter()
+                .map(|pi_elem| verifier_circuit.create_variable(pi_elem))
+                .collect::<Result<Vec<Variable>, _>>()?
+                .try_into()
+                .map_err(|_| {
+                    PlonkError::InvalidParameters("pi_hash must have length 2".to_string())
+                })?;
             let scalar_var = ProofScalarsVarNative::from_struct(&base_var, pi_hash)?;
 
             let pcs_info_circuit = partial_verify_fft_plonk(
@@ -476,7 +486,7 @@ mod tests {
 
             let pcs_info = fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                 &vk,
-                &[pi],
+                &pi,
                 &output.proof,
                 &None,
                 blind,
@@ -517,7 +527,9 @@ mod tests {
             [true, false],
         ) {
             let circuit = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
-            let pi = circuit.public_input()?[0];
+            let pi: [Fr254; 2] = circuit.public_input()?.try_into().map_err(|_| {
+                PlonkError::InvalidParameters("public input must have length 2".to_string())
+            })?;
 
             let srs_size = circuit.srs_size(blind)?;
             let srs = UnivariateKzgPCS::<Bn254>::gen_srs_for_testing(rng, srs_size)?;
@@ -532,7 +544,15 @@ mod tests {
             let mut verifier_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
             let vk_var = VerifyingKeyNativeScalarsVar::new(&mut verifier_circuit, &vk)?;
 
-            let pi_hash = verifier_circuit.create_variable(output.pi_hash)?;
+            let pi_hash: [Variable; 2] = output
+                .pi_hash
+                .iter()
+                .map(|val| verifier_circuit.create_variable(*val))
+                .collect::<Result<Vec<Variable>, CircuitError>>()?
+                .try_into()
+                .map_err(|_| {
+                    PlonkError::InvalidParameters("pi_hash must have length 2".to_string())
+                })?;
             let base_var = ProofVarNative::from_struct(&output.proof, &mut verifier_circuit)?;
             let scalar_var = ProofScalarsVarNative::from_struct(&base_var, pi_hash)?;
 
@@ -550,7 +570,7 @@ mod tests {
 
             let pcs_info = fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                 &vk,
-                &[pi],
+                &pi,
                 &output.proof,
                 &None,
                 blind,
@@ -585,8 +605,8 @@ mod tests {
         for (m, blind) in (2..8).zip([true, false]) {
             let circuit_one = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fr254>(m, 4, PlonkType::UltraPlonk, true)?;
-            let pi_one = circuit_one.public_input()?[0];
-            let pi_two = circuit_two.public_input()?[0];
+            let pi_one = circuit_one.public_input()?;
+            let pi_two = circuit_two.public_input()?;
 
             let srs_size = circuit_one.srs_size(blind)?;
 
@@ -652,7 +672,7 @@ mod tests {
                     let verifier = FFTVerifier::new(vk.domain_size)?;
                     verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                         vk,
-                        &[output.pi_hash],
+                        &output.pi_hash,
                         output,
                         &None,
                         &mut bases_verifier_circuit,
@@ -695,7 +715,11 @@ mod tests {
                 .iter()
                 .map(|output| {
                     let proof = ProofVarNative::from_struct(&output.proof, &mut scalars_verifier_circuit)?;
-                    let pi_hash = scalars_verifier_circuit.create_variable(output.pi_hash)?;
+                    let pi_hash: [Variable; 2] = output.pi_hash.iter().map(|val| {
+                        scalars_verifier_circuit.create_variable(*val)
+                    }).collect::<Result<Vec<Variable>, CircuitError>>()?.try_into().map_err(|_| {
+                        PlonkError::InvalidParameters("pi_hash must have length 2".to_string())
+                    })?;
                     let proof_evals = ProofScalarsVarNative::from_struct(&proof, pi_hash)?;
                     Ok((proof_evals, proof))
                 })
@@ -785,10 +809,10 @@ mod tests {
             let pcs_infos = outputs
                 .iter()
                 .zip(pis.iter())
-                .map(|(output, &pi)| {
+                .map(|(output, pi)| {
                     fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                         &vk,
-                        &[pi],
+                        pi,
                         &output.proof,
                         &None,
                         blind,
@@ -880,8 +904,8 @@ mod tests {
         ) {
             let circuit_one = gen_circuit_for_test::<Fr254>(m, 3, PlonkType::UltraPlonk, true)?;
             let circuit_two = gen_circuit_for_test::<Fr254>(m, 4, PlonkType::UltraPlonk, true)?;
-            let pi_one = circuit_one.public_input()?[0];
-            let pi_two = circuit_two.public_input()?[0];
+            let pi_one = circuit_one.public_input()?;
+            let pi_two = circuit_two.public_input()?;
 
             let srs_size = circuit_one.srs_size(blind)?;
 
@@ -951,7 +975,7 @@ mod tests {
                     let verifier = FFTVerifier::new(vk.domain_size)?;
                     verifier.prepare_pcs_info_with_bases_var::<RescueTranscript<Fr254>>(
                         vk,
-                        &[output.pi_hash],
+                        &output.pi_hash,
                         output,
                         &None,
                         &mut bases_verifier_circuit,
@@ -995,7 +1019,11 @@ mod tests {
                 .iter()
                 .map(|output| {
                     let proof = ProofVarNative::from_struct(&output.proof, &mut scalars_verifier_circuit)?;
-                    let pi_hash = scalars_verifier_circuit.create_variable(output.pi_hash)?;
+                    let pi_hash: [Variable; 2] = output.pi_hash.iter().map(|val| {
+                        scalars_verifier_circuit.create_variable(*val)
+                    }).collect::<Result<Vec<Variable>, CircuitError>>()?.try_into().map_err(|_| {
+                        PlonkError::InvalidParameters("pi_hash must have length 2".to_string())
+                    })?;
                     let proof_evals = ProofScalarsVarNative::from_struct(&proof, pi_hash)?;
                     Ok((proof_evals, proof))
                 })
@@ -1086,7 +1114,7 @@ mod tests {
                     let fft_verifier = FFTVerifier::<Kzg>::new(vk.domain_size)?;
                     fft_verifier.prepare_pcs_info::<RescueTranscript<Fr254>>(
                         &vk,
-                        &[pi],
+                        &pi,
                         &output.proof,
                         &None,
                         blind,
