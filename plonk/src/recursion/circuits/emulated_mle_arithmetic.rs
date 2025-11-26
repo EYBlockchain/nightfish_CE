@@ -4,18 +4,21 @@
 //! of this accumulator.
 
 use super::{split_acc::SplitAccumulationInfo, Zmorph};
+use crate::nightfall::mle::mle_structs::MLEVerifyingKey;
+use crate::recursion::fs_domain::{hash_canonical, FSInitMetadata};
 use crate::{
     nightfall::{
         accumulation::circuit::structs::EmulatedPCSInstanceVar,
         circuit::{
             plonk_partial_verifier::{
-                emulated_eq_x_r_eval_circuit, EmulatedMLEChallenges, MLELookupEvaluationsVar,
-                MLEProofEvaluationsVar, SAMLEProofVar,
+                emulated_eq_x_r_eval_circuit, EmulatedFullMLEChallenges, EmulatedMLEChallenges,
+                MLELookupEvaluationsVar, MLEProofEvaluationsVar, SAMLEProofVar,
             },
             subroutine_verifiers::{structs::EmulatedSumCheckProofVar, sumcheck::SumCheckGadget},
         },
         mle::mle_structs::GateInfo,
     },
+    recursion::fs_domain::fs_domain_bytes,
     transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
@@ -34,6 +37,7 @@ pub fn combine_emulated_gkr_evals(
     circuit: &mut PlonkCircuit<Fr254>,
     gkr_evals: &[EmulatedVariable<Fq254>],
     challenges: &EmulatedMLEChallenges<Fq254>,
+    epsilon: &EmulatedVariable<Fq254>,
 ) -> Result<EmulatedVariable<Fq254>, CircuitError> {
     // Now we check the initial value of the SumCheck proof against the values output by the GKR protocol.
     // The gate equation sums to zero over the boolean hypercube so that contributes nothing to the sum.
@@ -50,14 +54,13 @@ pub fn combine_emulated_gkr_evals(
     // evals[7] = (alpha - lookup_table)
     let one_var = circuit.emulated_one();
     if gkr_evals.len() == 8 {
-        let epsilon_sq = circuit.emulated_mul(&challenges.epsilon, &challenges.epsilon)?;
-        let mut eval =
-            circuit.emulated_mul_add(&challenges.epsilon, &gkr_evals[1], &gkr_evals[0])?;
+        let epsilon_sq = circuit.emulated_mul(epsilon, epsilon)?;
+        let mut eval = circuit.emulated_mul_add(epsilon, &gkr_evals[1], &gkr_evals[0])?;
 
-        let tmp1 = circuit.emulated_mul(&challenges.epsilon, &gkr_evals[2])?;
+        let tmp1 = circuit.emulated_mul(epsilon, &gkr_evals[2])?;
         let tmp2 = circuit.emulated_mul(&epsilon_sq, &gkr_evals[3])?;
         let second_eval = circuit.emulated_add(&tmp1, &tmp2)?;
-        eval = circuit.emulated_mul(&eval, &challenges.epsilon)?;
+        eval = circuit.emulated_mul(&eval, epsilon)?;
         eval = circuit.emulated_mul_add(&epsilon_sq, &second_eval, &eval)?;
 
         let beta_inv = circuit
@@ -69,7 +72,7 @@ pub fn combine_emulated_gkr_evals(
         let beta_inv_var = circuit.create_emulated_variable(beta_inv)?;
 
         let beta_alpha = circuit.emulated_mul(&challenges.beta, &challenges.alpha)?;
-        let coeff = circuit.emulated_mul(&challenges.epsilon, &beta_inv_var)?;
+        let coeff = circuit.emulated_mul(epsilon, &beta_inv_var)?;
         circuit.emulated_mul_gate(&beta_inv_var, &challenges.beta, &one_var)?;
         let tmp_sub = circuit.emulated_sub(&beta_alpha, &gkr_evals[6])?;
         let third_eval = circuit.emulated_mul(&coeff, &tmp_sub)?;
@@ -81,7 +84,7 @@ pub fn combine_emulated_gkr_evals(
         let tmp_sub = circuit.emulated_sub(&beta_alpha, &gkr_evals[7])?;
         let fourth_eval = circuit.emulated_mul(&coeff, &tmp_sub)?;
 
-        let epsilon_five = circuit.emulated_mul(&epsilon_four, &challenges.epsilon)?;
+        let epsilon_five = circuit.emulated_mul(&epsilon_four, epsilon)?;
 
         eval = circuit.emulated_mul_add(&epsilon_five, &fourth_eval, &eval)?;
 
@@ -127,10 +130,10 @@ pub fn emulated_eval_gate_equation(
 pub(crate) fn emulated_eval_permutation_equation(
     perm_evals: &[EmulatedVariable<Fq254>],
     wire_evals: &[EmulatedVariable<Fq254>],
-    challenges: &EmulatedMLEChallenges<Fq254>,
+    challenges: &EmulatedFullMLEChallenges<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<EmulatedVariable<Fq254>, CircuitError> {
-    let EmulatedMLEChallenges { gamma, epsilon, .. } = challenges;
+    let EmulatedFullMLEChallenges { gamma, epsilon, .. } = challenges;
     let one_var = circuit.emulated_one();
     let zero_var = circuit.emulated_zero();
     let pairs = perm_evals
@@ -191,11 +194,11 @@ pub(crate) fn emulated_eval_lookup_equation(
     table_dom_sep_eval: &EmulatedVariable<Fq254>,
     q_dom_sep_eval: &EmulatedVariable<Fq254>,
     q_lookup_eval: &EmulatedVariable<Fq254>,
-    challenges: &EmulatedMLEChallenges<Fq254>,
+    challenges: &EmulatedFullMLEChallenges<Fq254>,
     m_poly_eval: &EmulatedVariable<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
 ) -> Result<EmulatedVariable<Fq254>, CircuitError> {
-    let EmulatedMLEChallenges { tau, epsilon, .. } = challenges;
+    let EmulatedFullMLEChallenges { tau, epsilon, .. } = challenges;
 
     let epsilon_sq = circuit.emulated_mul(epsilon, epsilon)?;
     let epsilon_four = circuit.emulated_mul(&epsilon_sq, &epsilon_sq)?;
@@ -223,7 +226,7 @@ pub(crate) fn build_emulated_zerocheck_eval(
     evals: &MLEProofEvaluationsVar<Fq254>,
     lookup_evals: Option<&MLELookupEvaluationsVar<Fq254>>,
     gate_info: &GateInfo<Fq254>,
-    challenges: &EmulatedMLEChallenges<Fq254>,
+    challenges: &EmulatedFullMLEChallenges<Fq254>,
     pi_eval: &EmulatedVariable<Fq254>,
     eq_eval: &EmulatedVariable<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
@@ -316,14 +319,50 @@ pub(crate) fn verify_mleplonk_emulated_scalar_arithmetic(
         .gkr_proof
         .verify_gkr_proof_emulated::<SWGrumpkin>(circuit, transcript)?;
 
+    let epsilon = transcript.squeeze_scalar_challenge::<SWGrumpkin>(circuit)?;
+    let epsilon_var = circuit.to_emulated_variable(epsilon)?;
+
     // Now we reconstruct the initial zerocheck evaluation and check it is correct.
-    let initial_zerocheck_eval = combine_emulated_gkr_evals(circuit, &gkr_evals, challenges)?;
+    let initial_zerocheck_eval =
+        combine_emulated_gkr_evals(circuit, &gkr_evals, challenges, &epsilon_var)?;
 
     circuit.enforce_emulated_var_equal(&initial_zerocheck_eval, &proof.sumcheck_proof.eval_var)?;
 
     // Now we verify the arithmetic of the SumCheck proof.
     let zerocheck_eval =
         circuit.verify_emulated_proof::<SWGrumpkin>(&proof.sumcheck_proof, transcript)?;
+
+    // Append evals and lookup_proof.poly_evals to the transcript.
+    for eval in proof
+        .poly_evals_var
+        .wire_evals
+        .iter()
+        .chain(&proof.poly_evals_var.selector_evals)
+        .chain(&proof.poly_evals_var.permutation_evals)
+    {
+        transcript.push_emulated_variable(eval, circuit)?;
+    }
+
+    if let Some(lookup_proof) = &proof.lookup_proof_var {
+        for eval in [
+            &lookup_proof.poly_evals_var.m_poly_eval,
+            &lookup_proof.poly_evals_var.range_table_eval,
+            &lookup_proof.poly_evals_var.key_table_eval,
+            &lookup_proof.poly_evals_var.table_dom_sep_eval,
+            &lookup_proof.poly_evals_var.q_dom_sep_eval,
+            &lookup_proof.poly_evals_var.q_lookup_eval,
+        ]
+        .iter()
+        {
+            transcript.push_emulated_variable(eval, circuit)?;
+        }
+    }
+
+    let delta = transcript.squeeze_scalar_challenge::<SWGrumpkin>(circuit)?;
+    let delta_var = circuit.to_emulated_variable(delta)?;
+
+    let full_challenges =
+        EmulatedFullMLEChallenges::from_parts(challenges, &delta_var, &epsilon_var);
 
     let zc_point = &proof.sumcheck_proof.point_var;
 
@@ -345,7 +384,7 @@ pub(crate) fn verify_mleplonk_emulated_scalar_arithmetic(
         &proof.poly_evals_var,
         proof.lookup_proof_var.as_ref().map(|l| l.poly_evals()),
         gate_info,
-        challenges,
+        &full_challenges,
         pi_eval,
         &eq_eval,
         circuit,
@@ -357,7 +396,7 @@ pub(crate) fn verify_mleplonk_emulated_scalar_arithmetic(
     build_emulated_mleplonk_eval(
         &proof.poly_evals_var,
         proof.lookup_proof_var.as_ref().map(|l| l.poly_evals()),
-        &challenges.delta,
+        &delta_var,
         circuit,
     )
 }
@@ -429,6 +468,8 @@ pub fn emulated_combine_mle_proof_scalars(
     old_accs: &[(PointVariable, EmulatedVariable<Fq254>)],
     gate_info: &GateInfo<Fq254>,
     circuit: &mut PlonkCircuit<Fr254>,
+    merge_grumpkin_vk: &MLEVerifyingKey<Zmorph>,
+    fs_metadata: &Option<FSInitMetadata>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
@@ -436,7 +477,25 @@ pub fn emulated_combine_mle_proof_scalars(
     let mut transcripts = Vec::new();
     let one_var = circuit.emulated_one();
     for (proof_var, pi) in proof_vars.iter() {
-        let mut transcript_var = RescueTranscriptVar::<Fr254>::new_transcript(circuit);
+        let mut transcript_var = if let Some(fs_metadata) = fs_metadata {
+            let fs_msg = fs_domain_bytes(
+                "nightfish.pcd",
+                "plonk-recursion",
+                "rollup_prover",
+                "merge_grumpkin",
+                hash_canonical(merge_grumpkin_vk),
+                fs_metadata.srs_digest,
+                fs_metadata.recursion_depth as u32 - 1u32,
+                fs_metadata.rollup_size,
+            );
+
+            RescueTranscriptVar::new_with_initial_message::<_, ark_bn254::g1::Config>(
+                &fs_msg, circuit,
+            )?
+        } else {
+            RescueTranscriptVar::<Fr254>::new_transcript(circuit)
+        };
+
         let challenges = EmulatedMLEChallenges::<Fq254>::compute_challenges_vars(
             circuit,
             pi,
@@ -623,6 +682,7 @@ mod tests {
                     &vk,
                     output.pi_hash,
                     rng,
+                    None,
                 )
                 .unwrap();
             }
@@ -674,6 +734,8 @@ mod tests {
                 &accs,
                 &vk.gate_info,
                 &mut verifier_circuit,
+                &vk,
+                &None,
             )?;
 
             let m_comm = outputs[0].proof.lookup_proof.as_ref().unwrap().m_poly_comm;

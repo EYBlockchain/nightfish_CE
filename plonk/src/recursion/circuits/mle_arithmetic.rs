@@ -1,6 +1,6 @@
 //! This module contains code for performing all the scalar arithmetic involved in verifying a [`MLEPlonk`] proof.
 //! We verify the scalar arithmetic as standard and then we check that the scalars used in the previous circuits MSM are correct.
-#![allow(dead_code)]
+
 use ark_ff::{batch_inversion, PrimeField};
 use ark_std::{string::ToString, vec, vec::Vec, One};
 
@@ -8,7 +8,7 @@ use crate::{
     nightfall::{
         circuit::{
             plonk_partial_verifier::{
-                eq_x_r_eval_circuit, MLEChallengesVar, MLELookupEvaluationsNativeVar,
+                eq_x_r_eval_circuit, FullMLEChallengesVar, MLELookupEvaluationsNativeVar,
                 MLEProofEvalsNativeVar, SAMLEProofNative,
             },
             subroutine_verifiers::{structs::SumCheckProofVar, sumcheck::SumCheckGadget},
@@ -19,24 +19,21 @@ use crate::{
         },
     },
     proof_system::RecursiveOutput,
+    recursion::circuits::split_acc::SplitAccumulationInfoVar,
     transcript::RescueTranscript,
 };
 use ark_bn254::{Fq as Fq254, Fr as Fr254};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{errors::CircuitError, Circuit, PlonkCircuit, Variable};
 
-use super::{
-    challenges::{MLEProofChallenges, MLEProofChallengesVar},
-    split_acc::SplitAccumulationInfo,
-    Zmorph,
-};
+use super::{challenges::MLEProofChallengesVar, Zmorph};
 
 /// Function for taking the deferred evaluations output by verifying a GKR proof and combines them into the expected initial value of
 /// the final SumCheck proof.
 pub fn combine_gkr_evals<F: PrimeField>(
     circuit: &mut PlonkCircuit<F>,
     gkr_evals: &[Variable],
-    challenges: &MLEChallengesVar,
+    challenges: &FullMLEChallengesVar,
 ) -> Result<Variable, CircuitError> {
     // Now we check the initial value of the SumCheck proof against the values output by the GKR protocol.
     // The gate equation sums to zero over the boolean hypercube so that contributes nothing to the sum.
@@ -170,10 +167,10 @@ pub fn eval_gate_equation<F: PrimeField>(
 pub(crate) fn eval_permutation_equation<F: PrimeField>(
     perm_evals: &[Variable],
     wire_evals: &[Variable],
-    challenges: &MLEChallengesVar,
+    challenges: &FullMLEChallengesVar,
     circuit: &mut PlonkCircuit<F>,
 ) -> Result<Variable, CircuitError> {
-    let MLEChallengesVar { gamma, epsilon, .. } = *challenges;
+    let FullMLEChallengesVar { gamma, epsilon, .. } = *challenges;
 
     let pairs = perm_evals
         .chunks(3)
@@ -238,11 +235,11 @@ pub(crate) fn eval_lookup_equation<F: PrimeField>(
     table_dom_sep_eval: Variable,
     q_dom_sep_eval: Variable,
     q_lookup_eval: Variable,
-    challenges: &MLEChallengesVar,
+    challenges: &FullMLEChallengesVar,
     m_poly_eval: Variable,
     circuit: &mut PlonkCircuit<F>,
 ) -> Result<Variable, CircuitError> {
-    let MLEChallengesVar { tau, epsilon, .. } = *challenges;
+    let FullMLEChallengesVar { tau, epsilon, .. } = *challenges;
 
     let epsilon_five = circuit.power_5_gen(epsilon)?;
     let tmp_one = circuit.mul_add(
@@ -296,7 +293,7 @@ pub(crate) fn build_zerocheck_eval<F: PrimeField>(
     evals: &MLEProofEvalsNativeVar,
     lookup_evals: Option<&MLELookupEvaluationsNativeVar>,
     gate_info: &GateInfo<F>,
-    challenges: &MLEChallengesVar,
+    challenges: &FullMLEChallengesVar,
     pi_eval: Variable,
     eq_eval: Variable,
     circuit: &mut PlonkCircuit<F>,
@@ -389,7 +386,7 @@ pub(crate) type MLEProofMSMScalars = (Vec<Variable>, Variable);
 pub(crate) fn verify_mleplonk_scalar_arithmetic<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
     proof: &SAMLEProofNative<F>,
-    challenges: &MLEChallengesVar,
+    challenges: &FullMLEChallengesVar,
     lambdas: &[Variable],
     r_challenges: &[Variable],
     gkr_sumcheck_challenges: &[Vec<Variable>],
@@ -510,9 +507,9 @@ type MLEScalarsAndAccEval = (Vec<Variable>, Variable);
 /// It then combines all the scalars in such a way that their hash is equal to the public input hash of the proof from the other curve.
 pub fn combine_mle_proof_scalars(
     outputs: &[RecursiveOutput<Zmorph, MLEPlonk<Zmorph>, RescueTranscript<Fr254>>],
-    challenges: &[MLEProofChallenges<Fq254>],
+    challenges: &[MLEProofChallengesVar],
     pi_hashes: &[Variable],
-    acc_info: &SplitAccumulationInfo,
+    acc_info: &SplitAccumulationInfoVar,
     vk: &MLEVerifyingKey<Zmorph>,
     circuit: &mut PlonkCircuit<Fq254>,
 ) -> Result<MLEScalarsAndAccEval, CircuitError> {
@@ -531,11 +528,10 @@ pub fn combine_mle_proof_scalars(
     let mut scalar_list = Vec::new();
     let mut evals = Vec::new();
     let mut points = Vec::new();
-    for ((output, pi_hash), proof_challenges) in
+    for ((output, pi_hash), proof_challenges_var) in
         outputs.iter().zip(pi_hashes).zip(challenges.iter())
     {
         let proof_var = SAMLEProofNative::from_struct(circuit, &output.proof)?;
-        let proof_challenges_var = MLEProofChallengesVar::from_struct(circuit, proof_challenges)?;
 
         let zero_eval =
             proof_var
@@ -567,24 +563,11 @@ pub fn combine_mle_proof_scalars(
         points.push(proof_var.sumcheck_proof().point_var.clone());
     }
 
-    let old_acc_evals = acc_info
-        .old_accumulators()
-        .iter()
-        .map(|acc| circuit.create_variable(acc.value))
-        .collect::<Result<Vec<Variable>, CircuitError>>()?;
+    let old_acc_evals = acc_info.old_accumulators_evals;
 
-    let acc_sumcheck_proof = circuit.sum_check_proof_to_var(acc_info.sumcheck_proof())?;
+    let acc_sumcheck_proof = acc_info.sumcheck_proof.clone();
 
-    let acc_eval_points = acc_info
-        .old_accumulators()
-        .iter()
-        .map(|acc| {
-            acc.point
-                .iter()
-                .map(|p| circuit.create_variable(*p))
-                .collect::<Result<Vec<Variable>, CircuitError>>()
-        })
-        .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?;
+    let acc_eval_points = &acc_info.old_accumulators_points;
 
     let eval_points = points
         .iter()
@@ -592,7 +575,7 @@ pub fn combine_mle_proof_scalars(
         .map(|p| p.as_slice())
         .collect::<Vec<&[Variable]>>();
 
-    let batching_scalar = circuit.create_variable(acc_info.batch_challenge)?;
+    let batching_scalar = acc_info.batch_challenge;
     let (accumulation_scalars, accumulated_eval) = verify_split_accumulation(
         circuit,
         &evals,
@@ -683,17 +666,22 @@ mod tests {
         nightfall::{
             accumulation::accumulation_structs::PCSWitness,
             circuit::{
-                plonk_partial_verifier::SAMLEProofVar,
-                subroutine_verifiers::gkr::tests::extract_gkr_challenges,
+                plonk_partial_verifier::{MLEChallengesVar, SAMLEProofVar},
+                subroutine_verifiers::gkr::extract_gkr_challenges,
             },
             mle::{
-                mle_structs::MLEChallenges, snark::tests::gen_circuit_for_test,
-                zeromorph::Zeromorph, MLEPlonk,
+                mle_structs::MLEChallenges,
+                snark::tests::gen_circuit_for_test,
+                subroutines::{sumcheck::SumCheck, VPSumCheck},
+                zeromorph::Zeromorph,
+                MLEPlonk,
             },
             UnivariateIpaPCS,
         },
         proof_system::{UniversalRecursiveSNARK, UniversalSNARK},
-        recursion::circuits::challenges::reconstruct_mle_challenges,
+        recursion::circuits::{
+            challenges::reconstruct_mle_challenges, split_acc::SplitAccumulationInfo,
+        },
         transcript::{rescue::RescueTranscriptVar, RescueTranscript, Transcript},
     };
 
@@ -768,12 +756,45 @@ mod tests {
                     &mut transcript,
                 )
                 .unwrap();
+            let epsilon = transcript
+                .squeeze_scalar_challenge::<P>(b"epsilon")
+                .unwrap();
             let gkr_sumcheck_challenges = inner_proof
                 .gkr_proof
                 .sumcheck_proofs()
                 .iter()
                 .map(|p| p.point.clone())
                 .collect::<Vec<Vec<P::ScalarField>>>();
+            let _ = VPSumCheck::<P>::recover_sumcheck_challenges::<RescueTranscript<P::BaseField>>(
+                &inner_proof.sumcheck_proof,
+                &mut transcript,
+            )
+            .unwrap();
+            // Append evals and lookup_proof.poly_evals to the transcript.
+            for eval in inner_proof
+                .evals
+                .wire_evals
+                .iter()
+                .chain(&inner_proof.evals.selector_evals)
+                .chain(&inner_proof.evals.permutation_evals)
+            {
+                transcript.push_message(b"eval", eval)?;
+            }
+            if let Some(lookup_proof) = inner_proof.lookup_proof.clone() {
+                for eval in [
+                    lookup_proof.lookup_evals.m_poly_eval,
+                    lookup_proof.lookup_evals.range_table_eval,
+                    lookup_proof.lookup_evals.key_table_eval,
+                    lookup_proof.lookup_evals.table_dom_sep_eval,
+                    lookup_proof.lookup_evals.q_dom_sep_eval,
+                    lookup_proof.lookup_evals.q_lookup_eval,
+                ]
+                .iter()
+                {
+                    transcript.push_message(b"lookup eval", eval)?;
+                }
+            }
+            let delta = transcript.squeeze_scalar_challenge::<P>(b"delta").unwrap();
 
             let (opening_proof, _eval) = PCS::open(
                 &pk1.pcs_prover_params,
@@ -781,14 +802,13 @@ mod tests {
                 &inner_proof.opening_point,
             )
             .unwrap();
-            MLEPlonk::<PCS>::verify_recursive_proof::<_, _, _, RescueTranscript<P::BaseField>>(
-                proof,
-                &opening_proof,
-                &_vk1,
-                public_input[0],
-                rng,
-            )
-            .unwrap();
+            assert!(MLEPlonk::<PCS>::verify_recursive_proof::<
+                _,
+                _,
+                _,
+                RescueTranscript<P::BaseField>,
+            >(proof, &opening_proof, &_vk1, public_input[0], rng, None)
+            .unwrap());
 
             let mut circuit = PlonkCircuit::<F>::new_ultra_plonk(8);
 
@@ -823,10 +843,16 @@ mod tests {
             let pi_eval = pi_pol.evaluate(&proof.proof.sumcheck_proof.point).unwrap();
             let pi_eval = circuit.create_variable(pi_eval)?;
 
+            let epsilon_var = circuit.create_variable(epsilon)?;
+            let delta_var = circuit.create_variable(delta)?;
+
+            let full_challenge_vars =
+                FullMLEChallengesVar::from_parts(&challenge_vars, delta_var, epsilon_var);
+
             let (scalars, combined_eval) = verify_mleplonk_scalar_arithmetic(
                 &mut circuit,
                 &proof_native,
-                &challenge_vars,
+                &full_challenge_vars,
                 &lambda_vars,
                 &r_challenges,
                 &gkr_sumcheck_challenges,
@@ -928,6 +954,10 @@ mod tests {
             )?;
 
             let mut challenges_circuit = PlonkCircuit::<Fr254>::new_ultra_plonk(8);
+            let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+
+            let split_acc_info_var = split_acc_info.to_variables(&mut verifier_circuit)?;
+
             let mle_proof_challenges = outputs
                 .iter()
                 .map(|output| {
@@ -936,21 +966,23 @@ mod tests {
                         .unwrap();
                     let proof_var =
                         SAMLEProofVar::from_struct(&mut challenges_circuit, &output.proof).unwrap();
-                    let (stuff, _) =
-                        reconstruct_mle_challenges::<
-                            _,
-                            _,
-                            Zmorph,
-                            MLEPlonk<Zmorph>,
-                            RescueTranscript<Fr254>,
-                            RescueTranscriptVar<Fr254>,
-                        >(&proof_var, &mut challenges_circuit, &pi_hash)
+                    let (challenges, _) = reconstruct_mle_challenges::<
+                        _,
+                        _,
+                        Zmorph,
+                        MLEPlonk<Zmorph>,
+                        RescueTranscript<Fr254>,
+                        RescueTranscriptVar<Fr254>,
+                    >(
+                        &proof_var, &mut challenges_circuit, &pi_hash, &None
+                    )
+                    .unwrap();
+                    let challenges = challenges
+                        .to_struct::<SWGrumpkin>(&mut challenges_circuit)
                         .unwrap();
-                    stuff
+                    MLEProofChallengesVar::from_struct(&mut verifier_circuit, &challenges).unwrap()
                 })
-                .collect::<Vec<MLEProofChallenges<Fq254>>>();
-
-            let mut verifier_circuit = PlonkCircuit::<Fq254>::new_ultra_plonk(8);
+                .collect::<Vec<MLEProofChallengesVar>>();
 
             let pi_hashes: Vec<Variable> = outputs
                 .iter()
@@ -961,7 +993,7 @@ mod tests {
                 &outputs,
                 &mle_proof_challenges,
                 &pi_hashes,
-                &split_acc_info,
+                &split_acc_info_var,
                 &vk,
                 &mut verifier_circuit,
             )?;

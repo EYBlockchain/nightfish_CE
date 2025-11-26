@@ -44,6 +44,22 @@ impl Transcript for SolidityTranscript {
         }
     }
 
+    fn new_with_initial_message<S, E>(msg: &S) -> Result<Self, PlonkError>
+    where
+        Self: Sized,
+        S: CanonicalSerialize + AsRef<[u8]> + ?Sized + 'static,
+        E: HasTEForm,
+        E::BaseField: PrimeField,
+    {
+        let mut transcript = Self::new_transcript(b"");
+        // We remove the labels for better efficiency
+        // Solidity-compatible mode: raw bytes (no reverse, no serialization)
+        transcript
+            .transcript
+            .extend_from_slice(msg.as_ref().to_vec().as_slice());
+        Ok(transcript)
+    }
+
     fn push_message<S: CanonicalSerialize + ?Sized + 'static>(
         &mut self,
         _label: &'static [u8],

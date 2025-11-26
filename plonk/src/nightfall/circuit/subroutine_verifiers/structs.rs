@@ -5,12 +5,14 @@ use ark_std::vec::Vec;
 use jf_relation::{gadgets::EmulatedVariable, Variable};
 
 /// A struct used to put polynomial oracles into circuits
+#[derive(Clone)]
 pub struct PolyOracleVar<F: PrimeField> {
     pub(crate) evaluations_var: Vec<Variable>,
     pub(crate) weights: Vec<F>,
 }
 
 /// A struct used to put sum check proofs into circuits
+#[derive(Clone)]
 pub struct SumCheckProofVar<F: PrimeField> {
     pub(crate) eval_var: Variable,
     pub(crate) oracles_var: Vec<PolyOracleVar<F>>,

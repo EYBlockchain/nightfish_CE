@@ -99,7 +99,7 @@ where
         _rng: &mut R,
         circuit: &C,
         prove_key: &Self::ProvingKey,
-        _extra_transcript_init_msg: Option<Vec<u8>>,
+        extra_transcript_init_msg: Option<Vec<u8>>,
         blind: bool,
     ) -> Result<Self::Proof, Self::Error>
     where
@@ -114,14 +114,14 @@ where
                 "Blinding is not supported in MLEPlonk".to_string(),
             ));
         }
-        Self::prove::<_, _, _, T>(circuit, prove_key)
+        Self::prove::<_, _, _, T>(circuit, prove_key, extra_transcript_init_msg)
     }
 
     fn verify<T: Transcript>(
         verify_key: &Self::VerifyingKey,
         public_input: &[<<PCS as PolynomialCommitmentScheme>::Commitment as AffineRepr>::ScalarField],
         proof: &Self::Proof,
-        _extra_transcript_init_msg: Option<Vec<u8>>,
+        extra_transcript_init_msg: Option<Vec<u8>>,
         blind: bool,
     ) -> Result<(), Self::Error> {
         if blind {
@@ -132,7 +132,13 @@ where
         let mut rng = ChaCha20Rng::from_rng(OsRng).map_err(|e| {
             PlonkError::InvalidParameters(format!("ChaCha20Rng initialization failure: {e}"))
         })?;
-        if !Self::verify::<_, _, _, T>(proof, verify_key, public_input, &mut rng)? {
+        if !Self::verify::<_, _, _, T>(
+            proof,
+            verify_key,
+            public_input,
+            &mut rng,
+            extra_transcript_init_msg,
+        )? {
             return Err(PlonkError::WrongProof);
         }
         Ok(())
@@ -158,7 +164,7 @@ where
         _rng: &mut R,
         circuit: &C,
         prove_key: &Self::ProvingKey,
-        _extra_transcript_init_msg: Option<Vec<u8>>,
+        extra_transcript_init_msg: Option<Vec<u8>>,
         blind: bool,
     ) -> Result<crate::proof_system::RecursiveOutput<PCS, Self, T>, Self::Error>
     where
@@ -175,7 +181,8 @@ where
                 "Blinding is not supported in MLEPlonk".to_string(),
             ));
         }
-        let (proof, transcript) = Self::sa_prove::<_, _, _, T>(circuit, prove_key)?;
+        let (proof, transcript) =
+            Self::sa_prove::<_, _, _, T>(circuit, prove_key, extra_transcript_init_msg)?;
         let pi_hash = circuit.public_input()?[0];
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))
     }

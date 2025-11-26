@@ -624,61 +624,56 @@ impl<F: PrimeField> PlonkCircuit<F> {
         let modulus: BigUint = E::MODULUS.into();
         let b_pow = BigUint::from(2u32).pow(E::B as u32);
         let add_no_mod = &val_a + &val_b;
-        let k = if add_no_mod >= modulus { 1u32 } else { 0u32 };
-        let var_k = self.create_boolean_variable(add_no_mod >= modulus)?.0;
+        let k = if add_no_mod >= modulus {
+            F::one()
+        } else {
+            F::zero()
+        };
+        let k_var = self.create_boolean_variable(add_no_mod >= modulus)?.0;
         let modulus_limbs = biguint_to_limbs::<F>(&modulus, E::B, E::NUM_LIMBS);
 
-        let add_no_mod_limbs = biguint_to_limbs::<F>(&add_no_mod, E::B, E::NUM_LIMBS)
-            .into_iter()
-            .map(|val| self.create_variable(val))
-            .collect::<Result<Vec<_>, CircuitError>>()?;
-
-        // Checking whether a + b = add_no_mod_limbs
-        let mut carry_out = self.zero();
-        for (n, (a, b, c)) in izip!(&a.0, &b.0, &add_no_mod_limbs).enumerate() {
-            let next_carry_out = F::from(
+        // Enforcing a + b = c + k * E::MODULUS
+        let mut lhs_carry_out = self.zero();
+        let mut rhs_carry_out = self.zero();
+        for (n, (a, b, c, e)) in izip!(&a.0, &b.0, &c.0, modulus_limbs).enumerate() {
+            let next_lhs_carry_out = F::from(
                 <F as Into<BigUint>>::into(
-                    self.witness(*a)? + self.witness(*b)? + self.witness(carry_out)?,
+                    self.witness(*a)? + self.witness(*b)? + self.witness(lhs_carry_out)?,
+                ) / &b_pow,
+            );
+            let next_rhs_carry_out = F::from(
+                <F as Into<BigUint>>::into(
+                    self.witness(*c)? + k * e + self.witness(rhs_carry_out)?,
                 ) / &b_pow,
             );
             // If we are on the final limb, there should be no next_carry.
-            let next_carry_out = if n == E::NUM_LIMBS - 1 {
-                self.zero()
+            let (next_lhs_carry_out, next_rhs_carry_out) = if n == E::NUM_LIMBS - 1 {
+                (self.zero(), self.zero())
             } else {
-                let next_carry = self.create_variable(next_carry_out)?;
-                self.enforce_bool(next_carry)?;
-                next_carry
+                let next_lhs_carry = self.create_variable(next_lhs_carry_out)?;
+                let next_rhs_carry = self.create_variable(next_rhs_carry_out)?;
+                self.enforce_bool(next_lhs_carry)?;
+                self.enforce_bool(next_rhs_carry)?;
+                (next_lhs_carry, next_rhs_carry)
             };
 
-            let wires = [*a, *b, carry_out, next_carry_out, *c];
-            let coeffs = [F::one(), F::one(), F::one(), -F::from(b_pow.clone())];
-            self.lc_gate(&wires, &coeffs)?;
-            carry_out = next_carry_out;
+            // Since both our linear combinations involve small non-negative field elements
+            // and bounded variables, we do not need to do any additional range checks.
+            let temp_var = self.lin_comb(
+                &[F::one(), F::one(), F::one(), F::from(b_pow.clone())],
+                &F::zero(),
+                &[*a, *b, lhs_carry_out, next_rhs_carry_out],
+            )?;
 
-            self.enforce_in_range(*c, E::B)?;
-        }
+            self.lin_comb_gate(
+                &[F::one(), e, F::one(), F::from(b_pow.clone())],
+                &F::zero(),
+                &[*c, k_var, rhs_carry_out, next_lhs_carry_out],
+                &temp_var,
+            )?;
 
-        // Checking whether k * E::MODULUS + c = add_no_mod_limbs
-        carry_out = self.zero();
-        for (n, (a, b, c)) in izip!(modulus_limbs, &c.0, &add_no_mod_limbs).enumerate() {
-            let next_carry_out = F::from(
-                <F as Into<BigUint>>::into(
-                    a * F::from(k) + self.witness(*b)? + self.witness(carry_out)?,
-                ) / &b_pow,
-            );
-            // If we are on the final limb, there should be no next_carry.
-            let next_carry_out = if n == E::NUM_LIMBS - 1 {
-                self.zero()
-            } else {
-                let next_carry = self.create_variable(next_carry_out)?;
-                self.enforce_bool(next_carry)?;
-                next_carry
-            };
-
-            let wires = [var_k, *b, carry_out, next_carry_out, *c];
-            let coeffs = [a, F::one(), F::one(), -F::from(b_pow.clone())];
-            self.lc_gate(&wires, &coeffs)?;
-            carry_out = next_carry_out;
+            lhs_carry_out = next_lhs_carry_out;
+            rhs_carry_out = next_rhs_carry_out;
         }
         Ok(())
     }
@@ -895,52 +890,59 @@ impl<F: PrimeField> PlonkCircuit<F> {
 
         let val_a: BigUint = self.emulated_witness(a)?.into();
         let val_b: BigUint = b.into();
-        let q: BigUint = E::MODULUS.into();
+        let modulus: BigUint = E::MODULUS.into();
         let b_pow = BigUint::from(2u32).pow(E::B as u32);
         let add_no_mod = &val_a + &val_b;
-        let k = if add_no_mod >= q { 1u32 } else { 0u32 };
-        let var_k = self.create_boolean_variable(add_no_mod >= q)?.0;
-        let q_limbs = biguint_to_limbs::<F>(&q, E::B, E::NUM_LIMBS);
+        let k = if add_no_mod >= modulus {
+            F::one()
+        } else {
+            F::zero()
+        };
+        let k_var = self.create_boolean_variable(add_no_mod >= modulus)?.0;
         let b_limbs = biguint_to_limbs::<F>(&val_b, E::B, E::NUM_LIMBS);
+        let modulus_limbs = biguint_to_limbs::<F>(&modulus, E::B, E::NUM_LIMBS);
 
-        let add_no_mod_limbs = biguint_to_limbs::<F>(&add_no_mod, E::B, E::NUM_LIMBS)
-            .into_iter()
-            .map(|val| self.create_variable(val))
-            .collect::<Result<Vec<_>, CircuitError>>()?;
-
-        // Checking whether a + b = add_no_mod_limbs
-        let mut carry_out = self.zero();
-        for (a, b, c) in izip!(&a.0, b_limbs, &add_no_mod_limbs) {
-            let next_carry_out = F::from(
-                <F as Into<BigUint>>::into(self.witness(*a)? + b + self.witness(carry_out)?)
+        // Enforcing a + b = c + k * E::MODULUS
+        let mut lhs_carry_out = self.zero();
+        let mut rhs_carry_out = self.zero();
+        for (n, (a, b, c, e)) in izip!(&a.0, b_limbs, &c.0, modulus_limbs).enumerate() {
+            let next_lhs_carry_out = F::from(
+                <F as Into<BigUint>>::into(self.witness(*a)? + b + self.witness(lhs_carry_out)?)
                     / &b_pow,
             );
-            let next_carry_out = self.create_variable(next_carry_out)?;
-            self.enforce_bool(next_carry_out)?;
-
-            let wires = [*a, self.one(), carry_out, next_carry_out, *c];
-            let coeffs = [F::one(), b, F::one(), -F::from(b_pow.clone())];
-            self.lc_gate(&wires, &coeffs)?;
-            carry_out = next_carry_out;
-
-            self.enforce_in_range(*c, E::B)?;
-        }
-
-        // Checking whether k * q + c = add_no_mod_limbs
-        carry_out = self.zero();
-        for (a, b, c) in izip!(q_limbs, &c.0, &add_no_mod_limbs) {
-            let next_carry_out = F::from(
+            let next_rhs_carry_out = F::from(
                 <F as Into<BigUint>>::into(
-                    a * F::from(k) + self.witness(*b)? + self.witness(carry_out)?,
+                    self.witness(*c)? + k * e + self.witness(rhs_carry_out)?,
                 ) / &b_pow,
             );
-            let next_carry_out = self.create_variable(next_carry_out)?;
-            self.enforce_bool(next_carry_out)?;
+            // If we are on the final limb, there should be no next_carry.
+            let (next_lhs_carry_out, next_rhs_carry_out) = if n == E::NUM_LIMBS - 1 {
+                (self.zero(), self.zero())
+            } else {
+                let next_lhs_carry = self.create_variable(next_lhs_carry_out)?;
+                let next_rhs_carry = self.create_variable(next_rhs_carry_out)?;
+                self.enforce_bool(next_lhs_carry)?;
+                self.enforce_bool(next_rhs_carry)?;
+                (next_lhs_carry, next_rhs_carry)
+            };
 
-            let wires = [var_k, *b, carry_out, next_carry_out, *c];
-            let coeffs = [a, F::one(), F::one(), -F::from(b_pow.clone())];
-            self.lc_gate(&wires, &coeffs)?;
-            carry_out = next_carry_out;
+            // Since both our linear combinations involve small non-negative field elements
+            // and bounded variables, we do not need to do any additional range checks.
+            let temp_var = self.lin_comb(
+                &[F::one(), b, F::one(), F::from(b_pow.clone())],
+                &F::zero(),
+                &[*a, self.one(), lhs_carry_out, next_rhs_carry_out],
+            )?;
+
+            self.lin_comb_gate(
+                &[F::one(), e, F::one(), F::from(b_pow.clone())],
+                &F::zero(),
+                &[*c, k_var, rhs_carry_out, next_lhs_carry_out],
+                &temp_var,
+            )?;
+
+            lhs_carry_out = next_lhs_carry_out;
+            rhs_carry_out = next_rhs_carry_out;
         }
         Ok(())
     }

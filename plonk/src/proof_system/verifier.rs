@@ -8,7 +8,6 @@ use super::structs::{
     BatchProof, Challenges, PlookupProof, ProofEvaluations, ScalarsAndBases, VerifyingKey,
 };
 use crate::{
-    constants::EXTRA_TRANSCRIPT_MSG_LABEL,
     errors::{PlonkError, SnarkError::ParameterError},
     proof_system::structs::{eval_merged_lookup_witness, eval_merged_table, OpenKey},
     transcript::*,
@@ -309,12 +308,12 @@ where
             ))
             .into());
         }
-        let mut transcript = T::new_transcript(b"PlonkProof");
-        if let Some(msg) = extra_transcript_init_msg {
-            transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
-        }
-        for (&vk, &pi) in verify_keys.iter().zip(public_inputs.iter()) {
-            transcript.append_visitor(vk)?;
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(msg)?
+        } else {
+            T::new_transcript(b"PlonkProof")
+        };
+        for pi in public_inputs {
             for pub_input in pi.iter() {
                 transcript.push_message(b"public_input", pub_input)?;
             }

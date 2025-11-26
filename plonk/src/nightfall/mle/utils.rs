@@ -25,7 +25,12 @@ use crate::nightfall::mle::subroutines::{
     sumcheck::SumCheck, PolyOracle, SumCheckProof, VPSumCheck,
 };
 use crate::transcript::{RescueTranscript, Transcript};
-use crate::{errors::PlonkError, nightfall::accumulation::AccumulationChallengesAndScalars};
+use crate::{
+    errors::PlonkError,
+    nightfall::{
+        accumulation::AccumulationChallengesAndScalars, mle::mle_structs::FullMLEChallenges,
+    },
+};
 
 /// This function computes the barycentric weights for a set of points.
 pub fn compute_barycentric_weights<F: Field>(points: &[F]) -> Result<Vec<F>, PolynomialError> {
@@ -618,9 +623,9 @@ pub(crate) fn eval_gate_equation<F: PrimeField>(
 pub(crate) fn eval_permutation_equation<F: PrimeField>(
     perm_evals: &[F],
     wire_evals: &[F],
-    challenges: &MLEChallenges<F>,
+    challenges: &FullMLEChallenges<F>,
 ) -> F {
-    let MLEChallenges { gamma, epsilon, .. } = *challenges;
+    let FullMLEChallenges { gamma, epsilon, .. } = *challenges;
 
     let pairs = perm_evals
         .chunks(3)
@@ -651,10 +656,10 @@ pub(crate) fn eval_lookup_equation<F: PrimeField>(
     table_dom_sep_eval: F,
     q_dom_sep_eval: F,
     q_lookup_eval: F,
-    challenges: &MLEChallenges<F>,
+    challenges: &FullMLEChallenges<F>,
     m_poly_eval: F,
 ) -> F {
-    let MLEChallenges { tau, epsilon, .. } = *challenges;
+    let FullMLEChallenges { tau, epsilon, .. } = *challenges;
 
     let epsilon_start = epsilon.pow([5u64]);
     let lookup_wire_eval = wire_evals[5]
@@ -676,7 +681,7 @@ pub(crate) fn build_zerocheck_eval<PCS>(
     evals: &MLEProofEvals<PCS>,
     lookup_evals: Option<&MLELookupEvals<PCS>>,
     gate_info: &GateInfo<PCS::Evaluation>,
-    challenges: &MLEChallenges<PCS::Evaluation>,
+    challenges: &FullMLEChallenges<PCS::Evaluation>,
     pi_eval: PCS::Evaluation,
     eq_eval: PCS::Evaluation,
 ) -> PCS::Evaluation
@@ -734,6 +739,7 @@ pub(crate) fn build_sumcheck_poly<F, PCS>(
     eq_poly: Arc<DenseMultilinearExtension<F>>,
     gate_info: &GateInfo<F>,
     challenges: &MLEChallenges<F>,
+    epsilon: F,
     lookup_pk: Option<&MLELookupProvingKey<PCS>>,
     m_poly: Option<Arc<DenseMultilinearExtension<F>>>,
 ) -> Result<VirtualPolynomial<F>, PolynomialError>
@@ -741,19 +747,19 @@ where
     F: PrimeField,
     PCS: PolynomialCommitmentScheme<Evaluation = F>,
 {
-    let MLEChallenges { gamma, epsilon, .. } = *challenges;
+    let gamma = challenges.gamma;
 
     // First build the gate equation part of the VirtualPolynomial
     let mut vp = build_gate_equation(wire_polys, selector_polys, pub_input_poly, gate_info)?;
 
     // Add on the permutation polynomial
-    let perm_vp = build_permutation_equation(wire_polys, permutation_polys, challenges)?;
+    let perm_vp = build_permutation_equation(wire_polys, permutation_polys, challenges, epsilon)?;
     vp = &vp + &perm_vp;
 
     // If we have some lookup proving key then we add on the lookup part as well.
     if let (Some(lookup_pk), Some(m_poly)) = (lookup_pk, m_poly) {
         // The unwrap is safe because we have checked that we are using a lookup argument
-        let lookup_vp = build_lookup_equation(wire_polys, lookup_pk, m_poly, challenges)?;
+        let lookup_vp = build_lookup_equation(wire_polys, lookup_pk, m_poly, challenges, epsilon)?;
         vp = &vp + &lookup_vp;
 
         let first_perm_coeff = epsilon * epsilon * epsilon * gamma * gamma * gamma;
@@ -805,11 +811,12 @@ pub(crate) fn build_permutation_equation<F: PrimeField>(
     wire_polys: &[Arc<DenseMultilinearExtension<F>>],
     permutation_polys: &[Arc<DenseMultilinearExtension<F>>],
     challenges: &MLEChallenges<F>,
+    epsilon: F,
 ) -> Result<VirtualPolynomial<F>, PolynomialError> {
     // First we find the number of variables for the VirtualPolynomial
     let num_vars = wire_polys[0].num_vars;
 
-    let MLEChallenges { gamma, epsilon, .. } = *challenges;
+    let gamma = challenges.gamma;
     let epsilon_sq = epsilon * epsilon;
     let epsilon_cube = epsilon_sq * epsilon;
     let epsilon_sqsq = epsilon_sq * epsilon_sq;
@@ -907,6 +914,7 @@ pub(crate) fn build_lookup_equation<F, PCS>(
     lookup_pk: &MLELookupProvingKey<PCS>,
     m_poly: Arc<DenseMultilinearExtension<F>>,
     challenges: &MLEChallenges<F>,
+    epsilon: F,
 ) -> Result<VirtualPolynomial<F>, PolynomialError>
 where
     F: PrimeField,
@@ -915,7 +923,7 @@ where
     // First we find the number of variables for the VirtualPolynomial
     let num_vars = wire_polys[0].num_vars;
 
-    let MLEChallenges { tau, epsilon, .. } = *challenges;
+    let tau = challenges.tau;
     let tau_sq = tau * tau;
     let tau_cube = tau_sq * tau;
     let tau_sqsq = tau_sq * tau_sq;

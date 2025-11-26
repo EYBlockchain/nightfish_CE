@@ -12,7 +12,7 @@ use jf_relation::{
         ecc::{EmulMultiScalarMultiplicationCircuit, Point, PointVariable},
         EmulatedVariable,
     },
-    PlonkCircuit,
+    Circuit, PlonkCircuit, Variable,
 };
 
 use crate::{
@@ -20,7 +20,11 @@ use crate::{
     nightfall::{
         accumulation::accumulation_structs::PCSWitness,
         circuit::{
-            plonk_partial_verifier::SAMLEProofVar, subroutine_verifiers::sumcheck::SumCheckGadget,
+            plonk_partial_verifier::SAMLEProofVar,
+            subroutine_verifiers::{
+                structs::{EmulatedSumCheckProofVar, SumCheckProofVar},
+                sumcheck::SumCheckGadget,
+            },
         },
         mle::{
             mle_structs::MLEVerifyingKey,
@@ -38,6 +42,20 @@ use nf_curves::grumpkin::{short_weierstrass::SWGrumpkin, Grumpkin};
 use rayon::prelude::*;
 
 use super::Zmorph;
+
+/// We use this struct to store information about Split accumulation challenges.
+pub struct SplitAccumulationInfoVar {
+    /// The sumcheck proof used for the split accumulation
+    pub sumcheck_proof: SumCheckProofVar<Fq254>,
+    /// The challenge used to batch terms in the split accumulation
+    pub batch_challenge: Variable,
+    /// The old accumulators evaluation points used in the split accumulation
+    pub old_accumulators_points: [Vec<Variable>; 4],
+    /// The old accumulators evaluations used in the split accumulation
+    pub old_accumulators_evals: [Variable; 4],
+    /// The new accumulator produced by the split accumulation
+    pub new_accumulator: PCSWitness<Zmorph>,
+}
 
 /// We use this struct to store information about Split accumulation challenges.
 #[derive(Clone, Debug, Default)]
@@ -66,6 +84,51 @@ impl SplitAccumulationInfo {
             old_accumulators,
             new_accumulator,
         }
+    }
+
+    /// Converts the SplitAccumulationInfo into its variable representation in a PlonkCircuit.
+    pub fn to_variables(
+        &self,
+        circuit: &mut PlonkCircuit<Fq254>,
+    ) -> Result<SplitAccumulationInfoVar, CircuitError> {
+        let old_accumulators_points: [Vec<Variable>; 4] = self
+            .old_accumulators
+            .iter()
+            .map(|acc: &PCSWitness<Zmorph>| {
+                acc.point
+                    .iter()
+                    .copied()
+                    .map(|p| circuit.create_variable(p))
+                    .collect::<Result<Vec<Variable>, CircuitError>>()
+            })
+            .collect::<Result<Vec<Vec<Variable>>, CircuitError>>()?
+            .try_into()
+            .map_err(|v: Vec<Vec<Variable>>| {
+                CircuitError::ParameterError(ark_std::format!(
+                    "expected 4 accumulators, got {}",
+                    v.len()
+                ))
+            })?;
+
+        let old_accumulators_evals: [Variable; 4] = self
+            .old_accumulators
+            .iter()
+            .map(|acc: &PCSWitness<Zmorph>| circuit.create_variable(acc.value))
+            .collect::<Result<Vec<Variable>, CircuitError>>()?
+            .try_into()
+            .unwrap();
+
+        let batch_challenge = circuit.create_variable(self.batch_challenge)?;
+
+        let sumcheck_proof = circuit.sum_check_proof_to_var(&self.sumcheck_proof)?;
+
+        Ok(SplitAccumulationInfoVar {
+            sumcheck_proof,
+            batch_challenge,
+            old_accumulators_points,
+            old_accumulators_evals,
+            new_accumulator: self.new_accumulator.clone(),
+        })
     }
 
     /// Getter for the sumcheck proof
@@ -186,15 +249,23 @@ impl SplitAccumulationInfo {
     }
 
     /// Used to verify the accumulation performed in [`Self::perform_accumulation`] in a Bn254 circuit.
+    #[allow(clippy::type_complexity)]
     pub fn verify_split_accumulation(
         &self,
         proof_vars: &[SAMLEProofVar<Zmorph>; 2],
         acc_point_vars: &[PointVariable; 4],
-        deltas: &[Fq254],
+        deltas: &[EmulatedVariable<Fq254>],
         vk: &MLEVerifyingKey<Zmorph>,
         transcript: &mut RescueTranscriptVar<Fr254>,
         circuit: &mut PlonkCircuit<Fr254>,
-    ) -> Result<(PointVariable, Vec<EmulatedVariable<Fq254>>), CircuitError> {
+    ) -> Result<
+        (
+            PointVariable,
+            Vec<EmulatedVariable<Fq254>>,
+            EmulatedVariable<Fq254>,
+        ),
+        CircuitError,
+    > {
         // If the proofs don't support lookup we throw an error
         if vk.lookup_verifying_key.is_none() {
             return Err(CircuitError::NotSupported(
@@ -203,7 +274,8 @@ impl SplitAccumulationInfo {
         }
 
         // Create the sumcheck proof variable
-        let sumcheck_proof = circuit.proof_to_emulated_var::<SWGrumpkin>(self.sumcheck_proof())?;
+        let sumcheck_proof: EmulatedSumCheckProofVar<Fq254> =
+            circuit.proof_to_emulated_var::<SWGrumpkin>(self.sumcheck_proof())?;
 
         let _ = transcript.squeeze_scalar_challenge::<SWGrumpkin>(circuit)?;
 
@@ -214,18 +286,30 @@ impl SplitAccumulationInfo {
         )?;
 
         // Calculate the coefficients for the accumulation.
-        let accumulation_coeffs =
-            iter::successors(Some(Fq254::one()), |x| Some(self.batch_challenge * x))
-                .take(6)
-                .zip(self.sumcheck_proof().poly_evals[6..].iter())
-                .map(|(x, y)| x * *y)
-                .collect::<Vec<Fq254>>();
+        let batch_challenge: EmulatedVariable<Fq254> =
+            circuit.create_emulated_variable(self.batch_challenge)?;
+        let accumulation_coeffs = {
+            let initial_var = circuit.emulated_one();
+            iter::successors(Some(initial_var), |x| {
+                circuit.emulated_mul(x, &batch_challenge).ok()
+            })
+            .take(6)
+            .zip(self.sumcheck_proof().poly_evals[6..].iter())
+            .map(|(x, y)| (x, *y))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|(x, y)| {
+                let y = circuit.create_emulated_variable(y).unwrap();
+                circuit.emulated_mul(&x, &y)
+            })
+            .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?
+        };
 
         // Create the variables for the commitments in the two proofs
         let proof_one = &proof_vars[0];
         let proof_two = &proof_vars[1];
 
-        let proof_scalars = compute_mle_scalars(&accumulation_coeffs[..2], deltas)?;
+        let proof_scalars = compute_mle_scalars(&accumulation_coeffs[..2], deltas, circuit)?;
 
         // Create the bases from the verifying key.
         let selector_variables = vk
@@ -274,8 +358,8 @@ impl SplitAccumulationInfo {
         let final_msm_scalars = proof_scalars
             .iter()
             .chain(accumulation_coeffs[2..].iter())
-            .map(|f| circuit.create_emulated_variable(*f))
-            .collect::<Result<Vec<EmulatedVariable<Fq254>>, CircuitError>>()?;
+            .cloned()
+            .collect::<Vec<_>>();
 
         let final_bases = [proof_msm_bases, acc_point_vars.into()].concat();
 
@@ -293,16 +377,17 @@ impl SplitAccumulationInfo {
             assert_eq!(self.new_accumulator.comm.x, point_witness.get_x());
             assert_eq!(self.new_accumulator.comm.y, point_witness.get_y());
         }
-        Ok((acc_com, final_msm_scalars))
+        Ok((acc_com, final_msm_scalars, batch_challenge))
     }
 }
 
 /// This function computes the scalars used for the MSM that is performed in a Bn254 recursion circuit.
 /// We work on the assumption that the proof uses lookups because if it isn't the circuit before was probably too big to prove anyway.
 fn compute_mle_scalars(
-    accumulation_scalars: &[Fq254],
-    deltas: &[Fq254],
-) -> Result<Vec<Fq254>, CircuitError> {
+    accumulation_scalars: &[EmulatedVariable<Fq254>],
+    deltas: &[EmulatedVariable<Fq254>],
+    circuit: &mut PlonkCircuit<Fr254>,
+) -> Result<Vec<EmulatedVariable<Fq254>>, CircuitError> {
     // The individual proof scalars are structured in the order:
     // wire commits (6) [0..6]
     // selector commitments (17) [6..23]
@@ -319,28 +404,36 @@ fn compute_mle_scalars(
         .iter()
         .zip(deltas.iter())
         .map(|(acc_scalar, delta)| {
-            iter::successors(Some(*acc_scalar), |x| Some(*delta * *x))
-                .take(35)
-                .collect::<Vec<Fq254>>()
+            (0..35).try_fold(Vec::with_capacity(35), |mut result, i| {
+                let current = if i == 0 {
+                    acc_scalar.clone()
+                } else {
+                    circuit.emulated_mul(delta, result.last().unwrap())?
+                };
+                result.push(current);
+                Ok(result)
+            })
         })
-        .collect::<Vec<Vec<Fq254>>>();
+        .collect::<Result<Vec<Vec<EmulatedVariable<Fq254>>>, CircuitError>>()?;
 
     let mut out_scalars = scalars[0].clone();
 
     out_scalars[6..29]
         .iter_mut()
         .zip(scalars[1][6..29].iter())
-        .for_each(|(out, s)| {
-            *out += *s;
-        });
+        .try_for_each(|(out, s)| {
+            *out = circuit.emulated_add(out, s)?;
+            Ok::<(), CircuitError>(())
+        })?;
     out_scalars[30..35]
         .iter_mut()
         .zip(scalars[1][30..35].iter())
-        .for_each(|(out, s)| {
-            *out += *s;
-        });
+        .try_for_each(|(out, s)| {
+            *out = circuit.emulated_add(out, s)?;
+            Ok::<(), CircuitError>(())
+        })?;
 
     out_scalars.extend_from_slice(&scalars[1][0..6]);
-    out_scalars.push(scalars[1][29]);
+    out_scalars.push(scalars[1][29].clone());
     Ok(out_scalars)
 }

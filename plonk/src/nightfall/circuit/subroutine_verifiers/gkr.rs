@@ -1,13 +1,21 @@
 //! This module contains code for verifying GKR proofs in the Plonk protocol.
 use crate::{
+    errors::PlonkError,
     nightfall::{
         circuit::plonk_partial_verifier::{emulated_eq_x_r_eval_circuit, eq_x_r_eval_circuit},
-        mle::subroutines::gkr::GKRProof,
+        mle::{
+            subroutines::{
+                gkr::{sum_check_evaluation as sc_eval, sumcheck_intial_evaluation, GKRProof},
+                sumcheck::SumCheck,
+                DeferredCheck, VPSumCheck,
+            },
+            utils::eq_eval,
+        },
     },
-    transcript::{rescue::RescueTranscriptVar, CircuitTranscript},
+    transcript::{rescue::RescueTranscriptVar, CircuitTranscript, Transcript},
 };
 use ark_ff::PrimeField;
-use ark_std::{string::ToString, vec, vec::Vec};
+use ark_std::{string::ToString, vec, vec::Vec, Zero};
 use jf_primitives::rescue::RescueParameter;
 use jf_relation::{
     errors::CircuitError,
@@ -124,12 +132,16 @@ impl<F: PrimeField + RescueParameter> GKRProofVar<F> {
         let mut challenge_point = vec![r];
         // Verify each sumcheck proof. We check that the output of the previous sumcheck proof is consistent with the input to the next using the
         // supplied evaluations.
+        // We artificially append a zero to the `r_challenges` as the slice is one shorter than the others and
+        // the `r_challenge` from the final round is not involved in any constraints.
         for (i, (proof, evals, l, r_challenge, sumcheck_challenges)) in izip!(
             self.sumcheck_proofs().iter(),
             self.evals().iter(),
             lambdas.iter(),
-            r_challenges[1..].iter(),
-            sumcheck_challenges.iter()
+            [r_challenges[1..].as_ref(), &[circuit.zero()]]
+                .concat()
+                .iter(),
+            sumcheck_challenges.iter(),
         )
         .enumerate()
         {
@@ -342,10 +354,11 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
         let mut lambda_challenges = vec![];
         let mut sumcheck_challenges = vec![];
 
-        for (sumcheck_proof, evals) in self
+        for (i, (sumcheck_proof, evals)) in self
             .sumcheck_proof_vars
             .iter()
             .zip(self.evals.iter().skip(1))
+            .enumerate()
         {
             let lambda_round = transcript.squeeze_scalar_challenge::<P>(circuit)?;
             let sumcheck_challenges_round =
@@ -353,11 +366,15 @@ impl<E: PrimeField> EmulatedGKRProofVar<E> {
             for eval in evals {
                 transcript.push_emulated_variable(eval, circuit)?;
             }
-            let r_round = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+
+            if i != self.sumcheck_proof_vars.len() - 1 {
+                // Only squeeze a new r challenge if this is not the last round.
+                let r_round = transcript.squeeze_scalar_challenge::<P>(circuit)?;
+                r_challenges.push(r_round);
+            }
 
             lambda_challenges.push(lambda_round);
             sumcheck_challenges.push(sumcheck_challenges_round);
-            r_challenges.push(r_round);
         }
 
         // Now we flatten into a single vec and return.
@@ -601,27 +618,127 @@ fn sumcheck_emulated_initial_evaluation<F: PrimeField, E: EmulationConfig<F>>(
         })
 }
 
+/// The lambda and r challenges used during GKR verification.
+type GKRChallenges<F> = (Vec<F>, Vec<F>);
+
+/// Extract the GKR challenges needed for circuit verification without hashing.
+pub fn extract_gkr_challenges<P, T>(
+    proof: &GKRProof<P::ScalarField>,
+    transcript: &mut T,
+) -> Result<GKRChallenges<P::ScalarField>, PlonkError>
+where
+    P: HasTEForm,
+    P::BaseField: RescueParameter,
+    P::ScalarField: EmulationConfig<P::BaseField>,
+    T: Transcript,
+{
+    if proof.evals.is_empty() {
+        return Err(PlonkError::InvalidParameters(
+            "No evaluations to verify".to_string(),
+        ));
+    }
+
+    // Unwrap is safe because we have checked that the proof has evaluations.
+    let first_evals = proof.evals().first().unwrap();
+
+    for eval_chunk in first_evals.chunks(4) {
+        let p0 = eval_chunk[0];
+        let p1 = eval_chunk[1];
+        let q0 = eval_chunk[2];
+        let q1 = eval_chunk[3];
+
+        let p_claim = P::ScalarField::zero() == (p0 * q1 + p1 * q0);
+        let q_claim = P::ScalarField::zero() != (q0 * q1);
+
+        let both_claims = p_claim && q_claim;
+        // Return an error if the constant values `claimed_p` and `claimed_q` do not
+        // match the the values we have used for proving.
+        if !both_claims {
+            return Err(PlonkError::InvalidParameters(
+                "Claimed values do not match the provided evaluations".to_string(),
+            ));
+        }
+
+        transcript.push_message(b"p0", &p0)?;
+        transcript.push_message(b"p1", &p1)?;
+        transcript.push_message(b"q0", &q0)?;
+        transcript.push_message(b"q1", &q1)?;
+    }
+
+    let mut res = DeferredCheck::default();
+    let mut lambda = P::ScalarField::zero();
+    let mut lambdas = Vec::<P::ScalarField>::with_capacity(proof.sumcheck_proofs().len());
+    let mut r = transcript.squeeze_scalar_challenge::<P>(b"r_0")?;
+    let mut sc_eq_eval = P::ScalarField::zero();
+    let mut challenge_point = vec![r];
+    let mut r_challenges = Vec::<P::ScalarField>::with_capacity(proof.sumcheck_proofs().len() + 1);
+    r_challenges.push(r);
+    // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
+    // supplied evaluations.
+    for (i, (sumcheck_proof, curr_and_next_evals)) in proof
+        .sumcheck_proofs()
+        .iter()
+        .zip(proof.evals().windows(2))
+        .enumerate()
+    {
+        // If its not the first round check that these evaluations line up with the expected evaluation from the previous round.
+        if i != 0 {
+            let expected_eval = sc_eval(&curr_and_next_evals[0], lambda) * sc_eq_eval;
+            if expected_eval != res.eval {
+                return Err(PlonkError::InvalidParameters(
+                    "Sumcheck evaluation does not match expected value".to_string(),
+                ));
+            }
+        }
+
+        lambda = transcript.squeeze_scalar_challenge::<P>(b"lambda")?;
+        lambdas.push(lambda);
+        // Check that the initial evaluation of the sumcheck is correct.
+        let initial_eval = sumcheck_intial_evaluation(&curr_and_next_evals[0], lambda, r);
+        if sumcheck_proof.eval != initial_eval {
+            return Err(PlonkError::InvalidParameters(
+                "Initial sumcheck evaluation does not match expected value".to_string(),
+            ));
+        }
+
+        let deferred_check = VPSumCheck::<P>::verify(sumcheck_proof, transcript)?;
+        for eval in curr_and_next_evals[1].iter() {
+            transcript.push_message(b"eval", eval)?;
+        }
+
+        sc_eq_eval = eq_eval(&deferred_check.point, &challenge_point)?;
+
+        // If this is the last round, we do need to generate a new challenge point.
+        if i != proof.sumcheck_proofs().len() - 1 {
+            r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
+            r_challenges.push(r);
+            challenge_point = [deferred_check.point.as_slice(), &[r]].concat();
+        }
+
+        res = deferred_check;
+    }
+    let final_evals = proof.evals().last().unwrap();
+    let expected_eval = sc_eval(final_evals, lambda) * sc_eq_eval;
+    if expected_eval != res.eval {
+        return Err(PlonkError::InvalidParameters(
+            "Sumcheck evaluation does not match expected value".to_string(),
+        ));
+    }
+    // Unwrap is safe because we checked the eval list was non-empty earlier
+    Ok((lambdas, r_challenges))
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use crate::{
-        errors::PlonkError,
-        nightfall::mle::{
-            subroutines::{
-                gkr::{
-                    sum_check_evaluation as sc_eval, sumcheck_intial_evaluation, StructuredCircuit,
-                },
-                sumcheck::SumCheck,
-                DeferredCheck, VPSumCheck,
-            },
-            utils::eq_eval,
-        },
+        nightfall::mle::subroutines::gkr::StructuredCircuit,
         transcript::{rescue::RescueTranscript, Transcript},
     };
 
     use ark_bn254::{g1::Config as BnConfig, Fq, Fr};
     use ark_poly::{DenseMultilinearExtension, MultilinearExtension};
-    use ark_std::{sync::Arc, One, Zero};
+    use ark_std::{sync::Arc, One};
 
     #[test]
     fn test_prove_and_verify() {
@@ -705,111 +822,6 @@ pub(crate) mod tests {
                 assert_eq!(circuit.witness(*circuit_eval).unwrap(), *eval);
             }
         }
-    }
-
-    pub type GKRChallenges<F> = (Vec<F>, Vec<F>);
-
-    /// Extract the GKR challenges needed for circuit verification without hashing.
-    pub fn extract_gkr_challenges<P, T>(
-        proof: &GKRProof<P::ScalarField>,
-        transcript: &mut T,
-    ) -> Result<GKRChallenges<P::ScalarField>, PlonkError>
-    where
-        P: HasTEForm,
-        P::BaseField: RescueParameter,
-        P::ScalarField: EmulationConfig<P::BaseField>,
-        T: Transcript,
-    {
-        if proof.evals.is_empty() {
-            return Err(PlonkError::InvalidParameters(
-                "No evaluations to verify".to_string(),
-            ));
-        }
-
-        // Unwrap is safe because we have checked that the proof has evaluations.
-        let first_evals = proof.evals().first().unwrap();
-
-        for eval_chunk in first_evals.chunks(4) {
-            let p0 = eval_chunk[0];
-            let p1 = eval_chunk[1];
-            let q0 = eval_chunk[2];
-            let q1 = eval_chunk[3];
-
-            let p_claim = P::ScalarField::zero() == (p0 * q1 + p1 * q0);
-            let q_claim = P::ScalarField::zero() != (q0 * q1);
-
-            let both_claims = p_claim && q_claim;
-            // Return an error if the constant values `claimed_p` and `claimed_q` do not
-            // match the the values we have used for proving.
-            if !both_claims {
-                return Err(PlonkError::InvalidParameters(
-                    "Claimed values do not match the provided evaluations".to_string(),
-                ));
-            }
-
-            transcript.push_message(b"p0", &p0)?;
-            transcript.push_message(b"p1", &p1)?;
-            transcript.push_message(b"q0", &q0)?;
-            transcript.push_message(b"q1", &q1)?;
-        }
-
-        let mut res = DeferredCheck::default();
-        let mut lambda = P::ScalarField::zero();
-        let mut lambdas = Vec::<P::ScalarField>::with_capacity(proof.sumcheck_proofs().len());
-        let mut r = transcript.squeeze_scalar_challenge::<P>(b"r_0")?;
-        let mut sc_eq_eval = P::ScalarField::zero();
-        let mut challenge_point = vec![r];
-        let mut r_challenges =
-            Vec::<P::ScalarField>::with_capacity(proof.sumcheck_proofs().len() + 1);
-        r_challenges.push(r);
-        // Verify each sumcheck proof. We check that the out put of the previous sumcheck proof is consistent with the input to the next using the
-        // supplied evaluations.
-        for (i, (sumcheck_proof, curr_and_next_evals)) in proof
-            .sumcheck_proofs()
-            .iter()
-            .zip(proof.evals().windows(2))
-            .enumerate()
-        {
-            // If its not the first round check that these evaluations line up with the expected evaluation from the previous round.
-            if i != 0 {
-                let expected_eval = sc_eval(&curr_and_next_evals[0], lambda) * sc_eq_eval;
-                if expected_eval != res.eval {
-                    return Err(PlonkError::InvalidParameters(
-                        "Sumcheck evaluation does not match expected value".to_string(),
-                    ));
-                }
-            }
-
-            lambda = transcript.squeeze_scalar_challenge::<P>(b"lambda")?;
-            lambdas.push(lambda);
-            // Check that the initial evaluation of the sumcheck is correct.
-            let initial_eval = sumcheck_intial_evaluation(&curr_and_next_evals[0], lambda, r);
-            if sumcheck_proof.eval != initial_eval {
-                return Err(PlonkError::InvalidParameters(
-                    "Initial sumcheck evaluation does not match expected value".to_string(),
-                ));
-            }
-
-            let deferred_check = VPSumCheck::<P>::verify(sumcheck_proof, transcript)?;
-            for eval in curr_and_next_evals[1].iter() {
-                transcript.push_message(b"eval", eval)?;
-            }
-
-            r = transcript.squeeze_scalar_challenge::<P>(b"r")?;
-            r_challenges.push(r);
-            sc_eq_eval = eq_eval(&deferred_check.point, &challenge_point)?;
-            challenge_point = [deferred_check.point.as_slice(), &[r]].concat();
-            res = deferred_check;
-        }
-        let final_evals = proof.evals().last().unwrap();
-        let expected_eval = sc_eval(final_evals, lambda) * sc_eq_eval;
-        if expected_eval != res.eval {
-            return Err(PlonkError::InvalidParameters(
-                "Sumcheck evaluation does not match expected value".to_string(),
-            ));
-        }
-        // Unwrap is safe because we checked the eval list was non-empty earlier
-        Ok((lambdas, r_challenges))
     }
 
     #[test]

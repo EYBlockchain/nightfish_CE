@@ -542,6 +542,31 @@ where
             DeferredCheck::<P::ScalarField>::new(&verifier_state.challenges, verifier_state.eval);
         Ok(deferred_check)
     }
+
+    /// Recovers the sumcheck challenges from the proof and transcript.
+    fn recover_sumcheck_challenges<T: Transcript>(
+        proof: &Self::Proof,
+        transcript: &mut T,
+    ) -> Result<Vec<P::ScalarField>, PlonkError> {
+        let mut calc_challenges = vec![];
+
+        transcript.push_message(b"proof eval", &proof.eval)?;
+        for (evaluations, r_0_eval) in proof
+            .oracles
+            .iter()
+            .map(|oracle| &oracle.evaluations)
+            .zip(proof.r_0_evals.iter())
+        {
+            transcript.push_message(b"r_0_eval", r_0_eval)?;
+            for evaluation in evaluations {
+                transcript.push_message(b"eval", evaluation)?;
+            }
+            let challenge = transcript.squeeze_scalar_challenge::<P>(b"r_prime_challenge")?;
+            calc_challenges.push(challenge);
+        }
+
+        Ok(calc_challenges)
+    }
 }
 
 #[cfg(test)]

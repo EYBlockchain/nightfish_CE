@@ -53,6 +53,25 @@ where
         }
     }
 
+    fn new_with_initial_message<S, E>(msg: &S) -> Result<Self, PlonkError>
+    where
+        Self: Sized,
+        S: CanonicalSerialize + ?Sized + 'static,
+        E: HasTEForm,
+        E::BaseField: PrimeField,
+    {
+        let mut transcript = RescueTranscript::<F>::new_transcript(b"");
+        transcript.push_message(b"", msg)?;
+        let challenge = transcript.squeeze_scalar_challenge::<E>(b"")?;
+        let mut rescue_transcript = Self::new_transcript(b"");
+        rescue_transcript
+            .transcript
+            .push(F::from_le_bytes_mod_order(
+                &challenge.into_bigint().to_bytes_le(),
+            ));
+        Ok(rescue_transcript)
+    }
+
     fn push_message<S: CanonicalSerialize + ?Sized + 'static>(
         &mut self,
         _label: &'static [u8],
@@ -175,6 +194,57 @@ where
             transcript_var: Vec::new(),
             state_var: [circuit.zero(); 4],
             _phantom: PhantomData,
+        }
+    }
+
+    fn new_with_initial_message<S, E>(
+        msg: &S,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<Self, PlonkError>
+    where
+        Self: Sized,
+        S: CanonicalSerialize + ?Sized + 'static,
+        E: HasTEForm,
+        E::BaseField: PrimeField,
+    {
+        let mut transcript = RescueTranscript::<F>::new_transcript(b"");
+        transcript.push_message(b"", msg)?;
+        let challenge = transcript.squeeze_scalar_challenge::<E>(b"")?;
+        let mut rescue_transcript = Self::new_transcript(circuit);
+        let challenge_as_f = F::from_le_bytes_mod_order(&challenge.into_bigint().to_bytes_le());
+        rescue_transcript.push_variable(&circuit.create_constant_variable(challenge_as_f)?)?;
+        Ok(rescue_transcript)
+    }
+
+    fn push_message<S: CanonicalSerialize + ?Sized + 'static, E>(
+        &mut self,
+        _label: &'static [u8],
+        msg: &S,
+        circuit: &mut PlonkCircuit<F>,
+    ) -> Result<(), PlonkError>
+    where
+        E: HasTEForm,
+        E::BaseField: PrimeField,
+    {
+        // We remove the labels for better efficiency
+        if TypeId::of::<S>() == TypeId::of::<F>() {
+            let mut writer = Vec::new();
+            msg.serialize_compressed(&mut writer)?;
+            let msg = F::from_le_bytes_mod_order(writer.as_slice());
+            let msg_var = circuit.create_constant_variable(msg)?;
+            self.transcript_var.push(msg_var);
+            Ok(())
+        } else {
+            let mut writer = Vec::new();
+            msg.serialize_compressed(&mut writer)?;
+
+            let f = bytes_to_field_elements(writer.as_slice());
+
+            for e in f[1..].iter() {
+                let e_var = circuit.create_constant_variable(*e)?;
+                self.transcript_var.push(e_var);
+            }
+            Ok(())
         }
     }
 

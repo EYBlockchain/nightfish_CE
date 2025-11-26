@@ -8,7 +8,6 @@ use jf_primitives::pcs::PolynomialCommitmentScheme;
 use jf_relation::{constants::GATE_WIDTH, gadgets::ecc::PointVariable, Circuit, PlonkCircuit};
 use jf_utils::fq_to_fr;
 
-use crate::constants::EXTRA_TRANSCRIPT_MSG_LABEL;
 use crate::errors::{PlonkError, SnarkError::ParameterError};
 use crate::nightfall::{
     circuit::plonk_partial_verifier::{
@@ -333,10 +332,11 @@ impl FFTVerifier<Kzg> {
     where
         T: Transcript,
     {
-        let mut transcript = T::new_transcript(b"PlonkProof");
-        if let Some(msg) = extra_transcript_init_msg {
-            transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, msg)?;
-        }
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, BnConfig>(msg)?
+        } else {
+            T::new_transcript(b"PlonkProof")
+        };
 
         if let Some(vk_id) = vk_id {
             transcript.push_message(b"verifying key", vk_id)?;

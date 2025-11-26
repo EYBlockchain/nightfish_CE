@@ -7,7 +7,6 @@
 //! Instantiations of Plonk-based proof systems
 
 use crate::{
-    constants::EXTRA_TRANSCRIPT_MSG_LABEL,
     errors::PlonkError,
     nightfall::{
         hops::univariate_ipa::UnivariateIpaPCS,
@@ -202,10 +201,11 @@ where
         let num_wire_types = circuits.num_wire_types();
 
         // Initialize transcript
-        let mut transcript = T::new_transcript(b"PlonkProof");
-        if let Some(msg) = extra_transcript_init_msg {
-            transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, &msg)?;
-        }
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(&msg)?
+        } else {
+            T::new_transcript(b"PlonkProof")
+        };
 
         // For FFTPlonk we only add the vk ID in the non-merged case.
         if prove_keys.vk.id.is_some() {
@@ -430,10 +430,11 @@ where
         }
 
         // Initialize transcript
-        let mut transcript = T::new_transcript(b"PlonkProof");
-        if let Some(msg) = extra_transcript_init_msg {
-            transcript.push_message(EXTRA_TRANSCRIPT_MSG_LABEL, &msg)?;
-        }
+        let mut transcript: T = if let Some(msg) = extra_transcript_init_msg {
+            T::new_with_initial_message::<_, P>(&msg)?
+        } else {
+            T::new_transcript(b"PlonkProof")
+        };
 
         // Initialize verifier challenges and online polynomial oracles.
         let mut challenges = Challenges::default();
