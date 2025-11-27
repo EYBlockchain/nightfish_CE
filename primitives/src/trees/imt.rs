@@ -25,7 +25,7 @@ pub struct LeafDBEntry<F> {
     /// The value of this nullifier
     pub value: F,
     /// The index of the leaf representing this nullifier in the Indexed Merkle tree
-    pub index: u32,
+    pub index: u64,
     /// The index of the next highest value nullifier in the Indexed Merkle tree
     pub next_index: F,
     /// The value of the next highest value nullifier in the Indexed Merkle tree
@@ -47,7 +47,7 @@ impl<N: PrimeField> TryFrom<&[N]> for LeafDBEntry<N> {
         }
         let biguint: BigUint = value[1].into();
         let index = biguint
-            .to_u32()
+            .to_u64()
             .ok_or(IndexedMerkleTreeError::DatabaseError)?;
         Ok(LeafDBEntry {
             value: value[0],
@@ -71,7 +71,7 @@ impl<F: PrimeField> Default for LeafDBEntry<F> {
 
 impl<F: PrimeField> LeafDBEntry<F> {
     /// Creates a new instance of the struct.
-    pub fn new(value: F, index: u32, next_index: F, next_value: F) -> Self {
+    pub fn new(value: F, index: u64, next_index: F, next_value: F) -> Self {
         Self {
             value,
             index,
@@ -89,7 +89,7 @@ pub trait LeafDB<F> {
     /// Creates a new instance of the database. We have to do this because we need to insert the zero nullifier.
     fn new() -> Self;
     /// Stores a nullifier in the database. This functions works out the low nullifier and optionally takes the index in the tree of the new nullifier.
-    fn store_nullifier(&mut self, nullifier: F, index: Option<u32>) -> Option<()>;
+    fn store_nullifier(&mut self, nullifier: F, index: Option<u64>) -> Option<()>;
     /// Searches the database for a nullifier with the supplied fields. If it finds one, it returns it.
     fn get_nullifier(&self, value: Option<F>, next_value: Option<F>) -> Option<&LeafDBEntry<F>>;
     /// Searches the database for the nullifier that skips over the supplied value. That is finds the nullifier such that
@@ -112,7 +112,7 @@ pub struct IMTCircuitInsertionInfo<N: PrimeField> {
     /// The circuit info for the actual subtree insertion.
     pub circuit_info: CircuitInsertionInfo<N>,
     /// The initial index of the first leaf in the inserted subtree.
-    pub first_index: u32,
+    pub first_index: u64,
     /// The low nullifiers for the leaves inserted with non_membership proofs.
     pub low_nullifiers: Vec<(LeafDBEntry<N>, MembershipProof<N>)>,
     /// The entries of the nullifiers inserted.
@@ -207,7 +207,7 @@ impl<N: PrimeField> IMTCircuitInsertionInfo<N> {
             old_root,
             circuit_info,
             first_index: first_index
-                .to_u32()
+                .to_u64()
                 .ok_or(IndexedMerkleTreeError::InvalidBatchSize)?,
             low_nullifiers,
             pending_inserts,
@@ -266,7 +266,7 @@ where
             let directions = index_to_directions(ln_index, self.timber.height);
 
             self.leaves_db
-                .store_nullifier(inner_leaf_value, Some(self.timber.leaf_count as u32))
+                .store_nullifier(inner_leaf_value, Some(self.timber.leaf_count as u64))
                 .ok_or(IndexedMerkleTreeError::DatabaseError)?;
             self.timber.insert_leaf(leaf_value)?;
 
@@ -327,7 +327,7 @@ where
             .try_for_each(|nullifier| {
                 if *nullifier != N::zero() {
                     self.leaves_db
-                        .store_nullifier(*nullifier, Some(current_index as u32))?;
+                        .store_nullifier(*nullifier, Some(current_index as u64))?;
                     current_index += 1;
                     Some(())
                 } else {
@@ -427,8 +427,8 @@ where
 
         // This is the index of the first leaf of the subtree in the main tree, counted from the left, starting at zero
         let mut first_index =
-            ((self.timber.leaf_count as u32 - 1) / inner_leaf_values.len() as u32 + 1)
-                * inner_leaf_values.len() as u32;
+            ((self.timber.leaf_count as u64 - 1) / inner_leaf_values.len() as u64 + 1)
+                * inner_leaf_values.len() as u64;
         let mut low_nullifiers = vec![];
 
         for leaf in inner_leaf_values {
@@ -517,9 +517,9 @@ where
         let old_root = self.timber.root;
 
         // This is the index of the first leaf of the subtree in the main tree, counted from the left, starting at zero
-        let mut initial_index = ((self.timber.leaf_count as u32 - 1) / inner_values.len() as u32
+        let mut initial_index = ((self.timber.leaf_count as u64 - 1) / inner_values.len() as u64
             + 1)
-            * inner_values.len() as u32;
+            * inner_values.len() as u64;
 
         let first_index = initial_index;
 
