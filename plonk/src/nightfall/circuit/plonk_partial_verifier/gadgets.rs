@@ -33,7 +33,7 @@ use super::{
 #[allow(clippy::too_many_arguments)]
 pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
-    pi: &Variable,
+    pi: &[Variable; 2],
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
@@ -275,7 +275,7 @@ pub fn compute_scalars_for_native_field<F: PrimeField + RescueParameter>(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_scalars_for_native_field_base<F: PrimeField + RescueParameter>(
     circuit: &mut PlonkCircuit<F>,
-    pi: &Variable,
+    pi: &[Variable; 2],
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
@@ -307,6 +307,7 @@ pub(crate) fn compute_scalars_for_native_field_base<F: PrimeField + RescueParame
     let evals = poly::evaluate_poly_helper_native_base(
         circuit,
         challenges.zeta,
+        vk_var.domain.gen,
         gen_inv_var,
         vk_var.domain.domain_size,
         max_domain_size,
@@ -767,18 +768,27 @@ mod test {
         // 5. Verification
 
         for (i, proof) in proofs.iter().enumerate() {
-            let pi = public_inputs[i][0];
+            let pi = public_inputs[i].clone();
             let mut transcript = <RescueTranscript<F> as Transcript>::new_transcript(b"mle_plonk");
-            let mle_challenges = MLEChallenges::new_recursion(&proof.proof, &[pi], &mut transcript)
+            let mle_challenges = MLEChallenges::new_recursion(&proof.proof, &pi, &mut transcript)
                 .map_err(|_| {
-                    CircuitError::ParameterError("MLE challenge generation failed".to_string())
-                })?;
+                CircuitError::ParameterError("MLE challenge generation failed".to_string())
+            })?;
 
             let mut plonk_circuit = PlonkCircuit::<F>::new_ultra_plonk(RANGE_BIT_LEN_FOR_TEST);
             let mle_proof_var = SAMLEProofVar::from_struct::<P>(&mut plonk_circuit, &proof.proof)?;
 
             let mut transcript_var = RescueTranscriptVar::<F>::new_transcript(&mut plonk_circuit);
-            let pi_var = plonk_circuit.create_emulated_variable(pi)?;
+            let pi_vars: [EmulatedVariable<P::ScalarField>; 2] = pi
+                .iter()
+                .map(|val| plonk_circuit.create_emulated_variable(*val))
+                .collect::<Result<Vec<_>, CircuitError>>()?
+                .try_into()
+                .map_err(|_| {
+                    CircuitError::ParameterError(
+                        "Couldn't convert public inputs to fixed length array".to_string(),
+                    )
+                })?;
             let mle_challenges_var =
                 EmulatedMLEChallenges::<E::ScalarField>::compute_challenges_vars::<
                     PCS,
@@ -786,7 +796,7 @@ mod test {
                     RescueTranscriptVar<F>,
                 >(
                     &mut plonk_circuit,
-                    &pi_var,
+                    &pi_vars,
                     &mle_proof_var,
                     &mut transcript_var,
                 )?;

@@ -322,8 +322,8 @@ mod tests {
         circuit
             .finalize_for_recursive_mle_arithmetization::<RescueCRHF<FqBn254>>()
             .unwrap();
-        let pi = circuit.public_input().unwrap()[0];
-        circuit.check_circuit_satisfiability(&[pi]).unwrap();
+        let pi = circuit.public_input().unwrap();
+        circuit.check_circuit_satisfiability(&pi).unwrap();
     }
 
     #[test]
@@ -450,8 +450,8 @@ mod tests {
         circuit
             .finalize_for_recursive_mle_arithmetization::<RescueCRHF<FrBn254>>()
             .unwrap();
-        let pi = circuit.public_input().unwrap()[0];
-        circuit.check_circuit_satisfiability(&[pi]).unwrap();
+        let pi = circuit.public_input().unwrap();
+        circuit.check_circuit_satisfiability(&pi).unwrap();
         let srs_size = circuit.num_gates().ilog2() as usize;
         let srs = Zeromorph::<UnivariateIpaPCS<Grumpkin>>::gen_srs_for_testing(&mut rng, srs_size)
             .unwrap();

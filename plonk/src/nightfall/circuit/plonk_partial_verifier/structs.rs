@@ -106,7 +106,7 @@ impl ChallengesVar {
     pub fn compute_challenges<PCS, P, F, C>(
         circuit: &mut PlonkCircuit<F>,
         vk_id: Option<Variable>,
-        pi: &Variable,
+        pi: &[Variable; 2],
         proof: &ProofVarNative<P>,
         transcript: &mut C,
     ) -> Result<Self, CircuitError>
@@ -121,7 +121,9 @@ impl ChallengesVar {
         if let Some(id) = vk_id {
             transcript.push_variable(&id)?;
         }
-        transcript.push_variable(pi)?;
+        for pi in pi {
+            transcript.push_variable(pi)?;
+        }
 
         transcript.append_point_variables(&proof.wire_commitments, circuit)?;
 
@@ -214,7 +216,7 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
     /// Computes challenges from a proof.
     pub fn compute_challenges_vars<PCS, P, C>(
         circuit: &mut PlonkCircuit<P::BaseField>,
-        pi: &EmulatedVariable<P::ScalarField>,
+        public_input: &[EmulatedVariable<P::ScalarField>; 2],
         proof_var: &SAMLEProofVar<PCS>,
         transcript_var: &mut C,
     ) -> Result<EmulatedMLEChallenges<E>, CircuitError>
@@ -225,7 +227,9 @@ impl<E: PrimeField> EmulatedMLEChallenges<E> {
         P::ScalarField: PrimeField + EmulationConfig<P::BaseField> + RescueParameter,
         C: CircuitTranscript<P::BaseField>,
     {
-        transcript_var.push_emulated_variable(pi, circuit)?;
+        for pi in public_input {
+            transcript_var.push_emulated_variable(pi, circuit)?;
+        }
         transcript_var.append_point_variables(&proof_var.wire_commitments_var, circuit)?;
 
         let [gamma, tau]: [usize; 2] = transcript_var
@@ -931,7 +935,7 @@ impl ProofEvalsVarNative {
 pub struct ProofScalarsVarNative {
     pub(crate) evals: ProofEvalsVarNative,
     pub(crate) lookup_evals: Option<PlookupEvalsVarNative>,
-    pub(crate) pi_hash: Variable,
+    pub(crate) pi_hash: [Variable; 2],
 }
 
 impl ProofScalarsVarNative {
@@ -939,7 +943,7 @@ impl ProofScalarsVarNative {
     pub fn new(
         evals: ProofEvalsVarNative,
         lookup_evals: Option<PlookupEvalsVarNative>,
-        pi_hash: Variable,
+        pi_hash: [Variable; 2],
     ) -> Self {
         Self {
             evals,
@@ -951,7 +955,7 @@ impl ProofScalarsVarNative {
     /// Create a new [`ProofScalarVarNative`] variable from a reference to a [`ProofVarNative`].
     pub fn from_struct<P>(
         proof_var_native: &ProofVarNative<P>,
-        pi_hash: Variable,
+        pi_hash: [Variable; 2],
     ) -> Result<Self, CircuitError>
     where
         P: HasTEForm,

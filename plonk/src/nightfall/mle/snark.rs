@@ -218,7 +218,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
             T::new_transcript(b"mle_plonk")
         };
 
-        // Append public input to transcript.
+        // Append public inputs to transcript.
         for public_input in circuit.public_input()? {
             transcript.push_message(b"public input", &public_input)?;
         }
@@ -622,8 +622,10 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         // Compute the public input mle.
         let mut public_inputs = circuit.public_input()?;
 
-        // Append the singular public input to the transcript.
-        transcript.push_message(b"pi", &public_inputs[0])?;
+        // Append the public inputs to the transcript.
+        for pi in &public_inputs {
+            transcript.push_message(b"public input", pi)?;
+        }
 
         public_inputs.resize(circuit.num_gates(), P::ScalarField::zero());
 
@@ -1114,7 +1116,7 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         recursion_output: &RecursiveOutput<PCS, Self, T>,
         opening_proof: &PCS::Proof,
         vk: &MLEVerifyingKey<PCS>,
-        public_input: P::ScalarField,
+        public_input: [P::ScalarField; 2],
         _rng: &mut R,
         extra_transcript_init_msg: Option<Vec<u8>>,
     ) -> Result<bool, PlonkError>
@@ -1142,17 +1144,14 @@ impl<PCS: PolynomialCommitmentScheme> MLEPlonk<PCS> {
         let n = 1usize << num_vars;
 
         let shared = MLEProofShared::from(proof);
-        check_proof_shape(&shared, vk, &[public_input], num_vars)?;
+        check_proof_shape(&shared, vk, &public_input, num_vars)?;
 
-        let mut pi_evals = vec![public_input];
+        let mut pi_evals = public_input.to_vec();
         pi_evals.resize(n, P::ScalarField::zero());
         let pi_poly = DenseMultilinearExtension::from_evaluations_vec(num_vars, pi_evals);
 
-        let challenges = MLEChallenges::<P::ScalarField>::new_recursion(
-            proof,
-            &[public_input],
-            &mut transcript,
-        )?;
+        let challenges =
+            MLEChallenges::<P::ScalarField>::new_recursion(proof, &public_input, &mut transcript)?;
 
         let gkr_deferred_check = batch_verify_gkr::<P, _>(&proof.gkr_proof, &mut transcript)?;
 
@@ -1632,12 +1631,18 @@ pub mod tests {
                 &proof.proof.opening_point,
             )?;
 
+            let pi: [E::ScalarField; 2] = public_inputs[i].clone().try_into().map_err(|_| {
+                PlonkError::SnarkError(SnarkError::ParameterError(
+                    "Public inputs length mismatch".to_string(),
+                ))
+            })?;
+
             assert!(
                 MLEPlonk::<PCS>::verify_recursive_proof::<_, _, _, RescueTranscript<F>>(
                     proof,
                     &opening_proof,
                     vk_ref,
-                    public_inputs[i][0],
+                    pi,
                     rng,
                     None
                 )
@@ -1650,7 +1655,7 @@ pub mod tests {
                     proof,
                     &opening_proof,
                     vk_ref,
-                    E::ScalarField::zero(),
+                    [E::ScalarField::zero(); 2],
                     rng,
                     None
                 )
@@ -1667,7 +1672,7 @@ pub mod tests {
                     proof,
                     &default_opening,
                     vk_ref,
-                    public_inputs[i][0],
+                    pi,
                     rng,
                     None
                 )

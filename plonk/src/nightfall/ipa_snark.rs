@@ -158,7 +158,7 @@ where
         let verifier = FFTVerifier::<PCS>::new(verify_key.domain_size)?;
         let pcs_info = verifier.prepare_pcs_info::<T>(
             verify_key,
-            &[proof.pi_hash],
+            &proof.pi_hash,
             &proof.proof,
             &extra_transcript_init_msg,
             blind,
@@ -445,8 +445,16 @@ where
         if prove_keys.vk.id.is_some() {
             transcript.append_visitor(&prove_keys.vk)?;
         }
-        // In the recursive setting we know that the public inputs have length 1.
-        transcript.push_message(b"public_input", &circuits.public_input()?[0])?;
+        // In the recursive setting we know that the public inputs have length 2.
+        let public_inputs: [P::ScalarField; 2] =
+            circuits.public_input()?.try_into().map_err(|_| {
+                PlonkError::InvalidParameters(
+                    "Public input length is not equal to 2 in recursive proving".to_string(),
+                )
+            })?;
+        for pub_in in public_inputs.iter() {
+            transcript.push_message(b"public_input", pub_in)?;
+        }
 
         // Round 1
         let ((wires_poly_comms, wire_polys), pi_poly) =
@@ -849,7 +857,11 @@ where
             blind,
         )?;
 
-        let pi_hash = circuit.public_input()?[0];
+        let pi_hash: [P::ScalarField; 2] = circuit.public_input()?.try_into().map_err(|_| {
+            PlonkError::InvalidParameters(
+                "Public input length is not equal to 2 in recursive proving".to_string(),
+            )
+        })?;
 
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))
     }
@@ -1325,7 +1337,7 @@ pub mod test {
             // Inconsistent proof should fail the verification.
             let bad_proof = RecursiveOutput {
                 proof: proof.proof.clone(),
-                pi_hash: E::ScalarField::zero(),
+                pi_hash: [E::ScalarField::zero(); 2],
                 transcript: T::new_transcript(b"bad_transcript"),
             };
 

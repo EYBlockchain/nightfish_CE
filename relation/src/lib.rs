@@ -22,5 +22,5 @@ pub trait RecursionHasher {
     /// The error type for this hasher.
     type Error;
     /// This function defines how public inputs will be hashed in a recursive setting.
-    fn hash_public_inputs<F: PrimeField>(public_inputs: &[F]) -> Result<F, Self::Error>;
+    fn hash_public_inputs<F: PrimeField>(public_inputs: &[F]) -> Result<[F; 2], Self::Error>;
 }

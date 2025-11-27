@@ -120,7 +120,7 @@ where
 /// This helper function generate the variables for the following data
 /// - Circuit evaluation of vanishing polynomial at point `zeta` i.e., output =
 ///   zeta ^ domain_size - 1 mod Fr::modulus
-/// - Evaluations of the first and the last lagrange polynomial at point `zeta`
+/// - Evaluations of the first, second and last lagrange polynomial at point `zeta`
 ///
 /// Note that outputs and zeta are both Fr element
 /// so this needs to be carried out over a non-native circuit
@@ -138,7 +138,7 @@ pub(super) fn evaluate_poly_helper_native<F>(
     zeta_var: Variable,
     gen_inv: F,
     domain_size: usize,
-) -> Result<[Variable; 4], CircuitError>
+) -> Result<[Variable; 5], CircuitError>
 where
     F: PrimeField + RescueParameter,
 {
@@ -158,10 +158,16 @@ where
 
     // ================================
     // evaluate lagrange at 1
-    //  lagrange_1_eval = (zeta^n - 1) / (zeta - 1) / domain_size
+    //  lagrange_1_eval = (zeta^n - 1) / (domain_size * (zeta - 1))
     //
     // which is proven via
     //  domain_size * lagrange_1_eval * (zeta - 1) = zeta^n - 1 mod Fr::modulus
+    //
+    // similarly we calculate
+    //  lagrange_2_eval = (zeta^n - 1) * omega / (domain_size * (zeta - omega)) = (zeta^n - 1) / (domain_size * (zeta * omega^{-1} - 1))
+    // and
+    //  lagrange_n_eval = (zeta^n - 1) * omega^{-1} / (domain_size * (zeta - omega^{-1})) = (zeta^n - 1) / (domain_size * (zeta * omega - 1))
+    //
     // ================================
 
     let domain_size = F::from(domain_size as u64);
@@ -178,20 +184,30 @@ where
     // Constrain the lagrange_1_eval to be correct.
     circuit.mul_gate(divisor_var, lagrange_1_eval_var, zeta_n_minus_one_var)?;
 
-    // Compute lagrange_n_eval
-    let divisor_var = circuit.lin_comb(&[domain_size], &(-domain_size * gen_inv), &[zeta_var])?;
-    let numerator_var = circuit.mul_constant(zeta_n_minus_one_var, &gen_inv)?;
+    // Compute lagrange_2_eval
+    let divisor_var = circuit.lin_comb(&[domain_size * gen_inv], &(-domain_size), &[zeta_var])?;
     let divisor = circuit.witness(divisor_var)?;
-    let numerator = circuit.witness(numerator_var)?;
-    let lagrange_n_eval = numerator / divisor;
+    let lagrange_2_eval = zeta_n_minus_one / divisor;
+    let lagrange_2_eval_var = circuit.create_variable(lagrange_2_eval)?;
+    // Constrain the lagrange_2_eval to be correct.
+    circuit.mul_gate(divisor_var, lagrange_2_eval_var, zeta_n_minus_one_var)?;
+
+    let gen = gen_inv
+        .inverse()
+        .ok_or(CircuitError::ParameterError("Inverse Failed".to_string()))?;
+    // Compute lagrange_n_eval
+    let divisor_var = circuit.lin_comb(&[domain_size * gen], &(-domain_size), &[zeta_var])?;
+    let divisor = circuit.witness(divisor_var)?;
+    let lagrange_n_eval = zeta_n_minus_one / divisor;
     let lagrange_n_eval_var = circuit.create_variable(lagrange_n_eval)?;
     // Constrain the lagrange_n_eval to be correct.
-    circuit.mul_gate(divisor_var, lagrange_n_eval_var, numerator_var)?;
+    circuit.mul_gate(divisor_var, lagrange_n_eval_var, zeta_n_minus_one_var)?;
 
     Ok([
         zeta_n_var,
         zeta_n_minus_one_var,
         lagrange_1_eval_var,
+        lagrange_2_eval_var,
         lagrange_n_eval_var,
     ])
 }
@@ -199,10 +215,11 @@ where
 pub(super) fn evaluate_poly_helper_native_base<F>(
     circuit: &mut PlonkCircuit<F>,
     zeta_var: Variable,
+    gen_var: Variable,
     gen_inv_var: Variable,
     domain_size_var: Variable,
     max_domain_size: usize,
-) -> Result<[Variable; 4], CircuitError>
+) -> Result<[Variable; 5], CircuitError>
 where
     F: PrimeField + RescueParameter,
 {
@@ -216,10 +233,16 @@ where
 
     // ================================
     // evaluate lagrange at 1
-    //  lagrange_1_eval = (zeta^n - 1) / (zeta - 1) / domain_size
+    //  lagrange_1_eval = (zeta^n - 1) / (domain_size * (zeta - 1))
     //
     // which is proven via
     //  domain_size * lagrange_1_eval * (zeta - 1) = zeta^n - 1 mod Fr::modulus
+    //
+    // similarly we calculate
+    //  lagrange_2_eval = (zeta^n - 1) * omega / (domain_size * (zeta - omega))
+    // and
+    //  lagrange_n_eval = (zeta^n - 1) * omega^{-1} / (domain_size * (zeta - omega^{-1}))
+    //
     // ================================
 
     // lagrange_1_eval
@@ -236,6 +259,19 @@ where
     let lagrange_1_eval_var = circuit.create_variable(lagrange_1_eval)?;
     // Constrain the lagrange_1_eval to be correct.
     circuit.mul_gate(divisor_var, lagrange_1_eval_var, zeta_n_minus_one_var)?;
+
+    // Compute lagrange_2_eval
+    let divisor_var = circuit.mul_add(
+        &[domain_size_var, zeta_var, domain_size_var, gen_var],
+        &[F::one(), -F::one()],
+    )?;
+    let numerator_var = circuit.mul(zeta_n_minus_one_var, gen_var)?;
+    let divisor = circuit.witness(divisor_var)?;
+    let numerator = circuit.witness(numerator_var)?;
+    let lagrange_2_eval = numerator / divisor;
+    let lagrange_2_eval_var = circuit.create_variable(lagrange_2_eval)?;
+    // Constrain the lagrange_n_eval to be correct.
+    circuit.mul_gate(divisor_var, lagrange_2_eval_var, numerator_var)?;
 
     // Compute lagrange_n_eval
     let divisor_var = circuit.mul_add(
@@ -254,6 +290,7 @@ where
         zeta_n_var,
         zeta_n_minus_one_var,
         lagrange_1_eval_var,
+        lagrange_2_eval_var,
         lagrange_n_eval_var,
     ])
 }
@@ -431,8 +468,8 @@ pub(super) fn compute_lin_poly_constant_term_circuit_native<F>(
     gen_inv: &F,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
-    pi: &Variable,
-    evals: &[Variable; 4],
+    pi: &[Variable; 2],
+    evals: &[Variable; 5],
     lookup_evals: &Option<PlookupEvalsVarNative>,
 ) -> Result<Variable, CircuitError>
 where
@@ -493,7 +530,7 @@ where
     prod = circuit.mul(tmp, prod)?;
 
     // r_plonk
-    let pi_eval = circuit.mul(*pi, evals[2])?;
+    let pi_eval = circuit.mul_add(&[pi[0], evals[2], pi[1], evals[3]], &[F::one(), F::one()])?;
     let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
     let non_lookup = circuit.gen_quad_poly(
         &wires,
@@ -512,7 +549,7 @@ where
         ];
         let tmp = circuit.lc(&wires, &[F::one(), -F::one(), -F::one(), F::zero()])?;
         let term_one = circuit.mul_add(
-            &[evals[3], tmp, evals[2], challenges.alphas[0]],
+            &[evals[4], tmp, evals[2], challenges.alphas[0]],
             &[F::one(), -F::one()],
         )?;
 
@@ -581,8 +618,8 @@ pub(super) fn compute_lin_poly_constant_term_circuit_native_base<F>(
     gen_inv_var: &Variable,
     challenges: &ChallengesVar,
     proof_evals: &ProofEvalsVarNative,
-    pi: &Variable,
-    evals: &[Variable; 4],
+    pi: &[Variable; 2],
+    evals: &[Variable; 5],
     lookup_evals: &Option<PlookupEvalsVarNative>,
 ) -> Result<Variable, CircuitError>
 where
@@ -643,7 +680,7 @@ where
     prod = circuit.mul(tmp, prod)?;
 
     // r_plonk
-    let pi_eval = circuit.mul(*pi, evals[2])?;
+    let pi_eval = circuit.mul_add(&[pi[0], evals[2], pi[1], evals[3]], &[F::one(), F::one()])?;
     let wires = [pi_eval, prod, evals[2], challenges.alphas[1]];
     let non_lookup = circuit.gen_quad_poly(
         &wires,
@@ -662,7 +699,7 @@ where
         ];
         let tmp = circuit.lc(&wires, &[F::one(), -F::one(), -F::one(), F::zero()])?;
         let term_one = circuit.mul_add(
-            &[evals[3], tmp, evals[2], challenges.alphas[0]],
+            &[evals[4], tmp, evals[2], challenges.alphas[0]],
             &[F::one(), -F::one()],
         )?;
 
@@ -760,7 +797,7 @@ pub fn linearization_scalars_circuit_native<F>(
     circuit: &mut PlonkCircuit<F>,
     vk_k: &[F],
     challenges: &ChallengesVar,
-    evals: &[Variable; 4],
+    evals: &[Variable; 5],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
     gen_inv: &F,
@@ -1004,7 +1041,7 @@ where
                 challenges.alphas[0],
                 evals[2],
                 challenges.alphas[1],
-                evals[3],
+                evals[4],
             ],
             &[F::one(), F::one()],
         )?;
@@ -1081,7 +1118,7 @@ pub fn linearization_scalars_circuit_native_base<F>(
     circuit: &mut PlonkCircuit<F>,
     vk_k: &[Variable],
     challenges: &ChallengesVar,
-    evals: &[Variable; 4],
+    evals: &[Variable; 5],
     poly_evals: &ProofEvalsVarNative,
     lookup_evals: &Option<PlookupEvalsVarNative>,
     gen_inv_var: &Variable,
@@ -1318,7 +1355,7 @@ where
                 challenges.alphas[0],
                 evals[2],
                 challenges.alphas[1],
-                evals[3],
+                evals[4],
             ],
             &[F::one(), F::one()],
         )?;

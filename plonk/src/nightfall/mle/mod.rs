@@ -183,7 +183,11 @@ where
         }
         let (proof, transcript) =
             Self::sa_prove::<_, _, _, T>(circuit, prove_key, extra_transcript_init_msg)?;
-        let pi_hash = circuit.public_input()?[0];
+        let pi_hash: [P::ScalarField; 2] = circuit.public_input()?.try_into().map_err(|_| {
+            PlonkError::InvalidParameters(
+                "Public input length does not match expected length".to_string(),
+            )
+        })?;
         Ok(RecursiveOutput::new(proof, pi_hash, transcript))
     }
 }
