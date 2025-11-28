@@ -316,8 +316,11 @@ where
         proof: &MVSplitProofVar<E::BaseField>,
     ) -> Result<(), CircuitError> {
         let l = old_instances.len().next_power_of_two().ilog2() as usize;
-        let eval =
-            <Self as SumCheckGadget<E::BaseField>>::verify_sum_check_with_challenges(self, proof)?;
+        let d = old_instances[0].point.len();
+        let num_rounds = l + d;
+        let eval = <Self as SumCheckGadget<E::BaseField>>::verify_sum_check_with_challenges(
+            self, proof, num_rounds,
+        )?;
 
         let a1 = &proof.point_var[..l];
         let a2 = &proof.point_var[l..];

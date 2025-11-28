@@ -407,7 +407,9 @@ pub(crate) fn verify_mleplonk_scalar_arithmetic<F: PrimeField + RescueParameter>
     circuit.enforce_equal(initial_zerocheck_eval, proof.sumcheck_proof().eval_var)?;
 
     // Now we verify the arithmetic of the SumCheck proof.
-    let zerocheck_eval = circuit.verify_sum_check_with_challenges(proof.sumcheck_proof())?;
+    let num_rounds = gkr_sumcheck_challenges.len();
+    let zerocheck_eval =
+        circuit.verify_sum_check_with_challenges(proof.sumcheck_proof(), num_rounds)?;
 
     let zc_point = &proof.sumcheck_proof().point_var;
 
@@ -485,7 +487,9 @@ pub fn verify_split_accumulation<F: RescueParameter>(
 
     circuit.enforce_equal(initial_sumcheck_eval, sumcheck_proof.eval_var)?;
 
-    let accumulated_eval = circuit.verify_sum_check_with_challenges(sumcheck_proof)?;
+    let num_rounds = eval_points.first().unwrap().len();
+
+    let accumulated_eval = circuit.verify_sum_check_with_challenges(sumcheck_proof, num_rounds)?;
 
     let mut combiner = circuit.one();
 

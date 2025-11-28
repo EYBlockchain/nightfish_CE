@@ -12,14 +12,14 @@ use crate::{
     transcript::{Transcript, TranscriptVisitor},
 };
 
+use self::sumcheck::SumCheck;
 use ark_ff::{Field, PrimeField};
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, MultilinearExtension, Polynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{
     cfg_into_iter, cfg_iter_mut, marker::PhantomData, string::ToString, vec, vec::Vec, One, Zero,
 };
-
-use self::sumcheck::SumCheck;
+use itertools::Itertools;
 
 use rayon::prelude::*;
 
@@ -522,7 +522,8 @@ where
 
         transcript.push_message(b"eval", &proof.eval)?;
 
-        for (oracle, r_0_eval) in proof.oracles.iter().zip(proof.r_0_evals.iter()) {
+        assert_eq!(proof.oracles.len(), proof.point.len());
+        for (oracle, r_0_eval) in proof.oracles.iter().zip_eq(proof.r_0_evals.iter()) {
             let size = oracle.evaluations.len();
             // note that any affine transformation of the points does not change the result of the barycentric formula
             // however nonlinear transformations do change the result of the barycentric formula
