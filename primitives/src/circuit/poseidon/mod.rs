@@ -1,5 +1,7 @@
 //! Circuit implementation of poseidon hash function.
 
+mod sponge;
+
 use ark_ff::{Field, PrimeField};
 use ark_std::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec, Zero};
 use jf_relation::{
@@ -358,6 +360,9 @@ pub trait PoseidonHashGadget<F: PoseidonParams> {
     /// Raise a variable to the power of 5 inside a circuit.
     fn power_of_five(&mut self, var: Variable) -> Result<Variable, CircuitError>;
 
+    /// Perform a Poseidon permutation inside a circuit.
+    fn poseidon_perm(&mut self, inputs: &[Variable]) -> Result<Vec<Variable>, CircuitError>;
+
     /// Perform a Poseidon hash inside a circuit.
     fn poseidon_hash(&mut self, inputs: &[Variable]) -> Result<usize, CircuitError>;
 
@@ -560,14 +565,13 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
         Ok(out_var)
     }
 
-    fn poseidon_hash(&mut self, inputs: &[Variable]) -> Result<usize, CircuitError> {
-        let t = inputs.len() + 1;
+    fn poseidon_perm(&mut self, inputs: &[Variable]) -> Result<Vec<Variable>, CircuitError> {
+        let t = inputs.len();
         let (constants, matrix, n_rounds_p) = F::params(t)
             .map_err(|_| CircuitError::InternalError("Couldn't get Poseidon params".to_string()))?;
         let n_rounds_f = 8;
-        let mut state_vec_var = vec![usize::zero(); t];
 
-        state_vec_var[1..].clone_from_slice(inputs);
+        let mut state_vec_var = inputs.to_vec();
 
         for loop_val in state_vec_var.iter_mut().enumerate() {
             let (j, element): (usize, &mut usize) = loop_val;
@@ -605,6 +609,15 @@ impl<F: PoseidonParams> PoseidonHashGadget<F> for PlonkCircuit<F> {
         let zero_vec = vec![F::zero(); t];
         state_vec_var = self.full_round_var(&state_vec_var, &matrix, &zero_vec)?;
 
+        Ok(state_vec_var)
+    }
+
+    fn poseidon_hash(&mut self, inputs: &[Variable]) -> Result<Variable, CircuitError> {
+        let t = inputs.len() + 1;
+        let mut state_vec_var = vec![usize::zero(); t];
+        state_vec_var[1..].clone_from_slice(inputs);
+
+        let state_vec_var = self.poseidon_perm(&state_vec_var)?;
         Ok(state_vec_var[0])
     }
 
