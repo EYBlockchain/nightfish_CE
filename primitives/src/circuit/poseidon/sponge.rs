@@ -8,6 +8,7 @@ use super::PoseidonHashGadget;
 /// Array of variables representing a Poseidon state (4 field elements).
 pub struct PoseidonStateVar(pub(crate) [Variable; STATE_SIZE]);
 
+#[allow(dead_code)]
 pub trait SpongePoseidonHashGadget<F: PoseidonParams>: PoseidonHashGadget<F> {
     fn absorb(
         &mut self,
