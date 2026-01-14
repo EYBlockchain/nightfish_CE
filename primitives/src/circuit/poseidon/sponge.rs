@@ -9,13 +9,16 @@ use super::PoseidonHashGadget;
 pub struct PoseidonStateVar(pub(crate) [Variable; STATE_SIZE]);
 
 #[allow(dead_code)]
+/// Trait for Poseidon sponge hash operations in circuits
 pub trait SpongePoseidonHashGadget<F: PoseidonParams>: PoseidonHashGadget<F> {
+    /// Absorb input variables into sponge state
     fn absorb(
         &mut self,
         state_var: &PoseidonStateVar,
         input_var: &[Variable],
     ) -> Result<PoseidonStateVar, CircuitError>;
 
+    /// Squeeze output variables from sponge state
     fn squeeze(
         &mut self,
         state_vars: &PoseidonStateVar,

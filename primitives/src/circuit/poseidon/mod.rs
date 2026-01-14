@@ -1,6 +1,6 @@
 //! Circuit implementation of poseidon hash function.
 
-mod sponge;
+pub mod sponge;
 
 use ark_ff::{Field, PrimeField};
 use ark_std::{boxed::Box, collections::BTreeMap, string::ToString, vec, vec::Vec, Zero};

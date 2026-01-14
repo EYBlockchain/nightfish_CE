@@ -1,6 +1,7 @@
 //! Code for performing a Poseidon hash.
 pub(crate) mod constants;
-pub(crate) mod sponge;
+/// Circuit implementations for Poseidon sponge hash
+pub mod sponge;
 pub use self::constants::PoseidonParams;
 use ark_ff::PrimeField;
 use ark_std::{error::Error, fmt::Display, marker::PhantomData, string::ToString, vec, vec::Vec};
@@ -141,7 +142,6 @@ pub struct PoseidonPerm<F> {
 }
 
 impl<F: PoseidonParams> PoseidonPerm<F> {
-    #[cfg(test)]
     /// Retrieves the appropriate Poseidon parameters for the given field `F`.
     pub fn perm() -> Result<Self, PoseidonError> {
         let (constants, matrix, num_part_rounds) = F::params(STATE_SIZE)?;
