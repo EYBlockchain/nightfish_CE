@@ -1,5 +1,6 @@
 //! Circuit implementation of poseidon hash function.
 
+/// Poseidon sponge circuit implementation
 pub mod sponge;
 
 use ark_ff::{Field, PrimeField};
