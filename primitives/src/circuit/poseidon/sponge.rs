@@ -6,7 +6,7 @@ use super::PoseidonHashGadget;
 
 #[derive(Clone, Debug)]
 /// Array of variables representing a Poseidon state (4 field elements).
-pub struct PoseidonStateVar(pub(crate) [Variable; STATE_SIZE]);
+pub struct PoseidonStateVar(pub [Variable; STATE_SIZE]);
 
 #[allow(dead_code)]
 /// Trait for Poseidon sponge hash operations in circuits
