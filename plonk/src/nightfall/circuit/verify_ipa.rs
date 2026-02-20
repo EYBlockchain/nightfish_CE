@@ -1,6 +1,9 @@
 //! The circuit gadget used to verify IPA in a Plonk Circuit.
 
-use ark_ec::{pairing::Pairing, short_weierstrass::Affine};
+use ark_ec::{
+    pairing::Pairing, scalar_mul::variable_base::VariableBaseMSM, short_weierstrass::Affine,
+    CurveGroup,
+};
 use ark_ff::{Field, PrimeField};
 use ark_std::{string::ToString, vec, vec::Vec};
 
@@ -13,7 +16,7 @@ use jf_primitives::{pcs::StructuredReferenceString, rescue::RescueParameter};
 use jf_relation::{
     errors::CircuitError,
     gadgets::{
-        ecc::{EmulMultiScalarMultiplicationCircuit, HasTEForm, PointVariable},
+        ecc::{EmulMultiScalarMultiplicationCircuit, HasTEForm, Point, PointVariable},
         EmulatedVariable, EmulationConfig,
     },
     Circuit, PlonkCircuit,
@@ -143,11 +146,16 @@ where
     let bases_vars = [bases_vars.as_slice(), &[verifier_u_var, verifier_h_var]].concat();
     let scalars = [scalar_vars.as_slice(), &[u_scalar.clone(), f_var.clone()]].concat();
 
-    let g_base = EmulMultiScalarMultiplicationCircuit::<_, P>::fixed_base_msm(
-        circuit,
-        g_prime,
-        &msm_scalars,
-    )?;
+    let msm_scalar_witnesses = msm_scalars
+        .iter()
+        .map(|scalar| circuit.emulated_witness(scalar))
+        .collect::<Result<Vec<_>, _>>()?;
+    let msm_scalars_bigints = msm_scalar_witnesses
+        .iter()
+        .map(|scalar| scalar.into_bigint())
+        .collect::<Vec<_>>();
+    let g_base_affine = E::G1::msm_bigint(g_prime, &msm_scalars_bigints).into_affine();
+    let g_base = circuit.create_point_variable(&Point::<F>::from(g_base_affine))?;
     let intermediate =
         EmulMultiScalarMultiplicationCircuit::<_, P>::msm(circuit, &bases_vars, &scalars)?;
 
