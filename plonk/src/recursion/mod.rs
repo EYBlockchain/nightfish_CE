@@ -233,6 +233,11 @@ pub trait RecursiveProver {
                     Some(fs_msg.clone()),
                     false,
                 )
+                .map_err(|_| {
+                    PlonkError::InvalidParameters(
+                        "Error generating base Grumpkin proof in base_bn254_circuit".to_string(),
+                    )
+                })
             })
             .collect::<Result<Vec<GrumpkinOutput>, PlonkError>>()?
             .try_into()
@@ -333,11 +338,11 @@ pub trait RecursiveProver {
         circuit.finalize_for_recursive_arithmetization::<RescueCRHF<Fq254>>()?;
 
         // Run the following code only when testing
-        #[cfg(test)]
-        {
-            let pi = circuit.public_input()?;
-            circuit.check_circuit_satisfiability(&pi)?;
-            ark_std::println!("base bn254 circuit size: {}", circuit.num_gates());
+        let pi = circuit.public_input()?;
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Base bn254 circuit is not satisfied".to_string(),
+            ));
         }
 
         Ok((circuit, bn254_circuit_out))

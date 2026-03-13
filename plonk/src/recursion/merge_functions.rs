@@ -435,6 +435,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         Ok([vk_var.clone(), vk_var])
     }?;
 
+    let pi = circuit.public_input().unwrap();
+    if circuit.check_circuit_satisfiability(&pi).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit fails after setting up verifying key variables".to_string(),
+        ));
+    }
+
     // We store the scalars and bases from the proofs into the relevant struct.
     // In particular, the bases are stored as `Variable`s in the circuit, as we
     // need to reuse them later in the circuit and in the next circuit.
@@ -478,6 +485,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
         .collect::<Result<Vec<(Bn254OutputScalarsAndBasesVar, PcsInfoBasesVar<Kzg>)>, PlonkError>>()?
         .try_into()
         .map_err(|_| PlonkError::InvalidParameters("bn254_outputs must have length 2".to_string()))?;
+
+    let pi = circuit.public_input().unwrap();
+    if circuit.check_circuit_satisfiability(&pi).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit fails after prepare_pcs_info_with_bases_var".to_string(),
+        ));
+    }
 
     let output_vars = output_pcs_info_var_pair
         .iter()
@@ -541,6 +555,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             .collect::<Result<Vec<PointVariable>, CircuitError>>()
     }?;
 
+    let pi = circuit.public_input().unwrap();
+    if circuit.check_circuit_satisfiability(&pi).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit fails after setting up old accumulator proof variables".to_string(),
+        ));
+    }
+
     // Append the extra accumulator point variables to `instance_base_vars`
     // and `proof_base_vars` ready for the atomic accumulation.
     instance_base_vars.extend_from_slice(&old_accumulators_commitments_vars);
@@ -585,6 +606,13 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             &proof_scalar_vars,
         )
     }?;
+
+    let pi = circuit.public_input().unwrap();
+    if circuit.check_circuit_satisfiability(&pi).is_err() {
+        return Err(PlonkError::InvalidParameters(
+            "Circuit fails after MSM for accumulation".to_string(),
+        ));
+    }
 
     // Now we verify scalar arithmetic for the four previous Grumpkin proofs and the pi_hash.
     if !IS_FIRST_ROUND {
@@ -930,15 +958,21 @@ pub fn prove_bn254_accumulation<const IS_FIRST_ROUND: bool>(
             })
             .collect::<Result<Vec<[Variable; 2]>, CircuitError>>()?;
 
+        let pi = circuit.public_input().unwrap();
+        if circuit.check_circuit_satisfiability(&pi).is_err() {
+            return Err(PlonkError::InvalidParameters(
+                "Circuit fails after PI hash reformation".to_string(),
+            ));
+        }
+
         // For checking correctness during testing
-        #[cfg(test)]
-        {
-            for (circuit_hash, output) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
-                for (pi, exp_pi) in circuit_hash.iter().zip(output.pi_hash.iter()) {
-                    assert_eq!(
-                        circuit.witness(*pi).unwrap(),
-                        fr_to_fq::<Fq254, BnConfig>(exp_pi)
-                    );
+
+        for (circuit_hash, output) in pi_hashes.iter().zip(bn254info.bn254_outputs.iter()) {
+            for (pi, exp_pi) in circuit_hash.iter().zip(output.pi_hash.iter()) {
+                if circuit.witness(*pi).unwrap() != fr_to_fq::<Fq254, BnConfig>(exp_pi) {
+                    return Err(PlonkError::InvalidParameters(
+                        "PI hash check fails".to_string(),
+                    ));
                 }
             }
         }
